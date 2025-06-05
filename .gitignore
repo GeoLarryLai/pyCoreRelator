@@ -1,0 +1,11 @@
+# Exclude specified folders
+outputs/
+pickeddepth/
+old codes/
+
+# Common exclusions
+.DS_Store
+__pycache__/
+*.py[cod]
+*$py.class
+.ipynb_checkpoints/ 
