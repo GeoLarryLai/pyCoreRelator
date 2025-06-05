@@ -1,7 +1,6 @@
-# Exclude specified folders
-outputs/
-pickeddepth/
-old codes/
+# Include only pyCoreRelator folder
+/*
+!/pyCoreRelator/
 
 # Common exclusions
 .DS_Store
