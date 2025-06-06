@@ -12,7 +12,33 @@ from tqdm import tqdm
 import csv
 import random
 from ..visualization.plotting import visualize_combined_segments
+from ..visualization.plotting import plot_segment_pair_correlation
 
+
+def create_gif(frame_folder, output_filename, duration=300):
+    frame_files = sorted([f for f in os.listdir(frame_folder) if f.endswith('.png')])
+    
+    if not frame_files:
+        return f"No frames found for GIF creation in {frame_folder}"
+    
+    # Open first image to get dimensions and mode
+    first_img = PILImage.open(os.path.join(frame_folder, frame_files[0]))
+    
+    # Create GIF with append_images to avoid loading all frames at once
+    frames_iterator = (PILImage.open(os.path.join(frame_folder, f)) for f in tqdm(frame_files[1:], 
+                        desc=f"Processing frames for {output_filename}"))
+    
+    first_img.save(
+        output_filename,  # Make sure this is a string, not a tuple
+        format='GIF',
+        append_images=frames_iterator,
+        save_all=True,
+        duration=duration,
+        loop=0,
+        optimize=False  # Faster processing
+    )
+    
+    return f"Created GIF with {len(frame_files)} frames at {output_filename}"
 
 def create_segment_dtw_animation(log_a, log_b, md_a, md_b, dtw_results, valid_dtw_pairs, 
                               segments_a, segments_b, depth_boundaries_a, depth_boundaries_b,
@@ -29,13 +55,6 @@ def create_segment_dtw_animation(log_a, log_b, md_a, md_b, dtw_results, valid_dt
     Create an optimized animation of DTW correlations with full resolution.
     Optionally include age information when age_consideration is enabled.
     """
-    import numpy as np
-    import matplotlib.pyplot as plt
-    from PIL import Image as PILImage
-    import os
-    import gc
-    from joblib import Parallel, delayed
-    from tqdm import tqdm
 
     # Helper funcition: Create a global colormap function that uses the full log data
     def create_global_colormap(log_a, log_b):
@@ -78,8 +97,8 @@ def create_segment_dtw_animation(log_a, log_b, md_a, md_b, dtw_results, valid_dt
     print("=== Starting Segment DTW Animation Creation ===")
     
     # Create output directory if it doesn't exist
-    if not os.path.exists('SegmentPair_DTW_frames'):
-        os.makedirs('SegmentPair_DTW_frames')
+    if not os.path.exists('outputs/SegmentPair_DTW_frames'):
+        os.makedirs('outputs/SegmentPair_DTW_frames')
     
     # Process a subset of pairs if there are too many
     if valid_dtw_pairs and len(valid_dtw_pairs) > 0:
@@ -96,7 +115,7 @@ def create_segment_dtw_animation(log_a, log_b, md_a, md_b, dtw_results, valid_dt
         # Function to create a single frame
         def create_frame(pair_idx, pair):
             a_idx, b_idx = pair
-            frame_filename = f"SegmentPair_DTW_frames/SegmentPair_{a_idx+1:04d}_{b_idx+1:04d}.png"
+            frame_filename = f"outputs/SegmentPair_DTW_frames/SegmentPair_{a_idx+1:04d}_{b_idx+1:04d}.png"
             
             # Skip if file already exists
             if os.path.exists(frame_filename):
@@ -266,10 +285,11 @@ def create_segment_dtw_animation(log_a, log_b, md_a, md_b, dtw_results, valid_dt
                 if frames:
                     # print(f"Creating GIF with {len(frames)} frames...")
                     # Save all frames in a single GIF regardless of the number
-                    frames[0].save(output_filename, format='GIF', append_images=frames[1:], 
+                    output_filepath = f"outputs/{output_filename}"
+                    frames[0].save(output_filepath, format='GIF', append_images=frames[1:], 
                                 save_all=True, duration=500, loop=0)
                     
-                    print(f"Created GIF animation: {output_filename}")
+                    print(f"Created GIF animation: {output_filepath}")
             except Exception as e:
                 print(f"Error creating GIF: {e}")
                 
@@ -287,7 +307,7 @@ def create_segment_dtw_animation(log_a, log_b, md_a, md_b, dtw_results, valid_dt
     
     # Force garbage collection
     gc.collect()
-    return output_filename
+    return f"outputs/{output_filename}"
 
 
 
@@ -324,7 +344,7 @@ def visualize_dtw_results_from_csv(csv_path, log_a, log_b, md_a, md_b,
     age_constraint_b_source_cores : list or None, default=None
         List of source core names for each age constraint in core B.
         When provided, horizontal constraint lines will be drawn in DTW matrix frames.
-    core_a_name, core_b_name : str or None, default=None
+    core_a_name, core_b_name : str or None, default=Nonew
         Core names for determining same vs adjacent core coloring.
     """
     import csv
@@ -344,11 +364,11 @@ def visualize_dtw_results_from_csv(csv_path, log_a, log_b, md_a, md_b,
         return [tuple(map(int, pair.split(','))) for pair in compact_path_str.split(';')]
 
     # Create output directories
-    os.makedirs("CombinedDTW_correlation_frames", exist_ok=True)
-    os.makedirs("CombinedDTW_matrix_frames", exist_ok=True)
+    os.makedirs("outputs/CombinedDTW_correlation_frames", exist_ok=True)
+    os.makedirs("outputs/CombinedDTW_matrix_frames", exist_ok=True)
     
     # Clean existing files
-    for frame_dir in ["CombinedDTW_correlation_frames", "CombinedDTW_matrix_frames"]:
+    for frame_dir in ["outputs/CombinedDTW_correlation_frames", "outputs/CombinedDTW_matrix_frames"]:
         for file in os.listdir(frame_dir):
             if file.endswith(".png"):
                 os.remove(os.path.join(frame_dir, file))
@@ -410,8 +430,8 @@ def visualize_dtw_results_from_csv(csv_path, log_a, log_b, md_a, md_b,
                 color_interval_size=color_interval_size,
                 visualize_pairs=visualize_pairs,
                 visualize_segment_labels=visualize_segment_labels,
-                correlation_save_path=f"CombinedDTW_correlation_frames/CombinedDTW_correlation_mappings_{frame_num}.png",
-                matrix_save_path=f"CombinedDTW_matrix_frames/CombinedDTW_matrix_mappings_{frame_num}.png",
+                correlation_save_path=f"CombinedDTW_correlation_mappings_{frame_num}.png",
+                matrix_save_path=f"CombinedDTW_matrix_mappings_{frame_num}.png",
                 mark_depths=mark_depths,
                 mark_ages=mark_ages,
                 ages_a=ages_a,
@@ -455,7 +475,7 @@ def visualize_dtw_results_from_csv(csv_path, log_a, log_b, md_a, md_b,
     print("Starting parallel visualization processing...")
     
     # Use fewer jobs to prevent memory issues with large datasets
-    n_jobs = min(os.cpu_count() or 4, 8)  # Use at most 8 cores
+    n_jobs = os.cpu_count() or 4  # Use all available cores
     
     with tqdm(total=len(batches), desc="Processing batches") as pbar:
         for batch_idx, batch in enumerate(batches):
@@ -480,15 +500,15 @@ def visualize_dtw_results_from_csv(csv_path, log_a, log_b, md_a, md_b,
         try:            
             print("\nCreating GIFs from frames...")
             # Make sure these are proper strings without trailing commas
-            corr_gif_result = create_gif("CombinedDTW_correlation_frames", correlation_gif_output_filename)
-            matrix_gif_result = create_gif("CombinedDTW_matrix_frames", matrix_gif_output_filename)
+            corr_gif_result = create_gif("outputs/CombinedDTW_correlation_frames", f"outputs/{correlation_gif_output_filename}")
+            matrix_gif_result = create_gif("outputs/CombinedDTW_matrix_frames", f"outputs/{matrix_gif_output_filename}")
             print(corr_gif_result)
             print(matrix_gif_result)
             
             # Clean up PNG files if keepframes is False
             if not keep_frames:
                 print("Cleaning up PNG files...")
-                for frame_dir in ["CombinedDTW_correlation_frames", "CombinedDTW_matrix_frames"]:
+                for frame_dir in ["outputs/CombinedDTW_correlation_frames", "outputs/CombinedDTW_matrix_frames"]:
                     for file in os.listdir(frame_dir):
                         if file.endswith(".png"):
                             os.remove(os.path.join(frame_dir, file))

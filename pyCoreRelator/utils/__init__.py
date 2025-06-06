@@ -18,10 +18,6 @@ from .path_processing import (
     filter_against_existing
 )
 
-from .export import (
-    create_gif
-)
-
 from .helpers import (
     find_nearest_index
 )
@@ -34,6 +30,5 @@ __all__ = [
     'load_sequential_mappings',
     'is_subset_or_superset',
     'filter_against_existing',
-    'create_gif',
     'find_nearest_index'
 ]

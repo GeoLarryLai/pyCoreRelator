@@ -11,6 +11,7 @@ from matplotlib.gridspec import GridSpec
 from matplotlib.lines import Line2D
 from scipy import stats
 from IPython.display import display
+import os
 from ..utils.path_processing import combine_segment_dtw_results
 from ..visualization.matrix_plots import plot_dtw_matrix_with_paths
 
@@ -769,6 +770,14 @@ def plot_segment_pair_correlation(log_a, log_b, md_a, md_b,
 
     # Save figure if path is provided
     if save_path:
+        # Create outputs directory if it doesn't exist
+        output_dir = os.path.join(os.path.dirname(save_path), 'outputs')
+        os.makedirs(output_dir, exist_ok=True)
+        
+        # Update save_path to include outputs directory
+        save_filename = os.path.basename(save_path)
+        save_path = os.path.join(output_dir, save_filename)
+        
         plt.savefig(save_path, dpi=150, bbox_inches='tight')
     
     return fig
@@ -1207,6 +1216,19 @@ def visualize_combined_segments(log_a, log_b, md_a, md_b, dtw_results, valid_dtw
     # Create the global colormap
     global_color_func = create_global_colormap(log_a, log_b)
 
+    # Create outputs directory and update save paths
+    if correlation_save_path:
+        output_dir = os.path.join(os.path.dirname(correlation_save_path), 'outputs')
+        os.makedirs(output_dir, exist_ok=True)
+        correlation_save_filename = os.path.basename(correlation_save_path)
+        correlation_save_path = os.path.join(output_dir, correlation_save_filename)
+    
+    if matrix_save_path:
+        output_dir = os.path.join(os.path.dirname(matrix_save_path), 'outputs')
+        os.makedirs(output_dir, exist_ok=True)
+        matrix_save_filename = os.path.basename(matrix_save_path)
+        matrix_save_path = os.path.join(output_dir, matrix_save_filename)
+
     # Create correlation plot in multi-segment mode
     correlation_fig = plot_segment_pair_correlation(
         log_a, log_b, md_a, md_b,
@@ -1377,6 +1399,15 @@ def plot_correlation_distribution(csv_file, target_mapping_id=None, quality_inde
     if save_png:
         if png_filename is None:
             png_filename = f'{quality_index}_distribution.png'
+        
+        # Create outputs directory if it doesn't exist
+        output_dir = os.path.join(os.path.dirname(png_filename), 'outputs')
+        os.makedirs(output_dir, exist_ok=True)
+        
+        # Update save_path to include outputs directory
+        save_filename = os.path.basename(png_filename)
+        png_filename = os.path.join(output_dir, save_filename)
+        
         plt.savefig(png_filename, dpi=150, bbox_inches='tight')
     
     # Show the plot

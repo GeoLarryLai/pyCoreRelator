@@ -10,6 +10,7 @@ import pandas as pd
 from joblib import Parallel, delayed
 import warnings
 from tqdm.auto import tqdm
+import os
 
 
 def plot_dtw_matrix_with_paths(dtw_distance_matrix_full, 
@@ -393,7 +394,15 @@ def plot_dtw_matrix_with_paths(dtw_distance_matrix_full,
     
     # Save figure if filename provided
     if output_filename:
+        # Create outputs directory if it doesn't exist
+        output_dir = 'outputs'
+        if not os.path.exists(output_dir):
+            os.makedirs(output_dir)
+        
+        # Join the output directory with the filename
+        full_output_path = os.path.join(output_dir, output_filename)
+        
         plt.tight_layout()
-        plt.savefig(output_filename, dpi=150, bbox_inches='tight')
+        plt.savefig(full_output_path, dpi=150, bbox_inches='tight')
     
-    return fig
+    return full_output_path

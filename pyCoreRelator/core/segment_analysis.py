@@ -421,6 +421,11 @@ def find_complete_core_paths(
         - duplicates_removed: Number of duplicates removed during processing
     """
 
+    # Add outputs/ folder to output_csv if it doesn't already include a directory
+    if not os.path.dirname(output_csv):
+        os.makedirs('outputs', exist_ok=True)
+        output_csv = os.path.join('outputs', output_csv)
+
     # Add warning for unlimited search when batch_grouping=False
     if not batch_grouping and max_search_path is None:
         print("⚠️  WARNING: max_search_path=None with batch_grouping=False can be very time consuming and require high memory usage!")
