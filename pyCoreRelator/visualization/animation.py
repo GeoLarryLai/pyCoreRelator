@@ -96,10 +96,15 @@ def create_segment_dtw_animation(log_a, log_b, md_a, md_b, dtw_results, valid_dt
 
     print("=== Starting Segment DTW Animation Creation ===")
     
-    # Create output directory if it doesn't exist
-    if not os.path.exists('outputs/SegmentPair_DTW_frames'):
-        os.makedirs('outputs/SegmentPair_DTW_frames')
-    
+    # Create frame directory under outputs
+    frames_dir = os.path.join('outputs', 'SegmentPair_DTW_frames')
+    os.makedirs(frames_dir, exist_ok=True)
+
+    # Clean existing frames
+    for file in os.listdir(frames_dir):
+        if file.endswith('.png'):
+            os.remove(os.path.join(frames_dir, file))
+
     # Process a subset of pairs if there are too many
     if valid_dtw_pairs and len(valid_dtw_pairs) > 0:
         valid_pairs_list = list(valid_dtw_pairs)
@@ -115,8 +120,8 @@ def create_segment_dtw_animation(log_a, log_b, md_a, md_b, dtw_results, valid_dt
         # Function to create a single frame
         def create_frame(pair_idx, pair):
             a_idx, b_idx = pair
-            frame_filename = f"outputs/SegmentPair_DTW_frames/SegmentPair_{a_idx+1:04d}_{b_idx+1:04d}.png"
-            
+            frame_filename = os.path.join(frames_dir, f"SegmentPair_{a_idx+1:04d}_{b_idx+1:04d}.png")
+
             # Skip if file already exists
             if os.path.exists(frame_filename):
                 return frame_filename
@@ -285,7 +290,8 @@ def create_segment_dtw_animation(log_a, log_b, md_a, md_b, dtw_results, valid_dt
                 if frames:
                     # print(f"Creating GIF with {len(frames)} frames...")
                     # Save all frames in a single GIF regardless of the number
-                    output_filepath = f"outputs/{output_filename}"
+                    os.makedirs('outputs', exist_ok=True)
+                    output_filepath = os.path.join('outputs', output_filename) 
                     frames[0].save(output_filepath, format='GIF', append_images=frames[1:], 
                                 save_all=True, duration=500, loop=0)
                     
@@ -307,7 +313,7 @@ def create_segment_dtw_animation(log_a, log_b, md_a, md_b, dtw_results, valid_dt
     
     # Force garbage collection
     gc.collect()
-    return f"outputs/{output_filename}"
+    return output_filepath
 
 
 
@@ -363,12 +369,12 @@ def visualize_dtw_results_from_csv(csv_path, log_a, log_b, md_a, md_b,
             return []
         return [tuple(map(int, pair.split(','))) for pair in compact_path_str.split(';')]
 
-    # Create output directories
-    os.makedirs("outputs/CombinedDTW_correlation_frames", exist_ok=True)
-    os.makedirs("outputs/CombinedDTW_matrix_frames", exist_ok=True)
-    
-    # Clean existing files
-    for frame_dir in ["outputs/CombinedDTW_correlation_frames", "outputs/CombinedDTW_matrix_frames"]:
+    # Create frame directories under outputs
+    correlation_frames_dir = os.path.join('outputs', 'CombinedDTW_correlation_frames')
+    matrix_frames_dir = os.path.join('outputs', 'CombinedDTW_matrix_frames')
+
+    for frame_dir in [correlation_frames_dir, matrix_frames_dir]:
+        os.makedirs(frame_dir, exist_ok=True)
         for file in os.listdir(frame_dir):
             if file.endswith(".png"):
                 os.remove(os.path.join(frame_dir, file))
@@ -430,8 +436,8 @@ def visualize_dtw_results_from_csv(csv_path, log_a, log_b, md_a, md_b,
                 color_interval_size=color_interval_size,
                 visualize_pairs=visualize_pairs,
                 visualize_segment_labels=visualize_segment_labels,
-                correlation_save_path=f"CombinedDTW_correlation_mappings_{frame_num}.png",
-                matrix_save_path=f"CombinedDTW_matrix_mappings_{frame_num}.png",
+                correlation_save_path=os.path.join(correlation_frames_dir, f"CombinedDTW_correlation_mappings_{frame_num}.png"),
+                matrix_save_path=os.path.join(matrix_frames_dir, f"CombinedDTW_matrix_mappings_{frame_num}.png"),
                 mark_depths=mark_depths,
                 mark_ages=mark_ages,
                 ages_a=ages_a,
@@ -500,8 +506,9 @@ def visualize_dtw_results_from_csv(csv_path, log_a, log_b, md_a, md_b,
         try:            
             print("\nCreating GIFs from frames...")
             # Make sure these are proper strings without trailing commas
-            corr_gif_result = create_gif("outputs/CombinedDTW_correlation_frames", f"outputs/{correlation_gif_output_filename}")
-            matrix_gif_result = create_gif("outputs/CombinedDTW_matrix_frames", f"outputs/{matrix_gif_output_filename}")
+            os.makedirs('outputs', exist_ok=True)
+            corr_gif_result = create_gif(correlation_frames_dir, os.path.join('outputs', correlation_gif_output_filename))
+            matrix_gif_result = create_gif(matrix_frames_dir, os.path.join('outputs', matrix_gif_output_filename))
             print(corr_gif_result)
             print(matrix_gif_result)
             

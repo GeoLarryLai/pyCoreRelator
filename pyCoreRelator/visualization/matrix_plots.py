@@ -394,15 +394,18 @@ def plot_dtw_matrix_with_paths(dtw_distance_matrix_full,
     
     # Save figure if filename provided
     if output_filename:
-        # Create outputs directory if it doesn't exist
-        output_dir = 'outputs'
-        if not os.path.exists(output_dir):
-            os.makedirs(output_dir)
+        # Use the path as-is if it starts with outputs/, otherwise add outputs/
+        if output_filename.startswith('outputs'):
+            full_output_path = output_filename
+        else:
+            os.makedirs('outputs', exist_ok=True)
+            save_filename = os.path.basename(output_filename)
+            full_output_path = os.path.join('outputs', save_filename)
         
-        # Join the output directory with the filename
-        full_output_path = os.path.join(output_dir, output_filename)
-        
+        os.makedirs(os.path.dirname(full_output_path), exist_ok=True)
         plt.tight_layout()
         plt.savefig(full_output_path, dpi=150, bbox_inches='tight')
-    
-    return full_output_path
+        
+        return full_output_path
+
+    return None

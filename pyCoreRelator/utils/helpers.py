@@ -18,3 +18,4 @@ def find_nearest_index(depth_array, depth_value):
         Index in depth_array with the closest value to depth_value
     """
     return np.abs(np.array(depth_array) - depth_value).argmin()
+

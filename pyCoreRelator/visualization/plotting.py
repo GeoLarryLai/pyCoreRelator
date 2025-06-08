@@ -417,7 +417,7 @@ def plot_segment_pair_correlation(log_a, log_b, md_a, md_b,
                 else:
                     mean_log2 = log_b_inv[q_i]
                     
-# intervals between the two logs:
+    # intervals between the two logs:
                 if (p_i_step < p_i) or (q_i_step < q_i):
                     mean_logs = (mean_log1 + mean_log2)*0.5
                     x = [1, 2, 2, 1]
@@ -770,15 +770,16 @@ def plot_segment_pair_correlation(log_a, log_b, md_a, md_b,
 
     # Save figure if path is provided
     if save_path:
-        # Create outputs directory if it doesn't exist
-        output_dir = os.path.join(os.path.dirname(save_path), 'outputs')
-        os.makedirs(output_dir, exist_ok=True)
+        # Use the path as-is if it starts with outputs/, otherwise add outputs/
+        if save_path.startswith('outputs'):
+            final_save_path = save_path
+        else:
+            os.makedirs('outputs', exist_ok=True)
+            save_filename = os.path.basename(save_path)
+            final_save_path = os.path.join('outputs', save_filename)
         
-        # Update save_path to include outputs directory
-        save_filename = os.path.basename(save_path)
-        save_path = os.path.join(output_dir, save_filename)
-        
-        plt.savefig(save_path, dpi=150, bbox_inches='tight')
+        os.makedirs(os.path.dirname(final_save_path), exist_ok=True)
+        plt.savefig(final_save_path, dpi=150, bbox_inches='tight')
     
     return fig
 
@@ -1199,7 +1200,7 @@ def visualize_combined_segments(log_a, log_b, md_a, md_b, dtw_results, valid_dtw
     # Combine segment pairs
     combined_wp, combined_quality = combine_segment_dtw_results(
         dtw_results, segment_pairs_to_combine, segments_a, segments_b,
-        depth_boundaries_a, depth_boundaries_b
+        depth_boundaries_a, depth_boundaries_b, log_a, log_b
     )
     
     if combined_wp is None:
@@ -1216,18 +1217,27 @@ def visualize_combined_segments(log_a, log_b, md_a, md_b, dtw_results, valid_dtw
     # Create the global colormap
     global_color_func = create_global_colormap(log_a, log_b)
 
-    # Create outputs directory and update save paths
+    # Ensure outputs directory exists and update save paths
+    os.makedirs('outputs', exist_ok=True)
+
+    # Handle save paths - ensure outputs directory exists
+    os.makedirs('outputs', exist_ok=True)
+
     if correlation_save_path:
-        output_dir = os.path.join(os.path.dirname(correlation_save_path), 'outputs')
-        os.makedirs(output_dir, exist_ok=True)
-        correlation_save_filename = os.path.basename(correlation_save_path)
-        correlation_save_path = os.path.join(output_dir, correlation_save_filename)
-    
+        if not correlation_save_path.startswith('outputs'):
+            correlation_save_path = os.path.join('outputs', correlation_save_path)
+        
+        save_dir = os.path.dirname(correlation_save_path)
+        if save_dir:  # Only create if directory path exists
+            os.makedirs(save_dir, exist_ok=True)
+
     if matrix_save_path:
-        output_dir = os.path.join(os.path.dirname(matrix_save_path), 'outputs')
-        os.makedirs(output_dir, exist_ok=True)
-        matrix_save_filename = os.path.basename(matrix_save_path)
-        matrix_save_path = os.path.join(output_dir, matrix_save_filename)
+        if not matrix_save_path.startswith('outputs'):
+            matrix_save_path = os.path.join('outputs', matrix_save_path)
+        
+        save_dir = os.path.dirname(matrix_save_path)
+        if save_dir:  # Only create if directory path exists
+            os.makedirs(save_dir, exist_ok=True)
 
     # Create correlation plot in multi-segment mode
     correlation_fig = plot_segment_pair_correlation(
@@ -1401,15 +1411,14 @@ def plot_correlation_distribution(csv_file, target_mapping_id=None, quality_inde
         if png_filename is None:
             png_filename = f'{quality_index}_distribution.png'
         
-        # Create outputs directory if it doesn't exist
-        output_dir = os.path.join(os.path.dirname(png_filename), 'outputs')
-        os.makedirs(output_dir, exist_ok=True)
+        # Ensure outputs directory exists
+        os.makedirs('outputs', exist_ok=True)
         
-        # Update save_path to include outputs directory
+        # Use only filename, place in outputs directory
         save_filename = os.path.basename(png_filename)
-        png_filename = os.path.join(output_dir, save_filename)
+        final_png_path = os.path.join('outputs', save_filename)
         
-        plt.savefig(png_filename, dpi=150, bbox_inches='tight')
+        plt.savefig(final_png_path, dpi=150, bbox_inches='tight')
     
     # Show the plot
     plt.tight_layout()

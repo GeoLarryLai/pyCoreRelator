@@ -355,6 +355,8 @@ def find_complete_core_paths(
     valid_dtw_pairs,
     segments_a,
     segments_b,
+    log_a,
+    log_b,
     depth_boundaries_a,
     depth_boundaries_b,
     dtw_results,  
@@ -421,10 +423,10 @@ def find_complete_core_paths(
         - duplicates_removed: Number of duplicates removed during processing
     """
 
-    # Add outputs/ folder to output_csv if it doesn't already include a directory
-    if not os.path.dirname(output_csv):
-        os.makedirs('outputs', exist_ok=True)
-        output_csv = os.path.join('outputs', output_csv)
+    # Ensure outputs directory exists and update CSV path
+    os.makedirs('outputs', exist_ok=True)
+    output_csv_filename = os.path.basename(output_csv)
+    output_csv = os.path.join('outputs', output_csv_filename)
 
     # Add warning for unlimited search when batch_grouping=False
     if not batch_grouping and max_search_path is None:
@@ -554,91 +556,42 @@ def find_complete_core_paths(
         return filtered_paths
     
     # Lazy computation of metrics and warping paths
-    def compute_path_metrics_lazy(compressed_path):
+    def compute_path_metrics_lazy(compressed_path, log_a, log_b):
         """Compute quality metrics lazily only when needed for final output."""
         path_segment_pairs = decompress_path(compressed_path)
         
-        # Initialize metrics
-        metrics = {
-            'norm_dtw': 0.0,
-            'dtw_ratio': 0.0,
-            'variance_deviation': 0.0,
-            'perc_diag': 0.0,
-            'corr_coef': 0.0,
-            'match_min': 0.0,
-            'match_mean': 0.0
-        }
-        
-        # Lists to store metric values for averaging
-        metric_values = {metric: [] for metric in metrics}
-        
-        # NEW: Add age overlap percentage collection
+        # Collect segment quality indicators and age overlap
+        all_quality_indicators = []
         age_overlap_values = []
-        
-        # Collect all warping paths to combine
         all_wps = []
         
         for a_idx, b_idx in path_segment_pairs:
             if (a_idx, b_idx) in dtw_results:
                 paths, _, quality_indicators = dtw_results[(a_idx, b_idx)]
                 
-                # Skip pairs with no valid path
                 if not paths or len(paths) == 0:
                     continue
                     
-                # Add warping path to our collection
-                wp = paths[0]  # Use the first (best) path
-                all_wps.append(wp)
+                all_wps.append(paths[0])
                 
-                # Add quality metrics
                 if quality_indicators and len(quality_indicators) > 0:
                     qi = quality_indicators[0]
-                    for metric in metrics:
-                        if metric in qi:
-                            metric_values[metric].append(float(qi[metric]))
+                    all_quality_indicators.append(qi)
                     
-                    # NEW: Collect age overlap percentage if available
                     if 'perc_age_overlap' in qi:
                         age_overlap_values.append(float(qi['perc_age_overlap']))
         
         # Combine warping paths
         if all_wps:
-            # Stack warping paths
             combined_wp = np.vstack(all_wps)
-            
-            # Remove duplicate points
             combined_wp = np.unique(combined_wp, axis=0)
-            
-            # Sort by first coordinate
             combined_wp = combined_wp[combined_wp[:, 0].argsort()]
         else:
             combined_wp = np.array([])
         
-        # Calculate diagonality directly from the combined warping path
-        if len(combined_wp) > 1:
-            calculated_diagonality = calculate_diagonality(combined_wp)
-            metrics['perc_diag'] = float(calculated_diagonality * 100)  # Convert to percentage
-        
-        # For other metrics, use average of segment metrics
-        for metric in metrics:
-            if metric != 'perc_diag':  # Skip perc_diag as we calculated it directly
-                values = metric_values[metric]
-                if values:
-                    if metric in ['norm_dtw', 'match_min', 'match_mean']:
-                        # For distance metrics, use sum
-                        metrics[metric] = float(sum(values))
-                    else:
-                        # For other metrics, use average
-                        metrics[metric] = float(sum(values) / len(values))
-        
-        # NEW: Calculate average age overlap percentage
-        if age_overlap_values:
-            avg_age_overlap = float(sum(age_overlap_values) / len(age_overlap_values))
-        else:
-            avg_age_overlap = 0.0  # Default when no age data available
-        
-        # NEW: Add to metrics dictionary
-        metrics['perc_age_overlap'] = avg_age_overlap
+        # Use shared metrics computation
+        from ..utils.path_processing import compute_combined_path_metrics
+        metrics = compute_combined_path_metrics(combined_wp, log_a, log_b, all_quality_indicators, age_overlap_values)
         
         return combined_wp, metrics
 
@@ -1234,7 +1187,7 @@ def find_complete_core_paths(
                 formatted_path_compact = ";".join(f"{a+1},{b+1}" for a, b in full_path)
                 
                 # Compute metrics and warping path
-                combined_wp, metrics = compute_path_metrics_lazy(compressed_path)
+                combined_wp, metrics = compute_path_metrics_lazy(compressed_path, log_a, log_b)
                 
                 # Format warping path compactly
                 if combined_wp is not None and len(combined_wp) > 0:
