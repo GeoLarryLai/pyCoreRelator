@@ -3,7 +3,7 @@ Quality metrics computation for DTW analysis
 """
 
 import numpy as np
-
+from scipy import stats
 
 def compute_quality_indicators(log1, log2, p, q, D):
     """
@@ -79,20 +79,39 @@ def compute_quality_indicators(log1, log2, p, q, D):
             perc_diag = diagonality_ratio * 100
         
         # Calculate correlation coefficient (safely)
-        is_single_point_a = len(set(p)) == 1
-        is_single_point_b = len(set(q)) == 1
-        
-        if is_single_point_a or is_single_point_b:
-            corr_coef = 0.0
-        elif np.all(aligned_log1 == aligned_log1[0]) or np.all(aligned_log2 == aligned_log2[0]):
+        # Handle repeated indices by setting them to NaN
+        vsh_means1 = aligned_log1.copy()
+        vsh_means2 = aligned_log2.copy()
+
+        # Set repeated indices to NaN (Cascadia approach)
+        repeated_p_indices = np.where(np.diff(p) == 0)[0] + 1
+        vsh_means1[repeated_p_indices] = np.nan
+
+        repeated_q_indices = np.where(np.diff(q) == 0)[0] + 1
+        vsh_means2[repeated_q_indices] = np.nan
+
+        # Calculate correlation using only non-NaN values
+        valid_mask = (~np.isnan(vsh_means1)) & (~np.isnan(vsh_means2))
+
+        if np.sum(valid_mask) < 2:
             corr_coef = 0.0
         else:
-            try:
-                corr_coef = np.corrcoef(aligned_log1, aligned_log2)[0, 1]
-                if np.isnan(corr_coef):
-                    corr_coef = 0.0
-            except Exception:
+            valid_log1_values = vsh_means1[valid_mask]
+            valid_log2_values = vsh_means2[valid_mask]
+            
+            if (np.all(valid_log1_values == valid_log1_values[0]) or 
+                np.all(valid_log2_values == valid_log2_values[0])):
                 corr_coef = 0.0
+            else:
+                try:
+                    slope, intercept, r_value, p_value, slope_std_error = stats.linregress(
+                        valid_log1_values, valid_log2_values
+                    )
+                    corr_coef = r_value
+                    if np.isnan(corr_coef):
+                        corr_coef = 0.0
+                except Exception:
+                    corr_coef = 0.0
         
         # Calculate matching function
         if D.shape[0] == len(log1):

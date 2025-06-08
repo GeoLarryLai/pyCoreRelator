@@ -8,7 +8,7 @@ import matplotlib.pyplot as plt
 import os
 
 
-def load_log_data(log_paths, img_paths, log_columns, depth_column='SB_DEPTH_cm', normalize=True):
+def load_log_data(log_paths, img_paths, log_columns, depth_column='SB_DEPTH_cm', normalize=True, column_alternatives=None):
     """
     Load log data and images for a core.
     
@@ -24,6 +24,9 @@ def load_log_data(log_paths, img_paths, log_columns, depth_column='SB_DEPTH_cm',
         Name of the depth column
     normalize : bool, default=True
         Whether to normalize each log to the range [0, 1]
+    column_alternatives : dict, optional
+        Dictionary mapping log column names to lists of alternative column names.
+        If None, no alternative column names will be tried.
     
     Returns:
     --------
@@ -75,12 +78,12 @@ def load_log_data(log_paths, img_paths, log_columns, depth_column='SB_DEPTH_cm',
                 print(f"Warning: Depth column {depth_column} not found in {log_path}. Skipping.")
                 continue
                 
-            # Some files have the log column with a different name
+            # Find the effective column name
             effective_column = log_column
             if log_column not in df.columns:
-                # Try common alternatives
+                # Try alternative column names if provided
                 found = False
-                if log_column in column_alternatives:
+                if column_alternatives and log_column in column_alternatives:
                     for alt in column_alternatives[log_column]:
                         if alt in df.columns:
                             effective_column = alt
@@ -89,7 +92,7 @@ def load_log_data(log_paths, img_paths, log_columns, depth_column='SB_DEPTH_cm',
                             break
                 
                 if not found:
-                    print(f"Warning: Log column {log_column} not found in {log_path}. Skipping.")
+                    print(f"Warning: Log column {log_column} not found in {log_path}. Available columns: {list(df.columns)}. Skipping.")
                     continue
             
             # Extract data
@@ -130,7 +133,6 @@ def load_log_data(log_paths, img_paths, log_columns, depth_column='SB_DEPTH_cm',
         log = log.flatten()
     
     return log, md, available_columns, rgb_img, ct_img
-
 
 def resample_datasets(datasets, target_resolution_factor=2):
     """

@@ -1293,7 +1293,7 @@ def visualize_combined_segments(log_a, log_b, md_a, md_b, dtw_results, valid_dtw
     return combined_wp, combined_quality, correlation_fig, matrix_fig
 
 
-def plot_correlation_distribution(csv_file, target_mapping_id=None, quality_index=None, save_png=True, png_filename=None, core_a_name=None, core_b_name=None):
+def plot_correlation_distribution(csv_file, target_mapping_id=None, quality_index=None, save_png=True, png_filename=None, core_a_name=None, core_b_name=None, no_bins=50):
     """
     UPDATED: Handle new CSV format with different column structure.
     Plot distribution of a specified quality index.
@@ -1304,6 +1304,7 @@ def plot_correlation_distribution(csv_file, target_mapping_id=None, quality_inde
     - target_mapping_id: optional mapping ID to highlight in the plot
     - save_png: whether to save the plot as PNG (default: True)
     - png_filename: optional custom filename for saving PNG
+    - no_bins: number of bins for the histogram (default: 50)
     """
     
     # Define quality index display names and descriptions
@@ -1344,7 +1345,7 @@ def plot_correlation_distribution(csv_file, target_mapping_id=None, quality_inde
     total_count = len(df)
     
     # Plot histogram of quality index as percentage
-    hist, bins, _ = ax.hist(df[quality_index], bins=50, alpha=0.7, color='skyblue', 
+    hist, bins, _ = ax.hist(df[quality_index], bins=no_bins, alpha=0.7, color='skyblue', 
                             edgecolor='black', weights=np.ones(total_count)*100/total_count)
     
     # Add a KDE curve with increased bandwidth for smoother representation
