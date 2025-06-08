@@ -2,6 +2,9 @@
 /*
 !/pyCoreRelator/
 !/.gitignore
+!/pickeddepth/
+!/LSHL_Cascadia_turbidite_correlation_v2.ipynb
+!/pyCoreRelator_testingv1.ipynb
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
