@@ -98,13 +98,14 @@ def combine_segment_dtw_results(dtw_results, segment_pairs, segments_a, segments
 def compute_combined_path_metrics(combined_wp, log_a, log_b, segment_quality_indicators, age_overlap_values=None):
     """
     Compute quality metrics from combined warping path and log data.
+    REVISED: Uses original continuous log data with combined warping path for geological coherence.
     
     Parameters:
     -----------
     combined_wp : np.ndarray
-        Combined warping path
+        Combined warping path with indices referencing original continuous logs
     log_a, log_b : np.ndarray
-        Log data arrays
+        Original continuous log data arrays
     segment_quality_indicators : list
         Quality indicators from individual segments
     age_overlap_values : list, optional
@@ -141,29 +142,18 @@ def compute_combined_path_metrics(combined_wp, log_a, log_b, segment_quality_ind
         if values:
             metrics[metric] = float(sum(values))
     
-    # Compute from combined warping path if available
+    # REVISED: Use original continuous log data with combined warping path
     if combined_wp is not None and len(combined_wp) > 1:
-        # Calculate diagonality
-        def calculate_diagonality(wp):
-            if len(wp) < 2:
-                return 1.0
-            a_indices = wp[:, 0]
-            b_indices = wp[:, 1]
-            a_range = np.max(a_indices) - np.min(a_indices)
-            b_range = np.max(b_indices) - np.min(b_indices)
-            if a_range == 0 or b_range == 0:
-                return 0.0
-            a_norm = (a_indices - np.min(a_indices)) / a_range
-            b_norm = (b_indices - np.min(b_indices)) / b_range
-            distances = np.abs(a_norm - b_norm)
-            return float(1.0 - np.mean(distances))
+        # Extract indices from combined warping path
+        p_indices = combined_wp[:, 0].astype(int)
+        q_indices = combined_wp[:, 1].astype(int)
         
-        metrics['perc_diag'] = float(calculate_diagonality(combined_wp) * 100)
+        # Ensure indices are within bounds
+        p_indices = np.clip(p_indices, 0, len(log_a) - 1)
+        q_indices = np.clip(q_indices, 0, len(log_b) - 1)
         
-        # Extract log values at warping path points
-        p_indices = combined_wp[:, 0]
-        q_indices = combined_wp[:, 1]
-        
+        # Extract aligned log values directly from continuous data
+        # NO segmentation - maintains geological coherence
         if log_a.ndim > 1:
             aligned_log_a = log_a[p_indices].mean(axis=1)
         else:
@@ -174,16 +164,17 @@ def compute_combined_path_metrics(combined_wp, log_a, log_b, segment_quality_ind
         else:
             aligned_log_b = log_b[q_indices]
         
-        # Create dummy cost matrix
+        # Create dummy cost matrix for compatibility
         dummy_D = np.array([[np.linalg.norm(aligned_log_a - aligned_log_b)]])
         
-        # Compute combined metrics
-        combined_metrics = compute_quality_indicators(aligned_log_a, aligned_log_b, p_indices, q_indices, dummy_D)
+        # Compute combined metrics using the actual combined warping path indices
+        combined_metrics = compute_quality_indicators(log_a, log_b, p_indices, q_indices, dummy_D)
         
-        # Use combined calculations for these three metrics
+        # Use combined calculations for these metrics
         metrics['dtw_ratio'] = float(combined_metrics.get('dtw_ratio', 0.0))
         metrics['variance_deviation'] = float(combined_metrics.get('variance_deviation', 0.0))
         metrics['corr_coef'] = float(combined_metrics.get('corr_coef', 0.0))
+        metrics['perc_diag'] = float(combined_metrics.get('perc_diag', 0.0))
     
     # Average age overlap
     if age_overlap_values:
