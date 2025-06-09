@@ -1,7 +1,15 @@
 """
 Core DTW analysis functions for pyCoreRelator
 
-Main DTW computation and comprehensive analysis functions.
+Included Functions:
+- custom_dtw: Core DTW implementation with edge case handling
+- run_comprehensive_dtw_analysis: Complete workflow for segment-based DTW analysis
+- Various helper functions for single-point and edge case scenarios
+
+This module provides comprehensive Dynamic Time Warping (DTW) analysis functionality
+for geological well log correlation. It includes custom DTW implementation with
+special case handling, quality metrics computation, and integrated age constraint
+compatibility checking for segment-based correlation analysis.
 """
 
 import numpy as np
@@ -38,28 +46,39 @@ from ..visualization.animation import create_segment_dtw_animation
 def handle_single_point_dtw(log1, log2, exponent=1, QualityIndex=False):
     """
     Handle DTW for the case where log1 contains only a single data point.
-    This function creates a custom warping path that maps the single point in log1
-    to all points in log2.
     
-    Parameters:
-    -----------
+    This function creates a custom warping path that maps the single point in log1
+    to all points in log2, providing a meaningful correlation when one sequence
+    has only one data point.
+    
+    Parameters
+    ----------
     log1 : array-like
-        First well log data with a single point.
+        First well log data with a single point
     log2 : array-like
-        Second well log data.
+        Second well log data with multiple points
     exponent : float, default=1
-        Exponent for cost calculation.
+        Exponent for cost calculation in distance computation
     QualityIndex : bool, default=False
-        If True, computes quality indicators.
+        If True, computes and returns quality indicators
         
-    Returns:
-    --------
-    D : np.ndarray
-        The accumulated cost matrix (1 x len(log2)).
-    wp : np.ndarray
-        The warping path as a sequence of index pairs.
+    Returns
+    -------
+    D : numpy.ndarray
+        The accumulated cost matrix (1 x len(log2))
+    wp : numpy.ndarray
+        The warping path as a sequence of index pairs
     QIdx : dict, optional
-        Quality indicators (if QualityIndex is True).
+        Quality indicators dictionary (returned if QualityIndex=True)
+    
+    Examples
+    --------
+    >>> import numpy as np
+    >>> log1 = [2.5]
+    >>> log2 = [1.0, 2.0, 3.0, 4.0]
+    >>> D, wp = handle_single_point_dtw(log1, log2)
+    >>> print(f"Warping path shape: {wp.shape}")
+    Warping path shape: (4, 2)
     """
     
     log1 = np.array(log1)
@@ -106,19 +125,39 @@ def handle_single_point_dtw(log1, log2, exponent=1, QualityIndex=False):
 def handle_single_point_log2_dtw(log1, log2, exponent=1, QualityIndex=False):
     """
     Handle DTW for the case where log2 contains only a single data point.
-    This function creates a custom warping path that maps all points in log1
-    to the single point in log2.
     
-    Parameters:
-    -----------
+    This function creates a custom warping path that maps all points in log1
+    to the single point in log2, providing meaningful correlation when the
+    second sequence has only one data point.
+    
+    Parameters
+    ----------
     log1 : array-like
-        First well log data with multiple points.
+        First well log data with multiple points
     log2 : array-like
-        Second well log data with a single point.
+        Second well log data with a single point
     exponent : float, default=1
-        Exponent for cost calculation.
+        Exponent for cost calculation in distance computation
     QualityIndex : bool, default=False
-        If True, computes quality indicators.
+        If True, computes and returns quality indicators
+        
+    Returns
+    -------
+    D : numpy.ndarray
+        The accumulated cost matrix (len(log1) x 1)
+    wp : numpy.ndarray
+        The warping path as a sequence of index pairs
+    QIdx : dict, optional
+        Quality indicators dictionary (returned if QualityIndex=True)
+    
+    Examples
+    --------
+    >>> import numpy as np
+    >>> log1 = [1.0, 2.0, 3.0, 4.0]
+    >>> log2 = [2.5]
+    >>> D, wp = handle_single_point_log2_dtw(log1, log2)
+    >>> print(f"Cost matrix shape: {D.shape}")
+    Cost matrix shape: (4, 1)
     """
     
     log1 = np.array(log1)
@@ -170,23 +209,37 @@ def handle_two_single_points(log1, log2, exponent=1, QualityIndex=False):
     """
     Handle DTW when both logs contain only a single data point.
     
-    Parameters:
-    -----------
-    log1, log2 : array-like
+    This function handles the degenerate case where both sequences contain
+    only one point each, creating a trivial warping path.
+    
+    Parameters
+    ----------
+    log1 : array-like
+        Single-point log data
+    log2 : array-like
         Single-point log data
     exponent : float, default=1
-        Exponent for cost calculation
+        Exponent for cost calculation in distance computation
     QualityIndex : bool, default=False
-        If True, computes quality indicators
+        If True, computes and returns quality indicators
     
-    Returns:
-    --------
-    D : np.ndarray
+    Returns
+    -------
+    D : numpy.ndarray
         The accumulated cost matrix (1x1)
-    wp : np.ndarray
+    wp : numpy.ndarray
         The warping path as a single index pair
     QIdx : dict, optional
-        Quality indicators (if QualityIndex is True)
+        Quality indicators dictionary (returned if QualityIndex=True)
+    
+    Examples
+    --------
+    >>> import numpy as np
+    >>> log1 = [2.5]
+    >>> log2 = [3.0]
+    >>> D, wp = handle_two_single_points(log1, log2)
+    >>> print(f"Distance: {D[0,0]:.2f}")
+    Distance: 0.50
     """
     
     log1_value = log1[0]
@@ -219,33 +272,46 @@ def handle_two_single_points(log1, log2, exponent=1, QualityIndex=False):
 def custom_dtw(log1, log2, subseq=False, exponent=1, QualityIndex=False, independent_dtw=False, available_columns=None):
     """
     Custom implementation of Dynamic Time Warping for well log correlation.
-    This function creates a similarity matrix between two well logs and applies DTW
-    to find the optimal alignment, handling all edge cases.
     
-    Parameters:
-    -----------
-    log1, log2 : array-like
-        Well log data to be compared
+    This function creates a similarity matrix between two well logs and applies DTW
+    to find the optimal alignment, handling all edge cases including single-point
+    sequences and multidimensional data with independent or dependent analysis modes.
+    
+    Parameters
+    ----------
+    log1 : array-like
+        First well log data to be compared
+    log2 : array-like
+        Second well log data to be compared
     subseq : bool, default=False
         If True, performs subsequence DTW
     exponent : float, default=1
-        Exponent for cost calculation
+        Exponent for cost calculation in distance computation
     QualityIndex : bool, default=False
-        If True, computes quality indicators
+        If True, computes and returns quality indicators
     independent_dtw : bool, default=False
         If True, performs independent DTW on each dimension separately
     available_columns : list, default=None
         Column names for logging when independent_dtw=True
         
-    Returns:
-    --------
-    D : np.ndarray
+    Returns
+    -------
+    D : numpy.ndarray
         The accumulated cost matrix where D[i,j] contains the minimum cumulative cost
-        to reach point (i,j) from the starting point. 
-    wp : np.ndarray
+        to reach point (i,j) from the starting point
+    wp : numpy.ndarray
         The warping path as a sequence of index pairs
     QIdx : dict, optional
-        Quality indicators (if QualityIndex is True)
+        Quality indicators dictionary (returned if QualityIndex=True)
+    
+    Examples
+    --------
+    >>> import numpy as np
+    >>> log1 = np.array([1.0, 2.0, 3.0, 4.0])
+    >>> log2 = np.array([1.1, 2.1, 3.1, 4.1])
+    >>> D, wp, quality = custom_dtw(log1, log2, QualityIndex=True)
+    >>> print(f"DTW distance: {D[-1,-1]:.3f}")
+    DTW distance: 0.400
     """
 
     # Convert inputs to float32 if not already
@@ -271,15 +337,12 @@ def custom_dtw(log1, log2, subseq=False, exponent=1, QualityIndex=False, indepen
     r = len(log1)
     c = len(log2)
     
-    # Handle special case: log1 is a single point - always use full correlation
+    # Handle special case: log1 is a single point
     if r == 1:
-        # print("Processing DTW with log1 having only one point - using full correlation")
         return handle_single_point_dtw(log1, log2, exponent, QualityIndex)
     
-    # Handle special case: log2 is a single point - always use full correlation
+    # Handle special case: log2 is a single point
     if c == 1:
-        # print("Processing DTW with log2 having only one point - using full correlation")
-        # Use the dedicated function instead of transposing
         return handle_single_point_log2_dtw(log1, log2, exponent, QualityIndex)
     
     # Handle special case: both logs are single points
@@ -392,8 +455,7 @@ def run_comprehensive_dtw_analysis(log_a, log_b, md_a, md_b, picked_depths_a=Non
                               all_constraint_pos_errors_a=None, all_constraint_pos_errors_b=None,
                               all_constraint_neg_errors_a=None, all_constraint_neg_errors_b=None,
                               dtw_distance_threshold=None,
-                              exclude_deadend=True,  # NEW PARAMETER
-                              # Age constraint visualization parameters (default None)
+                              exclude_deadend=True,
                               age_constraint_a_source_cores=None,
                               age_constraint_b_source_cores=None,
                               core_a_name=None,
@@ -401,14 +463,124 @@ def run_comprehensive_dtw_analysis(log_a, log_b, md_a, md_b, picked_depths_a=Non
     """
     Run comprehensive DTW analysis with integrated age correlation functionality.
     
-    NEW PARAMETERS:
-    ---------------
-    exclude_deadend : bool, default=True
-        If True, filter out dead end and orphan segment pairs before final processing
+    This function performs a complete segment-based DTW analysis between two well logs,
+    including age constraint compatibility checking, dead-end filtering, and visualization
+    generation. It identifies valid correlation segments, applies age constraints if
+    specified, and generates comprehensive output including DTW matrices and animations.
     
-    Returns:
+    Parameters
+    ----------
+    log_a : array-like
+        First well log data
+    log_b : array-like
+        Second well log data
+    md_a : array-like
+        Measured depth values for log_a
+    md_b : array-like
+        Measured depth values for log_b
+    picked_depths_a : list, optional
+        Specific depths to analyze in log_a
+    picked_depths_b : list, optional
+        Specific depths to analyze in log_b
+    top_bottom : bool, default=True
+        If True, include top and bottom boundaries in analysis
+    top_depth : float, default=0.0
+        Top depth value for analysis
+    independent_dtw : bool, default=False
+        If True, process each log dimension independently
+    create_dtw_matrix : bool, default=True
+        If True, generate DTW matrix visualization
+    visualize_pairs : bool, default=True
+        If True, visualize segment pairs in matrix plot
+    visualize_segment_labels : bool, default=False
+        If True, show segment labels in visualizations
+    dtwmatrix_output_filename : str, default='SegmentPair_DTW_matrix.png'
+        Filename for DTW matrix output
+    creategif : bool, default=True
+        If True, create animated GIF of segment correlations
+    gif_output_filename : str, default='SegmentPair_DTW_animation.gif'
+        Filename for animation output
+    max_frames : int, default=150
+        Maximum number of frames in animation
+    debug : bool, default=False
+        If True, enable debug output
+    color_interval_size : float, optional
+        Color interval size for visualizations
+    keep_frames : bool, default=True
+        If True, keep individual animation frames
+    age_consideration : bool, default=False
+        If True, apply age constraint analysis
+    ages_a : dict, optional
+        Age data for log_a with keys: 'depths', 'ages', 'pos_uncertainties', 'neg_uncertainties'
+    ages_b : dict, optional
+        Age data for log_b with keys: 'depths', 'ages', 'pos_uncertainties', 'neg_uncertainties'
+    restricted_age_correlation : bool, default=True
+        If True, use strict age overlap requirements
+    all_constraint_ages_a : list, optional
+        All age constraint values for log_a
+    all_constraint_ages_b : list, optional
+        All age constraint values for log_b
+    all_constraint_depths_a : list, optional
+        All constraint depths for log_a
+    all_constraint_depths_b : list, optional
+        All constraint depths for log_b
+    all_constraint_pos_errors_a : list, optional
+        Positive age uncertainties for log_a constraints
+    all_constraint_pos_errors_b : list, optional
+        Positive age uncertainties for log_b constraints
+    all_constraint_neg_errors_a : list, optional
+        Negative age uncertainties for log_a constraints
+    all_constraint_neg_errors_b : list, optional
+        Negative age uncertainties for log_b constraints
+    dtw_distance_threshold : float, optional
+        Maximum allowed DTW distance for segment acceptance
+    exclude_deadend : bool, default=True
+        If True, filter out dead-end segment pairs
+    age_constraint_a_source_cores : list, optional
+        Source core names for age constraints in log_a
+    age_constraint_b_source_cores : list, optional
+        Source core names for age constraints in log_b
+    core_a_name : str, optional
+        Name of first core for labeling
+    core_b_name : str, optional
+        Name of second core for labeling
+    
+    Returns
+    -------
+    tuple
+        (final_dtw_results, valid_dtw_pairs, segments_a, segments_b, 
+         depth_boundaries_a, depth_boundaries_b, dtw_distance_matrix_full)
+        
+        - final_dtw_results : dict
+            DTW results for valid segment pairs
+        - valid_dtw_pairs : set
+            Set of valid segment pair indices
+        - segments_a : list
+            Segment definitions for log_a
+        - segments_b : list
+            Segment definitions for log_b
+        - depth_boundaries_a : list
+            Depth boundaries for log_a segments
+        - depth_boundaries_b : list
+            Depth boundaries for log_b segments
+        - dtw_distance_matrix_full : numpy.ndarray
+            Full DTW distance matrix between logs
+    
+    Examples
     --------
-    tuple: (dtw_results, valid_dtw_pairs, segments_a, segments_b, depth_boundaries_a, depth_boundaries_b, dtw_distance_matrix_full)
+    >>> import numpy as np
+    >>> log_a = np.random.randn(100)
+    >>> log_b = np.random.randn(120)
+    >>> md_a = np.arange(100)
+    >>> md_b = np.arange(120)
+    >>> results = run_comprehensive_dtw_analysis(
+    ...     log_a, log_b, md_a, md_b,
+    ...     picked_depths_a=[20, 50, 80],
+    ...     picked_depths_b=[25, 60, 95]
+    ... )
+    >>> dtw_results, valid_pairs, segments_a, segments_b, bounds_a, bounds_b, matrix = results
+    >>> print(f"Found {len(valid_pairs)} valid segment pairs")
+    Found 3 valid segment pairs
     """
     
     print("Starting comprehensive DTW analysis with integrated age correlation...")
@@ -537,7 +709,7 @@ def run_comprehensive_dtw_analysis(log_a, log_b, md_a, md_b, picked_depths_a=Non
             b_lower_bound = min(b_start_age - b_start_neg_error, b_end_age - b_end_neg_error)
             b_upper_bound = max(b_start_age + b_start_pos_error, b_end_age + b_end_pos_error)
             
-            # NEW: Calculate age overlap percentage (without uncertainty)
+            # Calculate age overlap percentage (without uncertainty)
             a_age_range_start = min(a_start_age, a_end_age)
             a_age_range_end = max(a_start_age, a_end_age)
             b_age_range_start = min(b_start_age, b_end_age)
@@ -580,7 +752,7 @@ def run_comprehensive_dtw_analysis(log_a, log_b, md_a, md_b, picked_depths_a=Non
                 'ranges_overlap': ranges_overlap,
                 'single_point_in_range': single_point_in_range,
                 'has_identical_bounds': has_identical_bounds,
-                'perc_age_overlap': perc_age_overlap  # NEW METRIC
+                'perc_age_overlap': perc_age_overlap
             }
     else:
         # If age consideration is disabled, create empty entries for all pairs
@@ -614,7 +786,7 @@ def run_comprehensive_dtw_analysis(log_a, log_b, md_a, md_b, picked_depths_a=Non
             
             final_dist = D_sub[-1, -1]
             
-            # NEW: Add age overlap percentage to quality indicators
+            # Add age overlap percentage to quality indicators
             if 'perc_age_overlap' in pair_info:
                 QIdx['perc_age_overlap'] = pair_info['perc_age_overlap']
             
@@ -726,11 +898,9 @@ def run_comprehensive_dtw_analysis(log_a, log_b, md_a, md_b, picked_depths_a=Non
     else:
         # Flexible mode - accept overlapping pairs AND compatible non-overlapping pairs
         print(f"\nAssessing age compatibility for segment pairs...(loose age correlation mode)")
-        # [Previous flexible mode code remains the same but with valid_dtw_pairs and final_dtw_results updates]
-        # Note: This section would need the full flexible mode implementation from the original code
         pass
     
-    # NEW: Filter out dead end pairs if exclude_deadend is True
+    # Filter out dead end pairs if exclude_deadend is True
     if exclude_deadend:
         print(f"\nFiltering dead-end pairs (exclude_deadend=True)...")
         

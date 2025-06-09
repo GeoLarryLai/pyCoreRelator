@@ -1,5 +1,14 @@
 """
-Data loading and core plotting functions
+Data loading and core plotting functions for pyCoreRelator.
+
+Included Functions:
+- load_log_data: Load log data from CSV files and resample to common depth scale
+- resample_datasets: Resample multiple datasets to a common depth scale
+- plot_core_data: Plot core data with optional RGB and CT images
+
+This module provides utilities for loading core log data from CSV files and 
+plotting core data with optional RGB and CT images. It handles multiple log types,
+data normalization, and resampling to common depth scales.
 """
 
 import numpy as np
@@ -12,34 +21,45 @@ def load_log_data(log_paths, img_paths, log_columns, depth_column='SB_DEPTH_cm',
     """
     Load log data and images for a core.
     
-    Parameters:
-    -----------
+    This function loads multiple log datasets from CSV files, resamples them to a common
+    depth scale, and optionally loads RGB and CT images. It supports alternative column
+    names and automatic data normalization.
+    
+    Parameters
+    ----------
     log_paths : dict
         Dictionary mapping log names to file paths
     img_paths : dict
-        Dictionary mapping image types to file paths
+        Dictionary mapping image types ('rgb', 'ct') to file paths
     log_columns : list of str
-        List of log column names to load
+        List of log column names to load from the CSV files
     depth_column : str, default='SB_DEPTH_cm'
-        Name of the depth column
+        Name of the depth column in the CSV files
     normalize : bool, default=True
         Whether to normalize each log to the range [0, 1]
     column_alternatives : dict, optional
-        Dictionary mapping log column names to lists of alternative column names.
-        If None, no alternative column names will be tried.
+        Dictionary mapping log column names to lists of alternative column names
+        to try if the primary column name is not found
     
-    Returns:
-    --------
+    Returns
+    -------
     log : numpy.ndarray
-        Log data with shape (n_samples, n_logs) or (n_samples,)
+        Log data with shape (n_samples, n_logs) for multiple logs or (n_samples,) for single log
     md : numpy.ndarray
-        Measured depths
+        Measured depths array
     available_columns : list of str
         Names of the logs that were successfully loaded
     rgb_img : numpy.ndarray or None
-        RGB image if available, None otherwise
+        RGB image array if available, None otherwise
     ct_img : numpy.ndarray or None
-        CT image if available, None otherwise
+        CT image array if available, None otherwise
+    
+    Example
+    -------
+    >>> log_paths = {'MS': 'data/core1_ms.csv', 'Lumin': 'data/core1_lumin.csv'}
+    >>> img_paths = {'rgb': 'data/core1_rgb.jpg', 'ct': 'data/core1_ct.jpg'}
+    >>> log_columns = ['MS', 'Lumin']
+    >>> log, md, cols, rgb_img, ct_img = load_log_data(log_paths, img_paths, log_columns)
     """
     # Initialize lists to store data
     datasets = []
@@ -73,7 +93,7 @@ def load_log_data(log_paths, img_paths, log_columns, depth_column='SB_DEPTH_cm',
         try:
             df = pd.read_csv(log_path)
             
-            # Check if the required columns exist
+            # Check if the required depth column exists
             if depth_column not in df.columns:
                 print(f"Warning: Depth column {depth_column} not found in {log_path}. Skipping.")
                 continue
@@ -138,28 +158,40 @@ def resample_datasets(datasets, target_resolution_factor=2):
     """
     Resample multiple datasets to a common depth scale.
     
-    Parameters:
-    -----------
-    datasets : list of dict
-        List of dictionaries containing depth and data arrays
-    target_resolution_factor : float, default=2
-        Factor to divide the lowest resolution by
+    This function takes multiple datasets with potentially different depth sampling
+    and resamples them all to a common high-resolution depth scale using linear
+    interpolation.
     
-    Returns:
-    --------
+    Parameters
+    ----------
+    datasets : list of dict
+        List of dictionaries, each containing 'depth' array and data arrays
+    target_resolution_factor : float, default=2
+        Factor to divide the lowest resolution by to create target resolution
+    
+    Returns
+    -------
     dict
-        Dictionary with resampled data arrays and common depth scale
+        Dictionary with resampled data arrays and common 'depth' scale
+    
+    Example
+    -------
+    >>> datasets = [
+    ...     {'depth': np.array([0, 10, 20]), 'MS': np.array([0.1, 0.5, 0.9])},
+    ...     {'depth': np.array([0, 5, 15, 20]), 'Lumin': np.array([0.2, 0.4, 0.6, 0.8])}
+    ... ]
+    >>> resampled = resample_datasets(datasets)
     """
     if not datasets:
         return {'depth': np.array([])}
         
-    # Find depth ranges
+    # Find depth ranges across all datasets
     min_depths = [np.min(dataset['depth']) for dataset in datasets]
     max_depths = [np.max(dataset['depth']) for dataset in datasets]
     start_depth = min(min_depths)
     end_depth = max(max_depths)
     
-    # Calculate resolutions
+    # Calculate resolutions for each dataset
     def calculate_resolution(depth_array):
         return (depth_array[-1] - depth_array[0]) / len(depth_array)
     
@@ -171,7 +203,7 @@ def resample_datasets(datasets, target_resolution_factor=2):
     num_points = int((end_depth - start_depth) / target_resolution) + 1
     target_depth = np.linspace(start_depth, end_depth, num_points)
     
-    # Resample all data to the target depth
+    # Resample all data to the target depth using linear interpolation
     resampled_data = {'depth': target_depth}
     
     for dataset in datasets:
@@ -187,23 +219,49 @@ def plot_core_data(md, log, title, rgb_img=None, ct_img=None, boundaries=None, f
     """
     Plot core data with optional RGB and CT images and support for multiple log types.
     
-    Parameters:
-    - md: array of depth values
-    - log: array of log values (single log or multidimensional logs)
-    - title: title for the plot
-    - rgb_img: optional RGB image array
-    - ct_img: optional CT image array
-    - boundaries: optional array of depth points for marking boundaries
-    - figsize: figure size tuple (width, height)
-    - label_name: optional name for the log curve label (for single log)
-    - available_columns: list of column names for multidimensional logs
-    - is_multilog: whether log contains multiple logs (multidimensional)
+    This function creates a comprehensive plot of core data including log curves and
+    optional RGB/CT images. It automatically adjusts the layout based on available
+    images and supports both single and multiple log plotting with custom styling.
     
-    Returns:
-    - fig: the created figure
+    Parameters
+    ----------
+    md : array_like
+        Array of depth values
+    log : array_like
+        Array of log values, either 1D for single log or 2D for multiple logs
+    title : str
+        Title for the plot
+    rgb_img : array_like, optional
+        RGB image array to display above the log curves
+    ct_img : array_like, optional
+        CT image array to display above the log curves
+    boundaries : array_like, optional
+        Array of depth points for marking boundaries with vertical lines
+    figsize : tuple, default=(20, 4)
+        Figure size tuple (width, height)
+    label_name : str, optional
+        Name for the log curve label (used for single log)
+    available_columns : list of str, optional
+        Names of the log columns for multidimensional logs
+    is_multilog : bool, default=False
+        Whether log contains multiple logs (multidimensional)
+    
+    Returns
+    -------
+    fig : matplotlib.figure.Figure
+        The created figure object
+    plot_ax : matplotlib.axes.Axes
+        The main plotting axis containing the log curves
+    
+    Example
+    -------
+    >>> import numpy as np
+    >>> md = np.linspace(0, 100, 200)
+    >>> log = np.random.random((200, 2))
+    >>> fig, ax = plot_core_data(md, log, "Core 1", available_columns=['MS', 'Lumin'], is_multilog=True)
     """
     if is_multilog and log.ndim > 1 and log.shape[1] > 1:
-        # Define color and style mapping for each column
+        # Define color and style mapping for each column type
         color_style_map = {
             'R': {'color': 'red', 'linestyle': '--'},
             'G': {'color': 'green', 'linestyle': '--'},
@@ -218,28 +276,28 @@ def plot_core_data(md, log, title, rgb_img=None, ct_img=None, boundaries=None, f
         # Use names from available_columns or create generic names
         column_names = available_columns if available_columns else [f"Log {i+1}" for i in range(log.shape[1])]
     
-    # Setup figure based on available images
+    # Setup figure layout based on available images
     if rgb_img is not None and ct_img is not None:
-        # Create figure with three subplots if both RGB and CT images are provided
+        # Create figure with three subplots for both images
         fig, axs = plt.subplots(3, 1, figsize=figsize, gridspec_kw={'height_ratios': [1, 1, 2]})
         
-        # RGB image - flipping x & y axes
+        # RGB image display with transposed axes for proper orientation
         axs[0].imshow(rgb_img.transpose(1, 0, 2), aspect='auto', extent=[md[0], md[-1], 0, 1])
         axs[0].set_ylabel('RGB')
-        axs[0].set_xticks([])  # Hide x-axis ticks for top plots
-        axs[0].set_yticks([])  # Hide y-axis ticks for image
+        axs[0].set_xticks([])
+        axs[0].set_yticks([])
         
-        # CT image - flipping x & y axes
+        # CT image display with conditional transposition for grayscale/color
         axs[1].imshow(ct_img.transpose(1, 0, 2) if len(ct_img.shape) == 3 else 
                       ct_img.transpose(), aspect='auto', extent=[md[0], md[-1], 0, 1], cmap='gray')
         axs[1].set_ylabel('CT')
-        axs[1].set_xticks([])  # Hide x-axis ticks for middle plot
-        axs[1].set_yticks([])  # Hide y-axis ticks for image
+        axs[1].set_xticks([])
+        axs[1].set_yticks([])
         
-        # Log curves
+        # Log curves plotting
         if is_multilog and log.ndim > 1 and log.shape[1] > 1:
             for i, col_name in enumerate(column_names):
-                # Get color and style
+                # Get predefined color and style or use defaults
                 if col_name in color_style_map:
                     color = color_style_map[col_name]['color']
                     linestyle = color_style_map[col_name]['linestyle']
@@ -247,11 +305,9 @@ def plot_core_data(md, log, title, rgb_img=None, ct_img=None, boundaries=None, f
                     color = f'C{i}'
                     linestyle = '-'
                 
-                # Plot the log
                 axs[2].plot(md, log[:, i], label=col_name, color=color, 
                           linestyle=linestyle, linewidth=0.7)
         else:
-            # Single log case
             axs[2].plot(md, log, label=label_name, linewidth=0.7)
         
         axs[2].set_ylim(0, 1)
@@ -259,11 +315,10 @@ def plot_core_data(md, log, title, rgb_img=None, ct_img=None, boundaries=None, f
         axs[2].set_xlabel('depth (cm)')
         axs[2].set_ylabel('Normalized Intensity')
         
-        # Add legend for log curves
         if is_multilog or label_name is not None:
             axs[2].legend(loc='upper left')
         
-        # Add boundaries if provided
+        # Add boundary markers if provided
         if boundaries is not None:
             count = 1
             for i in range(len(boundaries)):
@@ -271,22 +326,20 @@ def plot_core_data(md, log, title, rgb_img=None, ct_img=None, boundaries=None, f
                 axs[2].text(boundaries[i], 0.9, str(count), fontsize=12, fontweight='bold')
                 count += 1
         
-        plot_ax = axs[2]  # Store reference to main plotting axis
+        plot_ax = axs[2]
     
     elif rgb_img is not None:
-        # Create figure with two subplots if only RGB image is provided
+        # Create figure with two subplots for RGB image only
         fig, axs = plt.subplots(2, 1, figsize=figsize, gridspec_kw={'height_ratios': [1, 2]})
         
-        # RGB image - flipping x & y axes
         axs[0].imshow(rgb_img.transpose(1, 0, 2), aspect='auto', extent=[md[0], md[-1], 0, 1])
         axs[0].set_ylabel('RGB')
-        axs[0].set_xticks([])  # Hide x-axis ticks for top plots
-        axs[0].set_yticks([])  # Hide y-axis ticks for image
+        axs[0].set_xticks([])
+        axs[0].set_yticks([])
         
-        # Log curves
+        # Log curves plotting
         if is_multilog and log.ndim > 1 and log.shape[1] > 1:
             for i, col_name in enumerate(column_names):
-                # Get color and style
                 if col_name in color_style_map:
                     color = color_style_map[col_name]['color']
                     linestyle = color_style_map[col_name]['linestyle']
@@ -294,11 +347,9 @@ def plot_core_data(md, log, title, rgb_img=None, ct_img=None, boundaries=None, f
                     color = f'C{i}'
                     linestyle = '-'
                 
-                # Plot the log
                 axs[1].plot(md, log[:, i], label=col_name, color=color, 
                           linestyle=linestyle, linewidth=0.7)
         else:
-            # Single log case
             axs[1].plot(md, log, label=label_name, linewidth=0.7)
         
         axs[1].set_ylim(0, 1)
@@ -306,11 +357,9 @@ def plot_core_data(md, log, title, rgb_img=None, ct_img=None, boundaries=None, f
         axs[1].set_xlabel('depth (cm)')
         axs[1].set_ylabel('Normalized Intensity')
         
-        # Add legend for log curves
         if is_multilog or label_name is not None:
             axs[1].legend(loc='upper left')
         
-        # Add boundaries if provided
         if boundaries is not None:
             count = 1
             for i in range(len(boundaries)):
@@ -318,23 +367,21 @@ def plot_core_data(md, log, title, rgb_img=None, ct_img=None, boundaries=None, f
                 axs[1].text(boundaries[i], 0.9, str(count), fontsize=12, fontweight='bold')
                 count += 1
         
-        plot_ax = axs[1]  # Store reference to main plotting axis
+        plot_ax = axs[1]
     
     elif ct_img is not None:
-        # Create figure with two subplots if only CT image is provided
+        # Create figure with two subplots for CT image only
         fig, axs = plt.subplots(2, 1, figsize=figsize, gridspec_kw={'height_ratios': [1, 2]})
         
-        # CT image - flipping x & y axes
         axs[0].imshow(ct_img.transpose(1, 0, 2) if len(ct_img.shape) == 3 else 
                       ct_img.transpose(), aspect='auto', extent=[md[0], md[-1], 0, 1], cmap='gray')
         axs[0].set_ylabel('CT')
-        axs[0].set_xticks([])  # Hide x-axis ticks for top plots
-        axs[0].set_yticks([])  # Hide y-axis ticks for image
+        axs[0].set_xticks([])
+        axs[0].set_yticks([])
         
-        # Log curves
+        # Log curves plotting
         if is_multilog and log.ndim > 1 and log.shape[1] > 1:
             for i, col_name in enumerate(column_names):
-                # Get color and style
                 if col_name in color_style_map:
                     color = color_style_map[col_name]['color']
                     linestyle = color_style_map[col_name]['linestyle']
@@ -342,11 +389,9 @@ def plot_core_data(md, log, title, rgb_img=None, ct_img=None, boundaries=None, f
                     color = f'C{i}'
                     linestyle = '-'
                 
-                # Plot the log
                 axs[1].plot(md, log[:, i], label=col_name, color=color, 
                           linestyle=linestyle, linewidth=0.7)
         else:
-            # Single log case
             axs[1].plot(md, log, label=label_name, linewidth=0.7)
         
         axs[1].set_ylim(0, 1)
@@ -354,11 +399,9 @@ def plot_core_data(md, log, title, rgb_img=None, ct_img=None, boundaries=None, f
         axs[1].set_xlabel('depth (cm)')
         axs[1].set_ylabel('Normalized Intensity')
         
-        # Add legend for log curves
         if is_multilog or label_name is not None:
             axs[1].legend(loc='upper left')
         
-        # Add boundaries if provided
         if boundaries is not None:
             count = 1
             for i in range(len(boundaries)):
@@ -366,16 +409,15 @@ def plot_core_data(md, log, title, rgb_img=None, ct_img=None, boundaries=None, f
                 axs[1].text(boundaries[i], 0.9, str(count), fontsize=12, fontweight='bold')
                 count += 1
         
-        plot_ax = axs[1]  # Store reference to main plotting axis
+        plot_ax = axs[1]
     
     else:
-        # Create figure with single subplot if no images
+        # Create figure with single subplot for log curves only
         fig, ax = plt.subplots(figsize=figsize)
         
-        # Log curves
+        # Log curves plotting
         if is_multilog and log.ndim > 1 and log.shape[1] > 1:
             for i, col_name in enumerate(column_names):
-                # Get color and style
                 if col_name in color_style_map:
                     color = color_style_map[col_name]['color']
                     linestyle = color_style_map[col_name]['linestyle']
@@ -383,11 +425,9 @@ def plot_core_data(md, log, title, rgb_img=None, ct_img=None, boundaries=None, f
                     color = f'C{i}'
                     linestyle = '-'
                 
-                # Plot the log
                 ax.plot(md, log[:, i], label=col_name, color=color, 
                       linestyle=linestyle, linewidth=0.7)
         else:
-            # Single log case
             ax.plot(md, log, label=label_name, linewidth=0.7)
         
         ax.set_ylim(0, 1)
@@ -395,11 +435,9 @@ def plot_core_data(md, log, title, rgb_img=None, ct_img=None, boundaries=None, f
         ax.set_xlabel('depth (cm)')
         ax.set_ylabel('Normalized Intensity')
         
-        # Add legend for log curves
         if is_multilog or label_name is not None:
             ax.legend(loc='upper left')
         
-        # Add boundaries if provided
         if boundaries is not None:
             count = 1
             for i in range(len(boundaries)):
@@ -407,9 +445,9 @@ def plot_core_data(md, log, title, rgb_img=None, ct_img=None, boundaries=None, f
                 ax.text(boundaries[i], 0.2, str(count))
                 count += 1
         
-        plot_ax = ax  # Store reference to main plotting axis
+        plot_ax = ax
     
     plt.tight_layout()
     plt.suptitle(title, fontsize=16, y=1.02)
     
-    return fig, plot_ax  # Return both the figure and the main plotting axis
+    return fig, plot_ax

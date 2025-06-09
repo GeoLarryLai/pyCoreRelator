@@ -1,5 +1,17 @@
 """
-Path processing and manipulation functions
+Path processing and manipulation functions for pyCoreRelator.
+
+Included Functions:
+- combine_segment_dtw_results: Combine DTW results from multiple segment pairs
+- compute_combined_path_metrics: Compute quality metrics from combined warping paths
+- load_sequential_mappings: Load sequential mappings from CSV files
+- is_subset_or_superset: Check subset/superset relationships between paths
+- filter_against_existing: Filter new paths against existing filtered paths
+
+This module provides utilities for combining DTW segment results, computing combined
+path metrics, loading sequential mappings from CSV files, and filtering paths based
+on subset/superset relationships. These functions are essential for post-processing
+DTW analysis results and managing path data in geological core correlation workflows.
 """
 
 import numpy as np
@@ -12,24 +24,45 @@ def combine_segment_dtw_results(dtw_results, segment_pairs, segments_a, segments
     """
     Combine DTW results from multiple segment pairs into a unified result.
     
-    Parameters:
-    -----------
+    This function takes DTW analysis results from individual segment pairs and combines
+    them into a single warping path and quality metric set. It handles sorting, duplicate
+    removal, and quality metric aggregation across segments.
+    
+    Parameters
+    ----------
     dtw_results : dict
         Dictionary containing DTW results for each segment pair from run_comprehensive_dtw_analysis
     segment_pairs : list
         List of tuples (a_idx, b_idx) for segment pairs to combine
-    segments_a, segments_b : list
-        Segments in log_a and log_b
-    depth_boundaries_a, depth_boundaries_b : list
-        Depth boundaries for log_a and log_b
+    segments_a : list
+        Segments in log_a
+    segments_b : list
+        Segments in log_b
+    depth_boundaries_a : list
+        Depth boundaries for log_a
+    depth_boundaries_b : list
+        Depth boundaries for log_b
+    log_a : array-like
+        Original log data for core A
+    log_b : array-like
+        Original log data for core B
     
-    Returns:
-    --------
+    Returns
+    -------
     tuple
-        (combined_wp, combined_D, combined_quality)
-    """
+        (combined_wp, combined_quality) where:
+        - combined_wp: numpy.ndarray of combined warping path coordinates
+        - combined_quality: dict of averaged quality metrics
     
-    # Initialize lists to store all warping paths and quality indicators
+    Example
+    -------
+    >>> dtw_results = {(0, 0): (paths, matrices, quality), (1, 1): (paths, matrices, quality)}
+    >>> segment_pairs = [(0, 0), (1, 1)]
+    >>> combined_wp, combined_quality = combine_segment_dtw_results(
+    ...     dtw_results, segment_pairs, segments_a, segments_b,
+    ...     depth_boundaries_a, depth_boundaries_b, log_a, log_b
+    ... )
+    """
     all_warping_paths = []
     all_quality_indicators = []
     
@@ -38,49 +71,39 @@ def combine_segment_dtw_results(dtw_results, segment_pairs, segments_a, segments
         print("No segment pairs provided to combine.")
         return None, None, None
     
-    # Process each segment pair
+    # Process each segment pair and collect valid paths
     for a_idx, b_idx in segment_pairs:
-        # Check if this pair exists in dtw_results
         if (a_idx, b_idx) not in dtw_results:
             print(f"Warning: Segment pair ({a_idx+1}, {b_idx+1}) not found in DTW results. Skipping.")
             continue
         
-        # Get paths, cost matrices, and quality indicators for this pair
         paths, cost_matrices, quality_indicators = dtw_results[(a_idx, b_idx)]
         
-        # Skip if no valid paths exist
         if not paths or len(paths) == 0:
             print(f"Warning: No valid path for segment pair ({a_idx+1}, {b_idx+1}). Skipping.")
             continue
         
-        # Add the best path (first one) to the list of all paths
+        # Add the best path (first one) and its quality indicators
         all_warping_paths.append(paths[0])
         
-        # Add the quality indicators to the list
         if quality_indicators and len(quality_indicators) > 0:
             all_quality_indicators.append(quality_indicators[0])
     
-    # If no valid paths were found, return None
+    # Return None if no valid paths found
     if not all_warping_paths:
         print("No valid warping paths found in the selected segment pairs.")
         return None, None, None
     
-    # Combine warping paths
-    # First, sort all paths by their first point's coordinates
+    # Sort paths by their starting coordinates and combine
     all_warping_paths.sort(key=lambda wp: (wp[0, 0], wp[0, 1]))
-    
-    # Concatenate all warping paths
     combined_wp = np.vstack(all_warping_paths)
     
-    # Remove duplicate points (which can occur at boundaries between segments)
+    # Remove duplicate points at segment boundaries
     combined_wp = np.unique(combined_wp, axis=0)
-    
-    # Sort the combined path by the first coordinate
     combined_wp = combined_wp[combined_wp[:, 0].argsort()]
     
-    # Calculate average quality indicators
+    # Calculate combined quality metrics
     if all_quality_indicators:
-        # Collect age overlap values
         age_overlap_values = []
         for qi in all_quality_indicators:
             if 'perc_age_overlap' in qi:
@@ -98,26 +121,41 @@ def combine_segment_dtw_results(dtw_results, segment_pairs, segments_a, segments
 def compute_combined_path_metrics(combined_wp, log_a, log_b, segment_quality_indicators, age_overlap_values=None):
     """
     Compute quality metrics from combined warping path and log data.
-    REVISED: Uses original continuous log data with combined warping path for geological coherence.
     
-    Parameters:
-    -----------
-    combined_wp : np.ndarray
+    This function calculates comprehensive quality metrics for a combined warping path
+    using the original continuous log data to maintain geological coherence. It combines
+    distance metrics through summation and recalculates correlation and path metrics.
+    
+    Parameters
+    ----------
+    combined_wp : numpy.ndarray
         Combined warping path with indices referencing original continuous logs
-    log_a, log_b : np.ndarray
-        Original continuous log data arrays
+    log_a : numpy.ndarray
+        Original continuous log data array for core A
+    log_b : numpy.ndarray
+        Original continuous log data array for core B
     segment_quality_indicators : list
         Quality indicators from individual segments
     age_overlap_values : list, optional
         Age overlap values for averaging
     
-    Returns:
-    --------
-    dict : Combined quality metrics
+    Returns
+    -------
+    dict
+        Combined quality metrics including normalized DTW distance, correlation
+        coefficient, path characteristics, and age overlap percentage
+    
+    Example
+    -------
+    >>> combined_wp = np.array([[0, 0], [1, 1], [2, 3]])
+    >>> quality_indicators = [{'norm_dtw': 0.5, 'corr_coef': 0.8}]
+    >>> metrics = compute_combined_path_metrics(
+    ...     combined_wp, log_a, log_b, quality_indicators
+    ... )
     """
     from ..core.quality_metrics import compute_quality_indicators
     
-    # Initialize metrics
+    # Initialize metrics dictionary
     metrics = {
         'norm_dtw': 0.0,
         'dtw_ratio': 0.0,
@@ -129,31 +167,28 @@ def compute_combined_path_metrics(combined_wp, log_a, log_b, segment_quality_ind
         'perc_age_overlap': 0.0
     }
     
-    # Collect distance metrics for summing
+    # Collect and sum distance-based metrics across segments
     metric_values = {metric: [] for metric in metrics}
     for qi in segment_quality_indicators:
         for metric in ['norm_dtw', 'match_min', 'match_mean']:
             if metric in qi:
                 metric_values[metric].append(float(qi[metric]))
     
-    # Sum distance metrics
     for metric in ['norm_dtw', 'match_min', 'match_mean']:
         values = metric_values[metric]
         if values:
             metrics[metric] = float(sum(values))
     
-    # REVISED: Use original continuous log data with combined warping path
+    # Compute path-based metrics using original continuous log data
     if combined_wp is not None and len(combined_wp) > 1:
-        # Extract indices from combined warping path
+        # Extract and validate indices from combined warping path
         p_indices = combined_wp[:, 0].astype(int)
         q_indices = combined_wp[:, 1].astype(int)
         
-        # Ensure indices are within bounds
         p_indices = np.clip(p_indices, 0, len(log_a) - 1)
         q_indices = np.clip(q_indices, 0, len(log_b) - 1)
         
-        # Extract aligned log values directly from continuous data
-        # NO segmentation - maintains geological coherence
+        # Extract aligned log values maintaining geological coherence
         if log_a.ndim > 1:
             aligned_log_a = log_a[p_indices].mean(axis=1)
         else:
@@ -164,19 +199,19 @@ def compute_combined_path_metrics(combined_wp, log_a, log_b, segment_quality_ind
         else:
             aligned_log_b = log_b[q_indices]
         
-        # Create dummy cost matrix for compatibility
+        # Create dummy cost matrix for quality metrics computation
         dummy_D = np.array([[np.linalg.norm(aligned_log_a - aligned_log_b)]])
         
-        # Compute combined metrics using the actual combined warping path indices
+        # Compute combined metrics using actual warping path indices
         combined_metrics = compute_quality_indicators(log_a, log_b, p_indices, q_indices, dummy_D)
         
-        # Use combined calculations for these metrics
+        # Update path-based metrics
         metrics['dtw_ratio'] = float(combined_metrics.get('dtw_ratio', 0.0))
         metrics['variance_deviation'] = float(combined_metrics.get('variance_deviation', 0.0))
         metrics['corr_coef'] = float(combined_metrics.get('corr_coef', 0.0))
         metrics['perc_diag'] = float(combined_metrics.get('perc_diag', 0.0))
     
-    # Average age overlap
+    # Average age overlap values across segments
     if age_overlap_values:
         metrics['perc_age_overlap'] = float(sum(age_overlap_values) / len(age_overlap_values))
     
@@ -186,7 +221,25 @@ def compute_combined_path_metrics(combined_wp, log_a, log_b, segment_quality_ind
 def load_sequential_mappings(csv_path):
     """
     Load sequential mappings from a CSV file.
-    UPDATED to handle new compact format.
+    
+    This function reads warping path data stored in compact format from CSV files.
+    It handles the parsing of compressed path strings back into lists of coordinate tuples.
+    
+    Parameters
+    ----------
+    csv_path : str
+        Path to the CSV file containing sequential mappings
+    
+    Returns
+    -------
+    list
+        List of warping paths, where each path is a list of (x, y) coordinate tuples
+    
+    Example
+    -------
+    >>> mappings = load_sequential_mappings('path_data.csv')
+    >>> print(f"Loaded {len(mappings)} paths")
+    >>> print(f"First path: {mappings[0][:3]}...")  # Show first 3 points
     """
     def parse_compact_path(compact_path_str):
         """Parse compact path format "2,3;4,5;6,7" back to list of tuples"""
@@ -196,11 +249,11 @@ def load_sequential_mappings(csv_path):
     
     mappings = []
     try:
+        # Try pandas for efficient CSV reading
         df = pd.read_csv(csv_path)
         
         for _, row in df.iterrows():
             try:
-                # UPDATED: Parse compact format
                 path = parse_compact_path(row['path'])
                 mappings.append(path)
             except:
@@ -225,31 +278,39 @@ def is_subset_or_superset(path_info, other_path_info, early_terminate=True):
     """
     Check if one path is a subset or superset of another with early termination.
     
-    Parameters:
-    -----------
-    path_info : dict
-        First path information dictionary
-    other_path_info : dict
-        Second path information dictionary
-    early_terminate : bool
-        Whether to use early termination checks
+    This function efficiently determines subset/superset relationships between two
+    warping paths using set operations with optional early termination for performance.
     
-    Returns:
-    --------
+    Parameters
+    ----------
+    path_info : dict
+        First path information dictionary containing 'length' and 'path_set' keys
+    other_path_info : dict
+        Second path information dictionary containing 'length' and 'path_set' keys
+    early_terminate : bool, default=True
+        Whether to use early termination checks based on path lengths
+    
+    Returns
+    -------
     tuple
-        (is_subset, is_superset) boolean flags
+        (is_subset, is_superset) boolean flags indicating the relationship
+    
+    Example
+    -------
+    >>> path1_info = {'length': 3, 'path_set': {(0,0), (1,1), (2,2)}}
+    >>> path2_info = {'length': 5, 'path_set': {(0,0), (1,1), (2,2), (3,3), (4,4)}}
+    >>> is_subset, is_superset = is_subset_or_superset(path1_info, path2_info)
+    >>> print(f"Path1 is subset: {is_subset}, superset: {is_superset}")
     """
-    # Quick length check for early termination
+    # Early termination based on length comparisons
     if early_terminate:
-        # Cannot be a superset if shorter
         if path_info['length'] < other_path_info['length']:
             return (False, False)
         
-        # Cannot be a subset if longer
         if path_info['length'] > other_path_info['length']:
             return (False, False)
     
-    # Full set comparison
+    # Perform full set comparison
     path_set = path_info['path_set']
     other_path_set = other_path_info['path_set']
     
@@ -263,27 +324,39 @@ def filter_against_existing(new_path, filtered_paths, group_writer):
     """
     Filter a new path against existing filtered paths with optimized checking.
     
-    Parameters:
-    -----------
+    This function determines if a new warping path should be added to the filtered
+    set by checking for subset/superset relationships with existing paths. It uses
+    length-based grouping for efficient filtering.
+    
+    Parameters
+    ----------
     new_path : dict
-        New path information dictionary
+        New path information dictionary containing path data and metadata
     filtered_paths : list
         List of existing filtered path information dictionaries
     group_writer : csv.writer
-        CSV writer to write accepted paths
+        CSV writer object to write accepted paths
     
-    Returns:
-    --------
+    Returns
+    -------
     tuple
         (is_valid, paths_to_remove, updated_count) where:
         - is_valid: bool indicating if the new path should be added
-        - paths_to_remove: list of indices of paths to remove
-        - updated_count: int indicating if count should be incremented
+        - paths_to_remove: list of indices of paths to remove from filtered_paths
+        - updated_count: int (0 or 1) indicating if count should be incremented
+    
+    Example
+    -------
+    >>> new_path = {'length': 10, 'path_set': set(...), 'row_data': [...]}
+    >>> filtered_paths = [existing_path1, existing_path2]
+    >>> is_valid, to_remove, count = filter_against_existing(
+    ...     new_path, filtered_paths, csv_writer
+    ... )
     """
     is_valid = True
     paths_to_remove = []
     
-    # Group existing paths by length for efficient filtering
+    # Group existing paths by length for efficient comparison
     length_groups = {}
     for i, existing_path in enumerate(filtered_paths):
         length = existing_path['length']
@@ -292,7 +365,6 @@ def filter_against_existing(new_path, filtered_paths, group_writer):
         length_groups[length].append((i, existing_path))
     
     # Check if any existing path contains this path (making it invalid)
-    # Only check paths with length >= new_path length
     for length in sorted(length_groups.keys(), reverse=True):
         if length < new_path['length']:
             break  # No need to check shorter paths
@@ -301,10 +373,9 @@ def filter_against_existing(new_path, filtered_paths, group_writer):
             _, is_superset = is_subset_or_superset(existing_path, new_path)
             if is_superset:
                 is_valid = False
-                return (is_valid, [], 0)  # Early exit
+                return (is_valid, [], 0)  # Early exit if contained by existing path
     
-    # If valid, check if it contains any existing paths
-    # Only check paths with length <= new_path length
+    # If valid, check if it contains any existing paths for removal
     if is_valid:
         for length in sorted(length_groups.keys()):
             if length > new_path['length']:
@@ -315,7 +386,7 @@ def filter_against_existing(new_path, filtered_paths, group_writer):
                 if is_subset:
                     paths_to_remove.append(i)
     
-    # If valid, write to output and increment count
+    # Write valid path to output and return results
     if is_valid:
         group_writer.writerow(new_path['row_data'])
         return (is_valid, paths_to_remove, 1)

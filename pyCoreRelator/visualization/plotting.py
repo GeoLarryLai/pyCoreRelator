@@ -1,5 +1,15 @@
 """
-Core plotting functions for DTW correlation visualization
+Core plotting functions for DTW correlation visualization.
+
+Included Functions:
+- plot_segment_pair_correlation: Main function for plotting correlation between log segments
+- plot_multilog_segment_pair_correlation: Specialized function for multilogs with images
+- visualize_combined_segments: Combine and visualize multiple segment pairs
+- plot_correlation_distribution: Plot quality metric distributions from CSV results
+
+This module provides functions for visualizing dynamic time warping (DTW) correlations
+between core log data, including support for multi-segment correlations, RGB/CT images,
+age constraints, and quality indicators.
 """
 
 import numpy as np
@@ -36,55 +46,94 @@ def plot_segment_pair_correlation(log_a, log_b, md_a, md_b,
                                   color_style_map=None):
     """
     Enhanced unified function to plot correlation between log segments for both single and multiple segment pairs.
-    Now supports both single logs and multilogs with RGB and CT images.
+    Supports both single logs and multilogs with RGB and CT images.
     
-    Parameters:
-    -----------
-    log_a, log_b: The full log data arrays (can be single log or multilogs)
-    md_a, md_b: Measured depth arrays for the full logs
+    Parameters
+    ----------
+    log_a, log_b : array-like
+        The full log data arrays (can be single log or multilogs)
+    md_a, md_b : array-like
+        Measured depth arrays for the full logs
+    segment_pairs : list of tuples, optional
+        List of tuples (a_idx, b_idx) for segment pairs to visualize (multi-segment mode)
+    dtw_results : dict, optional
+        Dictionary containing DTW results for each segment pair (multi-segment mode)
+    segments_a, segments_b : list, optional
+        Lists of segments in log_a and log_b (multi-segment mode)
+    depth_boundaries_a, depth_boundaries_b : list, optional
+        Depth boundaries for log_a and log_b (multi-segment mode)
+    wp : array-like, optional
+        Warping path array with coordinates in global index space (single-segment mode)
+    a_start, a_end : int, optional
+        Start and end indices of segment A in the full log (single-segment mode)
+    b_start, b_end : int, optional
+        Start and end indices of segment B in the full log (single-segment mode)
+    step : int, default=5
+        Sampling interval for visualization
+    picked_depths_a, picked_depths_b : array-like, optional
+        Arrays of picked depth indices to display as markers
+    quality_indicators : dict, optional
+        Quality indicators for single pair
+    combined_quality : dict, optional
+        Combined quality indicators for multiple pairs
+    age_consideration : bool, default=False
+        Whether age data should be displayed
+    ages_a, ages_b : dict, optional
+        Dictionaries containing age data for picked depths
+    all_constraint_depths_a, all_constraint_depths_b : array-like, optional
+        Depths of age constraints
+    all_constraint_ages_a, all_constraint_ages_b : array-like, optional
+        Ages of constraints
+    all_constraint_pos_errors_a, all_constraint_pos_errors_b : array-like, optional
+        Positive errors for constraints
+    all_constraint_neg_errors_a, all_constraint_neg_errors_b : array-like, optional
+        Negative errors for constraints
+    color_function : callable, optional
+        Function to map log values to colors (consistent across all segments)
+    save_path : str, optional
+        Path to save the figure
+    visualize_pairs : bool, default=True
+        Whether to show segment pairs with colors (True) or use log value coloring (False)
+    visualize_segment_labels : bool, default=False
+        Whether to show segment labels
+    mark_depths : bool, default=True
+        Whether to mark picked depth boundaries on the logs
+    mark_ages : bool, default=False
+        Whether to show age information
+    single_segment_mode : bool, optional
+        Explicitly set mode to single segment (True) or multi-segment (False)
+    available_columns_a, available_columns_b : list, optional
+        Lists of column names for multilogs
+    rgb_img_a, ct_img_a, rgb_img_b, ct_img_b : array-like, optional
+        RGB and CT images for cores
+    color_style_map : dict, optional
+        Dictionary mapping log column names to colors and styles
     
-    # For single segment pair mode
-    wp: Warping path array with coordinates in the global index space
-    a_start, a_end: Start and end indices of segment A in the full log
-    b_start, b_end: Start and end indices of segment B in the full log
-    quality_indicators: Optional dictionary containing quality indicators for single pair
-    
-    # For multiple segment pairs mode
-    segment_pairs: List of tuples (a_idx, b_idx) for segment pairs to visualize
-    dtw_results: Dictionary containing DTW results for each segment pair
-    segments_a, segments_b: Lists of segments in log_a and log_b
-    depth_boundaries_a, depth_boundaries_b: Depth boundaries for log_a and log_b
-    combined_quality: Combined quality indicators for multiple pairs
-    
-    # Common parameters
-    step: Sampling interval for visualization
-    picked_depths_a, picked_depths_b: Optional arrays of picked depth indices to display as markers
-    age_consideration: Whether age data should be displayed
-    ages_a, ages_b: Dictionaries containing age data for picked depths
-    all_constraint_depths_a, all_constraint_depths_b: Depths of age constraints
-    all_constraint_ages_a, all_constraint_ages_b: Ages of constraints
-    all_constraint_pos_errors_a, all_constraint_pos_errors_b: Positive errors for constraints
-    all_constraint_neg_errors_a, all_constraint_neg_errors_b: Negative errors for constraints
-    color_function: Function to map log values to colors (consistent across all segments)
-    save_path: Path to save the figure (optional)
-    visualize_pairs: Whether to show segment pairs with colors (True) or use log value coloring (False)
-    visualize_segment_labels: Whether to show segment labels (True) or not (False)
-    mark_depths: Whether to mark picked depth boundaries on the logs
-    mark_ages: Whether to show age information
-    single_segment_mode: Explicitly set mode to single segment (True) or multi-segment (False)
-    
-    # New multilog parameters
-    available_columns_a, available_columns_b: Lists of column names for multilogs
-    rgb_img_a, ct_img_a, rgb_img_b, ct_img_b: RGB and CT images for cores
-    color_style_map: Optional dictionary mapping log column names to colors and styles
-    
-    Returns:
-    --------
+    Returns
+    -------
     matplotlib.figure.Figure
         The figure containing the plot
+        
+    Examples
+    --------
+    Single segment mode:
+    >>> fig = plot_segment_pair_correlation(
+    ...     log_a, log_b, md_a, md_b,
+    ...     wp=warping_path, a_start=0, a_end=100, b_start=50, b_end=150,
+    ...     single_segment_mode=True
+    ... )
+    
+    Multi-segment mode:
+    >>> fig = plot_segment_pair_correlation(
+    ...     log_a, log_b, md_a, md_b,
+    ...     segment_pairs=[(0, 1), (1, 2)], dtw_results=results_dict,
+    ...     segments_a=segs_a, segments_b=segs_b,
+    ...     depth_boundaries_a=bounds_a, depth_boundaries_b=bounds_b,
+    ...     single_segment_mode=False
+    ... )
     """
     
-    # Default color style map if not provided
+    # Default color style map for multilogs
     if color_style_map is None:
         color_style_map = {
             'R': {'color': 'red', 'linestyle': '--'},
@@ -97,22 +146,8 @@ def plot_segment_pair_correlation(log_a, log_b, md_a, md_b,
             'CT': {'color': 'purple', 'linestyle': '-'}
         }
     
-    # Internal function for yellow-brown color mapping
     def get_yl_br_color(log_value):
-        """
-        Generate a color in the yellow-brown spectrum based on log value.
-        
-        Parameters:
-            log_value (float): Value between 0-1 to determine color
-            
-        Returns:
-            array: RGB color values in range 0-1
-            
-        Notes:
-            - Maps log values to yellow-brown color spectrum
-            - Yellow represents low values, brown represents high values
-            - RGB values are clipped to valid 0-1 range
-        """
+        """Generate yellow-brown color spectrum based on log value."""
         color = np.array([1-0.4*log_value, 1-0.7*log_value, 0.6-0.6*log_value])
         color[color > 1] = 1
         color[color < 0] = 0
@@ -122,16 +157,14 @@ def plot_segment_pair_correlation(log_a, log_b, md_a, md_b,
     is_multilog_a = log_a.ndim > 1 and log_a.shape[1] > 1
     is_multilog_b = log_b.ndim > 1 and log_b.shape[1] > 1
     
-    # Determine the mode based on provided parameters, or use explicit mode if provided
+    # Determine operating mode
     if single_segment_mode is not None:
-        # Use explicit mode setting
         multi_segment_mode = not single_segment_mode
     else:
-        # Auto-detect mode based on parameters
         multi_segment_mode = segment_pairs is not None and dtw_results is not None
         single_segment_mode = wp is not None and a_start is not None and a_end is not None and b_start is not None and b_end is not None
     
-    # Check for required parameters based on the determined mode
+    # Validate required parameters for each mode
     if single_segment_mode:
         if wp is None or a_start is None or a_end is None or b_start is None or b_end is None:
             print("Error: In single segment mode, the following parameters are required:")
@@ -156,32 +189,27 @@ def plot_segment_pair_correlation(log_a, log_b, md_a, md_b,
         print("- Or explicitly set single_segment_mode parameter")
         return None
     
-    # Use the global color function if provided, otherwise use the default
+    # Use default color function if not provided
     if color_function is None:
         color_function = get_yl_br_color
     
-    # Create figure and layout based on presence of RGB/CT images
+    # Setup figure layout based on presence of images
     has_rgb_a = rgb_img_a is not None
     has_ct_a = ct_img_a is not None
     has_rgb_b = rgb_img_b is not None
     has_ct_b = ct_img_b is not None
     
-    # Calculate number of image rows needed
     img_rows_a = sum([has_rgb_a, has_ct_a])
     img_rows_b = sum([has_rgb_b, has_ct_b])
     max_img_rows = max(img_rows_a, img_rows_b)
     
-    # Create the figure with appropriate size
+    # Create figure with appropriate size
     if max_img_rows > 0:
-        # Adjust figure height based on number of image rows
         fig_height = 20 + (max_img_rows * 3)
         fig = plt.figure(figsize=(6, fig_height))
-        
-        # Create grid with space for images
         gs = GridSpec(max_img_rows + 1, 2, height_ratios=[1]*max_img_rows + [3])
         
-        # Create axes for images
-        img_axes = []
+        # Create image axes
         current_row = 0
         
         # Core A images
@@ -191,7 +219,6 @@ def plot_segment_pair_correlation(log_a, log_b, md_a, md_b,
                            extent=[0, 1, np.max(md_a), np.min(md_a)])
             ax_rgb_a.set_ylabel('RGB A')
             ax_rgb_a.set_xticks([])
-            img_axes.append(ax_rgb_a)
             current_row += 1
         
         if has_ct_a and current_row < max_img_rows:
@@ -200,7 +227,6 @@ def plot_segment_pair_correlation(log_a, log_b, md_a, md_b,
             ax_ct_a.imshow(ct_display, aspect='auto', extent=[0, 1, np.max(md_a), np.min(md_a)], cmap='gray')
             ax_ct_a.set_ylabel('CT A')
             ax_ct_a.set_xticks([])
-            img_axes.append(ax_ct_a)
             current_row += 1
         
         # Core B images
@@ -211,7 +237,6 @@ def plot_segment_pair_correlation(log_a, log_b, md_a, md_b,
                            extent=[2, 3, np.max(md_b), np.min(md_b)])
             ax_rgb_b.set_ylabel('RGB B')
             ax_rgb_b.set_xticks([])
-            img_axes.append(ax_rgb_b)
             current_row += 1
         
         if has_ct_b and current_row < max_img_rows:
@@ -220,70 +245,50 @@ def plot_segment_pair_correlation(log_a, log_b, md_a, md_b,
             ax_ct_b.imshow(ct_display, aspect='auto', extent=[2, 3, np.max(md_b), np.min(md_b)], cmap='gray')
             ax_ct_b.set_ylabel('CT B')
             ax_ct_b.set_xticks([])
-            img_axes.append(ax_ct_b)
             current_row += 1
         
-        # Log plot at the bottom
         ax = plt.subplot(gs[-1, :])
     else:
-        # No images - simple figure
         fig = plt.figure(figsize=(6, 20))
         ax = fig.add_subplot(111)
     
-    # Plot log data - handle both multilogs and single logs
+    # Plot log data
     if is_multilog_a:
         column_names_a = available_columns_a if available_columns_a else [f"Log A{i+1}" for i in range(log_a.shape[1])]
         for i, col_name in enumerate(column_names_a):
-            # Set color and style based on column name
-            if col_name in color_style_map:
-                style = color_style_map[col_name]
-            else:
-                style = {'color': f'C{i}', 'linestyle': '-'}
-            
-            # Plot the log curve
+            style = color_style_map.get(col_name, {'color': f'C{i}', 'linestyle': '-'})
             ax.plot(log_a[:, i], md_a, color=style['color'], linestyle=style['linestyle'], 
                    linewidth=1, label=f'A: {col_name}')
     else:
-        # Single log case
         ax.plot(log_a, md_a, 'b', linewidth=1)
     
     if is_multilog_b:
         column_names_b = available_columns_b if available_columns_b else [f"Log B{i+1}" for i in range(log_b.shape[1])]
         for i, col_name in enumerate(column_names_b):
-            # Set color and style based on column name
-            if col_name in color_style_map:
-                style = color_style_map[col_name]
-            else:
-                style = {'color': f'C{i}', 'linestyle': '-'}
-            
-            # Plot the log curve
+            style = color_style_map.get(col_name, {'color': f'C{i}', 'linestyle': '-'})
             ax.plot(log_b[:, i] + 2, md_b, color=style['color'], linestyle=style['linestyle'], 
                    linewidth=1, label=f'B: {col_name}')
     else:
-        # Single log case
         ax.plot(log_b + 2, md_b, 'b', linewidth=1)
     
-    # Add dividing lines
+    # Add dividing lines and set limits
     ax.plot([1, 1], [0, np.max(md_a)], 'k', linewidth=0.5)
     ax.plot([2, 2], [0, np.max(md_b)], 'k', linewidth=0.5)
-    
-    # Set plot limits
     ax.set_xlim(0, 3)
     ax.set_ylim(0, max(np.max(md_a), np.max(md_b)))
     
-    # Prepare logs for coloring - combine multiple dimensions if needed
+    # Prepare logs for coloring
     log_a_inv = (np.mean(log_a, axis=1) if is_multilog_a else log_a)
     log_b_inv = (np.mean(log_b, axis=1) if is_multilog_b else log_b)
     
-    # Add legend if multilog is used
+    # Add legend for multilogs
     if is_multilog_a or is_multilog_b:
         handles, labels = ax.get_legend_handles_labels()
         by_label = dict(zip(labels, handles))
         ax.legend(by_label.values(), by_label.keys(), loc='upper left')
     
-    # Helper function to adapt step size based on wp length
     def adapt_step_size(step, wp):
-        # If wp is None, return the original step size
+        """Adapt step size based on warping path length."""
         if wp is None:
             return step
             
@@ -292,9 +297,8 @@ def plot_segment_pair_correlation(log_a, log_b, md_a, md_b,
             local_step = local_step // 2
         return local_step
     
-    # Helper function to handle single point segments
     def visualize_single_point_segment(wp, a_start, b_start, log_a_inv, log_b_inv, md_a, md_b, color_function):
-        # If wp is None, we can't visualize the specific correlation pattern
+        """Handle visualization of single point segments."""
         if wp is None:
             return
             
@@ -303,7 +307,6 @@ def plot_segment_pair_correlation(log_a, log_b, md_a, md_b,
             single_depth = md_a[single_idx]
             single_value = log_a_inv[single_idx]
             
-            # For each point in log_b that maps to our single point
             wp_filtered = wp[wp[:, 0] == a_start] if len(wp) > 0 else wp
             for i in range(len(wp_filtered)):
                 if i+1 >= len(wp_filtered):
@@ -313,18 +316,16 @@ def plot_segment_pair_correlation(log_a, log_b, md_a, md_b,
                 b_depth = md_b[b_idx]
                 b_value = log_b_inv[b_idx]
                 
-                # Get the next point for continuous polygon
                 next_b_idx = min(max(0, int(wp_filtered[i+1, 1])), len(md_b)-1)
                 next_b_depth = md_b[next_b_idx]
                 
-                # Draw segment in log_b as filled polygon
+                # Draw filled polygons for correlation
                 x = [2, 3, 3, 2]
                 y = [b_depth, b_depth, next_b_depth, next_b_depth]
                 b_fill_value = np.mean(log_b_inv[min(b_idx,next_b_idx):max(b_idx,next_b_idx)+1])
                 fill_color = color_function(b_fill_value)
                 ax.fill(x, y, facecolor=fill_color, edgecolor=fill_color, linewidth=0)
                 
-                # Draw connection to the single point
                 mean_value = (single_value + b_value) * 0.5
                 x = [1, 2, 2, 1]
                 y = [single_depth, b_depth, next_b_depth, single_depth]
@@ -336,7 +337,6 @@ def plot_segment_pair_correlation(log_a, log_b, md_a, md_b,
             single_depth = md_b[single_idx]
             single_value = log_b_inv[single_idx]
             
-            # For each point in log_a that maps to our single point
             wp_filtered = wp[wp[:, 1] == b_start] if len(wp) > 0 else wp
             for i in range(len(wp_filtered)):
                 if i+1 >= len(wp_filtered):
@@ -346,31 +346,28 @@ def plot_segment_pair_correlation(log_a, log_b, md_a, md_b,
                 a_depth = md_a[a_idx]
                 a_value = log_a_inv[a_idx]
                 
-                # Get the next point for continuous polygon
                 next_a_idx = min(max(0, int(wp_filtered[i+1, 0])), len(md_a)-1)
                 next_a_depth = md_a[next_a_idx]
                 
-                # Draw segment in log_a as filled polygon
+                # Draw filled polygons for correlation
                 x = [0, 1, 1, 0]
                 y = [a_depth, a_depth, next_a_depth, next_a_depth]
                 a_fill_value = np.mean(log_a_inv[min(a_idx,next_a_idx):max(a_idx,next_a_idx)+1])
                 fill_color = color_function(a_fill_value)
                 ax.fill(x, y, facecolor=fill_color, edgecolor=fill_color, linewidth=0)
                 
-                # Draw connection to the single point
                 mean_value = (single_value + a_value) * 0.5
                 x = [1, 2, 2, 1]
                 y = [a_depth, single_depth, single_depth, next_a_depth]
                 fill_color = color_function(mean_value)
                 ax.fill(x, y, facecolor=fill_color, edgecolor=fill_color, linewidth=0)
     
-    # Helper function to visualize normal (non-single-point) segments
     def visualize_normal_segments(wp, a_start, a_end, b_start, b_end, log_a_inv, log_b_inv, md_a, md_b, step_size, color_function):
-        # If wp is None, we can't visualize the specific correlation pattern
+        """Visualize normal (non-single-point) segments with correlation coloring."""
         if wp is None:
             return
             
-        # Filter wp to only include points within this segment if needed
+        # Filter wp to segment if in multi-segment mode
         if multi_segment_mode:
             mask = ((wp[:, 0] >= a_start) & (wp[:, 0] <= a_end) & 
                     (wp[:, 1] >= b_start) & (wp[:, 1] <= b_end))
@@ -381,7 +378,7 @@ def plot_segment_pair_correlation(log_a, log_b, md_a, md_b,
         if len(wp_segment) < 2:
             return
         
-        # Draw intermediate segments with proper coloring
+        # Draw correlation intervals with proper coloring
         i_max = -1
         for i in range(0, len(wp_segment)-step_size, step_size):
             try:
@@ -393,7 +390,7 @@ def plot_segment_pair_correlation(log_a, log_b, md_a, md_b,
                 q_i = min(max(0, int(wp_segment[i, 1])), len(md_b)-1)
                 q_i_step = min(max(0, int(wp_segment[i+step_size, 1])), len(md_b)-1)
                 
-                # intervals for log on the left:
+                # Draw correlation intervals for both logs
                 depth1_base = md_a[p_i]
                 depth1_top = md_a[p_i_step]
                 if p_i_step < p_i:
@@ -405,7 +402,6 @@ def plot_segment_pair_correlation(log_a, log_b, md_a, md_b,
                 else:
                     mean_log1 = log_a_inv[p_i]
                     
-                # intervals for log on the right:
                 depth2_base = md_b[q_i]
                 depth2_top = md_b[q_i_step]
                 if q_i_step < q_i:  
@@ -417,7 +413,7 @@ def plot_segment_pair_correlation(log_a, log_b, md_a, md_b,
                 else:
                     mean_log2 = log_b_inv[q_i]
                     
-    # intervals between the two logs:
+                # Draw correlation between logs
                 if (p_i_step < p_i) or (q_i_step < q_i):
                     mean_logs = (mean_log1 + mean_log2)*0.5
                     x = [1, 2, 2, 1]
@@ -432,13 +428,11 @@ def plot_segment_pair_correlation(log_a, log_b, md_a, md_b,
             try:
                 i = i_max
                 
-                # Ensure indices are within valid ranges
                 p_i_step = min(max(0, int(wp_segment[i+step_size, 0])), len(md_a)-1)
                 p_last = min(max(0, int(wp_segment[-1, 0])), len(md_a)-1)
                 q_i_step = min(max(0, int(wp_segment[i+step_size, 1])), len(md_b)-1)
                 q_last = min(max(0, int(wp_segment[-1, 1])), len(md_b)-1)
                 
-                # Last layer, log on left
                 depth1_base = md_a[p_i_step]
                 depth1_top = md_a[p_last]
                 if p_last < p_i_step:
@@ -448,7 +442,6 @@ def plot_segment_pair_correlation(log_a, log_b, md_a, md_b,
                     fill_color = color_function(mean_log1)
                     ax.fill(x, y, facecolor=fill_color, edgecolor=fill_color, linewidth=0)
                 
-                # Last layer, log on right
                 depth2_base = md_b[q_i_step]
                 depth2_top = md_b[q_last]
                 if q_last < q_i_step:  
@@ -458,7 +451,6 @@ def plot_segment_pair_correlation(log_a, log_b, md_a, md_b,
                     fill_color = color_function(mean_log2)
                     ax.fill(x, y, facecolor=fill_color, edgecolor=fill_color, linewidth=0)
                 
-                # Intervals between the two logs (last layer)
                 if (p_last < p_i_step) or (q_last < q_i_step):
                     mean_logs = (mean_log1 + mean_log2)*0.5
                     x = [1, 2, 2, 1]
@@ -468,9 +460,9 @@ def plot_segment_pair_correlation(log_a, log_b, md_a, md_b,
             except Exception as e:
                 print(f"Error processing last segment: {e}")
     
-    # Helper function to add age constraint markers and annotations
     def add_age_constraints(constraint_depths, constraint_ages, constraint_pos_errors, constraint_neg_errors, 
                            md_array, is_core_a=True):
+        """Add age constraint markers and annotations to the plot."""
         if constraint_depths is None or constraint_ages is None:
             return
             
@@ -479,161 +471,129 @@ def plot_segment_pair_correlation(log_a, log_b, md_a, md_b,
         constraint_pos_errors = np.array(constraint_pos_errors) if not isinstance(constraint_pos_errors, np.ndarray) else constraint_pos_errors
         constraint_neg_errors = np.array(constraint_neg_errors) if not isinstance(constraint_neg_errors, np.ndarray) else constraint_neg_errors
         
-        # Set position for markers based on core (A or B)
+        # Set position based on core A or B
         xmin = 0.0 if is_core_a else 0.67
         xmax = 0.33 if is_core_a else 1.0
         text_pos = 0.5 if is_core_a else 2.5
         
         for i, depth_cm in enumerate(constraint_depths):
-            # Find nearest index in depth array
             nearest_idx = np.argmin(np.abs(md_array - depth_cm))
-            adj_depth = md_array[nearest_idx]  # Use actual depth
+            adj_depth = md_array[nearest_idx]
             
-            # Draw a red horizontal line at the constraint depth
+            # Draw red horizontal line at constraint depth
             ax.axhline(y=adj_depth, xmin=xmin, xmax=xmax, color='r', linestyle='--', linewidth=1)
             
-            # Add age annotation below the red line
+            # Add age annotation
             age_text = f"{constraint_ages[i]:.0f} ({constraint_pos_errors[i]:.0f}/{constraint_neg_errors[i]:.0f})"
             ax.text(text_pos, adj_depth+5, age_text, fontsize=8, color='r', ha='center', va='top',
                    bbox=dict(facecolor='white', alpha=0.7, pad=2))
     
-    # Helper function to add picked depth markers and age annotations
     def add_picked_depths(picked_depths, md_array, ages=None, is_core_a=True):
+        """Add picked depth markers and age annotations to the plot."""
         if picked_depths is None or len(picked_depths) == 0:
             return
         
-        # Set position for markers based on core (A or B)
         xmin = 0.0 if is_core_a else 0.67
         xmax = 0.33 if is_core_a else 1.0
         text_pos = 0.5 if is_core_a else 2.5
         
-        # Process different types of picked_depths input and convert to appropriate depth values
-        if isinstance(picked_depths, (list, np.ndarray)):
-            for depth in picked_depths:
-                # Handle tuple case (depth, category)
-                if isinstance(depth, tuple) and len(depth) >= 1:
-                    depth_value = depth[0]
-                else:
-                    depth_value = depth
+        for depth in picked_depths:
+            # Handle tuple case (depth, category)
+            if isinstance(depth, tuple) and len(depth) >= 1:
+                depth_value = depth[0]
+            else:
+                depth_value = depth
+            
+            # Convert to actual depth value
+            if isinstance(depth_value, (int, np.integer)) and depth_value < len(md_array):
+                adj_depth = md_array[depth_value]
+            else:
+                try:
+                    adj_depth = float(depth_value)
+                except (ValueError, TypeError):
+                    print(f"Warning: Could not convert {depth_value} to a valid depth. Skipping.")
+                    continue
+            
+            # Draw horizontal line at picked depth
+            ax.axhline(y=adj_depth, xmin=xmin, xmax=xmax, color='black', linestyle=':', linewidth=1)
+            
+            # Add age annotation if enabled
+            if mark_ages and ages and 'depths' in ages and 'ages' in ages:
+                age_depths = np.array(ages['depths'])
+                closest_idx = np.argmin(np.abs(age_depths - adj_depth))
+                age = ages['ages'][closest_idx]
+                pos_err = ages['pos_uncertainties'][closest_idx]
+                neg_err = ages['neg_uncertainties'][closest_idx]
                 
-                # Get the actual depth value
-                if isinstance(depth_value, (int, np.integer)) and depth_value < len(md_array):
-                    # It's an index, convert to actual depth
-                    adj_depth = md_array[depth_value]
-                else:
-                    # It's already a depth value, or we need to find nearest
-                    if isinstance(depth_value, (float, np.floating, int, np.integer)):
-                        adj_depth = depth_value
-                    else:
-                        # If it's something else, try to convert to float
-                        try:
-                            adj_depth = float(depth_value)
-                        except (ValueError, TypeError):
-                            print(f"Warning: Could not convert {depth_value} to a valid depth. Skipping.")
-                            continue
-                
-                # Draw a horizontal line at the picked depth
-                ax.axhline(y=adj_depth, xmin=xmin, xmax=xmax, color='black', linestyle=':', linewidth=1)
-                
-                # Add age annotation if mark_ages is enabled and age data is available
-                if mark_ages and ages and 'depths' in ages and 'ages' in ages:
-                    # Find the closest depth in ages
-                    age_depths = np.array(ages['depths'])
-                    closest_idx = np.argmin(np.abs(age_depths - adj_depth))
-                    age = ages['ages'][closest_idx]
-                    pos_err = ages['pos_uncertainties'][closest_idx]
-                    neg_err = ages['neg_uncertainties'][closest_idx]
-                    
-                    # Add text annotation with age and uncertainty
-                    age_text = f"{age:.0f} (+{pos_err:.0f}/-{neg_err:.0f})"
-                    ax.text(text_pos, adj_depth-2, age_text, fontsize=7, color='black', ha='center', va='bottom',
-                        bbox=dict(facecolor='white', alpha=0.7, pad=1))
+                age_text = f"{age:.0f} (+{pos_err:.0f}/-{neg_err:.0f})"
+                ax.text(text_pos, adj_depth-2, age_text, fontsize=7, color='black', ha='center', va='bottom',
+                    bbox=dict(facecolor='white', alpha=0.7, pad=1))
     
-    # Helper function to process a single segment pair visualization
     def visualize_segment_pair(wp, a_start, a_end, b_start, b_end, color=None, segment_label=None):
+        """Process visualization for a single segment pair."""
         # Highlight the segments being correlated
         segment_a_depths = md_a[a_start:a_end+1]
         segment_b_depths = md_b[b_start:b_end+1]
         
-        # Highlight segment A
+        # Highlight segments
         if len(segment_a_depths) > 0:
             ax.axhspan(min(segment_a_depths), max(segment_a_depths), 
                       xmin=0, xmax=0.33, alpha=0.2, 
                       color='green' if color is None else color)
         
-        # Highlight segment B
         if len(segment_b_depths) > 0:
             ax.axhspan(min(segment_b_depths), max(segment_b_depths), 
                       xmin=0.67, xmax=1.0, alpha=0.2, 
                       color='green' if color is None else color)
         
-        # Add segment pair label if provided
+        # Add segment labels if provided
         if segment_label is not None:
-            # Calculate center positions
             center_a = (min(segment_a_depths) + max(segment_a_depths)) / 2 if len(segment_a_depths) > 0 else a_start
             center_b = (min(segment_b_depths) + max(segment_b_depths)) / 2 if len(segment_b_depths) > 0 else b_start
             
-            # Display pair labels at center
             ax.text(0.5, center_a, segment_label, color=color, fontweight='bold', ha='center')
             ax.text(2.5, center_b, segment_label, color=color, fontweight='bold', ha='center')
 
-        # If wp is None, we're just highlighting the segment without coloring
         if wp is None:
             return
 
-        # Single-point handling
+        # Handle different segment types
         if a_end - a_start == 0 or b_end - b_start == 0:
             try:
                 visualize_single_point_segment(wp, a_start, b_start, log_a_inv, log_b_inv, md_a, md_b, color_function)
             except Exception as e:
                 print(f"Error processing single-point correlation: {e}")
         else:
-            # Normal segments (not single point), use adaptive step size
             local_step = adapt_step_size(step, wp)
-            
-            # Draw segments with proper coloring
             visualize_normal_segments(wp, a_start, a_end, b_start, b_end, log_a_inv, log_b_inv, md_a, md_b, local_step, color_function)
 
-
-    # Choose between single segment and multi-segment modes
+    # Main visualization logic
     if single_segment_mode:
-        # Single segment pair mode
-        visualize_segment_pair(wp, a_start, a_end, b_start, b_end) # Standard visualization with colored segments
+        visualize_segment_pair(wp, a_start, a_end, b_start, b_end)
     else:
-        # Multiple segment pairs mode
         if visualize_pairs:
-            # Highlight each segment pair with a unique color
+            # Highlight each segment pair with unique color
             for idx, (a_idx, b_idx) in enumerate(segment_pairs):
-                # Use a color based on the index
                 color = plt.cm.tab10(idx % 10)
                 
-                # Get segment boundaries
                 a_start = depth_boundaries_a[segments_a[a_idx][0]]
                 a_end = depth_boundaries_a[segments_a[a_idx][1]]
                 b_start = depth_boundaries_b[segments_b[b_idx][0]]
                 b_end = depth_boundaries_b[segments_b[b_idx][1]]
                 
-                # Add segment visualization with label
-                if visualize_segment_labels:
-                    segment_label = f"({a_idx+1}, {b_idx+1})"
-                else:
-                    segment_label = None
+                segment_label = f"({a_idx+1}, {b_idx+1})" if visualize_segment_labels else None
                 
-                # Highlight the segment
                 visualize_segment_pair(None, a_start, a_end, b_start, b_end, color=color, segment_label=segment_label)
                 
-                # Get warping path for this segment pair
+                # Draw warping path for visualization
                 paths, _, _ = dtw_results.get((a_idx, b_idx), ([], [], []))
                 if paths and len(paths) > 0:
-                    # Extract warping path points
                     wp_segment = paths[0]
                     if len(wp_segment) > 0:
-                        # Filter to points in this segment
                         mask = ((wp_segment[:, 0] >= a_start) & (wp_segment[:, 0] <= a_end) & 
                                 (wp_segment[:, 1] >= b_start) & (wp_segment[:, 1] <= b_end))
                         wp_segment = wp_segment[mask]
                         
-                        # Draw this segment's warping path (sparser for visibility)
                         if len(wp_segment) > 0:
                             step_size = max(1, len(wp_segment) // 15)
                             for i in range(0, len(wp_segment), step_size):
@@ -643,85 +603,65 @@ def plot_segment_pair_correlation(log_a, log_b, md_a, md_b,
                                 q_depth = md_b[q_idx]
                                 plt.plot([1, 2], [p_depth, q_depth], color=color, linestyle=':', linewidth=0.7)
         else:
-            # Process each segment pair using the coloring style from plot_segment_correlation
+            # Process each segment pair with coloring
             for a_idx, b_idx in segment_pairs:
-                # Get segment boundaries
                 a_start = depth_boundaries_a[segments_a[a_idx][0]]
                 a_end = depth_boundaries_a[segments_a[a_idx][1]]
                 b_start = depth_boundaries_b[segments_b[b_idx][0]]
                 b_end = depth_boundaries_b[segments_b[b_idx][1]]
                 
-                # Get warping path for this segment
                 paths, _, _ = dtw_results.get((a_idx, b_idx), ([], [], []))
                 if not paths or len(paths) == 0:
                     continue
                     
                 wp = paths[0]
                 
-                # Visualize this segment with its warping path
                 if a_end - a_start == 0 or b_end - b_start == 0:
-                    # Single point handling
                     visualize_single_point_segment(wp, a_start, b_start, log_a_inv, log_b_inv, md_a, md_b, color_function)
                 else:
-                    # Normal segment handling
                     local_step = adapt_step_size(step, wp)
                     visualize_normal_segments(wp, a_start, a_end, b_start, b_end, log_a_inv, log_b_inv, md_a, md_b, local_step, color_function)
     
-    # Add age constraint depths for log A if provided (marked in red)
+    # Add age constraint markers
     if mark_ages and age_consideration and all_constraint_depths_a is not None and all_constraint_ages_a is not None:
         add_age_constraints(
-            all_constraint_depths_a, 
-            all_constraint_ages_a, 
-            all_constraint_pos_errors_a, 
-            all_constraint_neg_errors_a, 
-            md_a, 
-            is_core_a=True
+            all_constraint_depths_a, all_constraint_ages_a, 
+            all_constraint_pos_errors_a, all_constraint_neg_errors_a, 
+            md_a, is_core_a=True
         )
 
-    # Add age constraint depths for log B if provided (marked in red)
     if mark_ages and age_consideration and all_constraint_depths_b is not None and all_constraint_ages_b is not None:
         add_age_constraints(
-            all_constraint_depths_b, 
-            all_constraint_ages_b, 
-            all_constraint_pos_errors_b, 
-            all_constraint_neg_errors_b, 
-            md_b, 
-            is_core_a=False
+            all_constraint_depths_b, all_constraint_ages_b, 
+            all_constraint_pos_errors_b, all_constraint_neg_errors_b, 
+            md_b, is_core_a=False
         )
     
-    # Add picked depths for cores if mark_depths is enabled
+    # Add picked depth markers
     if mark_depths:
-        # In multi-segment mode, use depth_boundaries converted to actual depths
         if multi_segment_mode:
-            # For core A: Either use the provided picked_depths or convert depth_boundaries
             if picked_depths_a is not None:
-                # Use the provided picked depths directly
                 add_picked_depths(picked_depths_a, md_a, ages_a if mark_ages else None, is_core_a=True)
             elif depth_boundaries_a is not None:
-                # Convert depth boundary indices to actual depth values
                 converted_depths_a = [md_a[idx] for idx in depth_boundaries_a]
                 add_picked_depths(converted_depths_a, md_a, ages_a if mark_ages else None, is_core_a=True)
             
-            # For core B: Either use the provided picked_depths or convert depth_boundaries
             if picked_depths_b is not None:
-                # Use the provided picked depths directly
                 add_picked_depths(picked_depths_b, md_b, ages_b if mark_ages else None, is_core_a=False)
             elif depth_boundaries_b is not None:
-                # Convert depth boundary indices to actual depth values
                 converted_depths_b = [md_b[idx] for idx in depth_boundaries_b]
                 add_picked_depths(converted_depths_b, md_b, ages_b if mark_ages else None, is_core_a=False)
         else:
-            # Single segment mode - direct plotting
             add_picked_depths(picked_depths_a, md_a, ages_a if mark_ages else None, is_core_a=True)
             add_picked_depths(picked_depths_b, md_b, ages_b if mark_ages else None, is_core_a=False)
     
     # Setup axes and labels
     ax.set_xticks([])
-    ax.invert_yaxis()  # Invert y-axis to show depth correctly
+    ax.invert_yaxis()
     
-    # Create depth labels at regular intervals for core A
+    # Create depth labels
     labels = []
-    start_depth = 0  # Start from 0 depth
+    start_depth = 0
     end_depth = np.floor(np.max(md_a)/100) * 100
     for label in np.arange(start_depth, end_depth+1, 100):
         labels.append(str(int(label)))
@@ -729,19 +669,19 @@ def plot_segment_pair_correlation(log_a, log_b, md_a, md_b,
     ax.set_yticklabels(labels)
     ax.set_ylabel('depth (cm)', fontsize=12)
     
-    # Create depth labels for core B on the right side
+    # Create depth labels for core B on right side
     ax2 = ax.twinx()
     labels = []
-    start_depth = 0  # Start from 0 depth
+    start_depth = 0
     end_depth = np.floor(np.max(md_b)/100) * 100
     for label in np.arange(start_depth, end_depth+1, 100):
         labels.append(str(int(label)))
     ax2.set_yticks(np.arange(start_depth, end_depth+1, 100))
     ax2.set_yticklabels(labels)
     ax2.set_ylim(0, max(np.max(md_a), np.max(md_b)))
-    ax2.invert_yaxis()  # Invert y-axis to show depth correctly
+    ax2.invert_yaxis()
 
-    # Add legend for different markers when age information is shown
+    # Add legend for age markers
     if mark_ages:
         legend_elements = [
             Line2D([0], [0], color='black', linestyle=':', label='Selected Depths'),
@@ -749,9 +689,8 @@ def plot_segment_pair_correlation(log_a, log_b, md_a, md_b,
         ]
         ax.legend(handles=legend_elements, loc='lower center', fontsize=8, title="Ages (Year BP)")
     
-    # Add quality indicators if provided
+    # Add quality indicators
     if quality_indicators is not None or combined_quality is not None:
-        # Use appropriate quality indicators based on mode
         qi = combined_quality if multi_segment_mode else quality_indicators
         if qi:
             quality_text = (
@@ -768,9 +707,8 @@ def plot_segment_pair_correlation(log_a, log_b, md_a, md_b,
                        fontsize=12, verticalalignment='top', horizontalalignment='right',
                        bbox=dict(facecolor='white', alpha=0.8))
 
-    # Save figure if path is provided
+    # Save figure if path provided
     if save_path:
-        # Use the path as-is if it starts with outputs/, otherwise add outputs/
         if save_path.startswith('outputs'):
             final_save_path = save_path
         else:
@@ -797,8 +735,8 @@ def plot_multilog_segment_pair_correlation(log_a, log_b, md_a, md_b,
     """
     Plot correlation between two multilogs (multiple log curves) with RGB and CT images.
     
-    Parameters:
-    -----------
+    Parameters
+    ----------
     log_a, log_b : array-like
         Multidimensional log data arrays with shape (n_samples, n_logs)
     md_a, md_b : array-like
@@ -828,19 +766,27 @@ def plot_multilog_segment_pair_correlation(log_a, log_b, md_a, md_b,
     title : str, optional
         Plot title
     
-    Returns:
-    --------
-    fig : matplotlib.figure.Figure
+    Returns
+    -------
+    matplotlib.figure.Figure
         The created figure
+        
+    Examples
+    --------
+    >>> fig = plot_multilog_segment_pair_correlation(
+    ...     multilog_a, multilog_b, depths_a, depths_b,
+    ...     warping_path, 0, 100, 50, 150,
+    ...     available_columns=['R', 'G', 'B', 'MS'],
+    ...     rgb_img_a=rgb_image_a, ct_img_a=ct_image_a
+    ... )
     """
     
-    # Determine if we have images to display
+    # Check for images
     has_rgb_a = rgb_img_a is not None
     has_ct_a = ct_img_a is not None
     has_rgb_b = rgb_img_b is not None
     has_ct_b = ct_img_b is not None
     
-    # Calculate the number of subplot rows needed
     num_img_rows_a = (1 if has_rgb_a else 0) + (1 if has_ct_a else 0)
     num_img_rows_b = (1 if has_rgb_b else 0) + (1 if has_ct_b else 0)
     num_img_rows = max(num_img_rows_a, num_img_rows_b)

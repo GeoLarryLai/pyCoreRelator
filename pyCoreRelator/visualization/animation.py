@@ -1,5 +1,13 @@
 """
-Animation and GIF creation functions for DTW visualization
+Animation and GIF creation functions for DTW visualization.
+
+Included Functions:
+- create_gif: Create a GIF animation from PNG frames in a specified folder
+- create_segment_dtw_animation: Create an optimized animation of DTW correlations between individual segment pairs
+
+This module provides functionality for creating animated visualizations of DTW 
+(Dynamic Time Warping) correlations between core segments, including GIF generation
+from frame sequences and comprehensive animation creation with age constraints.
 """
 
 import numpy as np
@@ -16,6 +24,22 @@ from ..visualization.plotting import plot_segment_pair_correlation
 
 
 def create_gif(frame_folder, output_filename, duration=300):
+    """
+    Create a GIF animation from PNG frames in a specified folder.
+    
+    Args:
+        frame_folder (str): Path to folder containing PNG frame files
+        output_filename (str): Output GIF filename with path
+        duration (int, optional): Duration between frames in milliseconds. Defaults to 300.
+    
+    Returns:
+        str: Status message indicating success or failure
+        
+    Example:
+        >>> result = create_gif('outputs/frames', 'outputs/animation.gif', duration=500)
+        >>> print(result)
+        Created GIF with 25 frames at outputs/animation.gif
+    """
     frame_files = sorted([f for f in os.listdir(frame_folder) if f.endswith('.png')])
     
     if not frame_files:
@@ -29,7 +53,7 @@ def create_gif(frame_folder, output_filename, duration=300):
                         desc=f"Processing frames for {output_filename}"))
     
     first_img.save(
-        output_filename,  # Make sure this is a string, not a tuple
+        output_filename,
         format='GIF',
         append_images=frames_iterator,
         save_all=True,
@@ -52,11 +76,46 @@ def create_segment_dtw_animation(log_a, log_b, md_a, md_b, dtw_results, valid_dt
                               all_constraint_pos_errors_a=None, all_constraint_pos_errors_b=None,
                               all_constraint_neg_errors_a=None, all_constraint_neg_errors_b=None):
     """
-    Create an optimized animation of DTW correlations with full resolution.
-    Optionally include age information when age_consideration is enabled.
+    Create an optimized animation of DTW correlations between individual segment pairs.
+    
+    This function generates frame-by-frame visualizations of DTW segment correlations
+    with optional age constraints and creates a comprehensive GIF animation showing
+    the correlation patterns across different segment pairs.
+    
+    Args:
+        log_a, log_b (array): Normalized log data for cores A and B (0-1 range)
+        md_a, md_b (array): Measured depth arrays for cores A and B
+        dtw_results (dict): Dictionary containing DTW paths and quality indicators
+        valid_dtw_pairs (set): Set of valid segment pair indices for correlation
+        segments_a, segments_b (list): List of segment boundary indices
+        depth_boundaries_a, depth_boundaries_b (array): Depth boundary arrays
+        color_interval_size (int, optional): Step size for warping path visualization
+        keep_frames (bool, optional): Whether to keep individual PNG frames. Defaults to True.
+        output_filename (str, optional): Output GIF filename. Defaults to 'SegmentPair_DTW_animation.gif'.
+        max_frames (int, optional): Maximum number of frames to generate. Defaults to 100.
+        parallel (bool, optional): Whether to use parallel processing. Defaults to True.
+        debug (bool, optional): Enable debug output. Defaults to False.
+        age_consideration (bool, optional): Include age information in visualization. Defaults to False.
+        ages_a, ages_b (dict, optional): Age data dictionaries with 'depths', 'ages', 'pos_uncertainties', 'neg_uncertainties'
+        restricted_age_correlation (bool, optional): Use restricted age correlation mode. Defaults to True.
+        all_constraint_depths_a, all_constraint_depths_b (array, optional): Constraint depth arrays
+        all_constraint_ages_a, all_constraint_ages_b (array, optional): Constraint age arrays
+        all_constraint_pos_errors_a, all_constraint_pos_errors_b (array, optional): Positive error arrays
+        all_constraint_neg_errors_a, all_constraint_neg_errors_b (array, optional): Negative error arrays
+    
+    Returns:
+        str: Path to the created GIF animation file
+        
+    Example:
+        >>> output_path = create_segment_dtw_animation(
+        ...     log_a, log_b, md_a, md_b, dtw_results, valid_pairs,
+        ...     segments_a, segments_b, depths_a, depths_b,
+        ...     max_frames=50, age_consideration=True,
+        ...     ages_a=age_data_a, ages_b=age_data_b
+        ... )
+        >>> print(f"Animation saved to: {output_path}")
     """
 
-    # Helper funcition: Create a global colormap function that uses the full log data
     def create_global_colormap(log_a, log_b):
         """
         Create a global colormap function based on the full normalized log data.
@@ -68,10 +127,6 @@ def create_segment_dtw_animation(log_a, log_b, md_a, md_b, dtw_results, valid_dt
         Returns:
             function: A function that maps log values to consistent colors
         """
-        # Since logs are already normalized to 0-1 range, we don't need to recalculate
-        # the range but can directly create a function that maps to the yellow-brown spectrum
-        # with consistent coloring across all segments
-        
         def global_color_function(log_value):
             """
             Generate a color in the yellow-brown spectrum based on log value using global mapping.
@@ -82,7 +137,6 @@ def create_segment_dtw_animation(log_a, log_b, md_a, md_b, dtw_results, valid_dt
             Returns:
                 array: RGB color values in range 0-1
             """
-
             log_value = 1 - log_value
 
             color = np.array([1-0.4*log_value, 1-0.7*log_value, 0.6-0.6*log_value])
@@ -91,8 +145,6 @@ def create_segment_dtw_animation(log_a, log_b, md_a, md_b, dtw_results, valid_dt
             return color
         
         return global_color_function
-    
-    #########################################################
 
     print("=== Starting Segment DTW Animation Creation ===")
     
@@ -117,8 +169,8 @@ def create_segment_dtw_animation(log_a, log_b, md_a, md_b, dtw_results, valid_dt
         
         print(f"Processing {len(valid_pairs_list)} segment pairs for animation...")
         
-        # Function to create a single frame
         def create_frame(pair_idx, pair):
+            """Create a single animation frame for a segment pair."""
             a_idx, b_idx = pair
             frame_filename = os.path.join(frames_dir, f"SegmentPair_{a_idx+1:04d}_{b_idx+1:04d}.png")
 
@@ -157,7 +209,6 @@ def create_segment_dtw_animation(log_a, log_b, md_a, md_b, dtw_results, valid_dt
                 plt.switch_backend('Agg')
                 
                 # Filter picked depths to only include those near the segment
-                # This reduces computational load without affecting resolution
                 picked_depths_a = [idx for idx in range(len(depth_boundaries_a)) 
                                  if idx > 0 and idx < len(depth_boundaries_a) - 1 and 
                                  a_start - 20 <= depth_boundaries_a[idx] <= a_end + 20]
@@ -172,7 +223,7 @@ def create_segment_dtw_animation(log_a, log_b, md_a, md_b, dtw_results, valid_dt
                 # Create correlation plot using single segment mode with age information
                 fig = plot_segment_pair_correlation(
                     log_a, log_b, md_a, md_b, 
-                    single_segment_mode=True,  # Explicitly set to single segment mode
+                    single_segment_mode=True,
                     # Single segment mode parameters
                     wp=wp, a_start=a_start, a_end=a_end, b_start=b_start, b_end=b_end,
                     # Common parameters
@@ -219,9 +270,6 @@ def create_segment_dtw_animation(log_a, log_b, md_a, md_b, dtw_results, valid_dt
                     age_b_pos_err = ages_b['pos_uncertainties'][b_age_idx]
                     age_b_neg_err = ages_b['neg_uncertainties'][b_age_idx]
                     
-                    # title += f"\nAge A: {age_a:.1f} yrs (+{age_a_pos_err:.1f}/-{age_a_neg_err:.1f}), " + \
-                    #         f"Age B: {age_b:.1f} yrs (+{age_b_pos_err:.1f}/-{age_b_neg_err:.1f})"
-                    
                     # Add correlation mode information
                     if restricted_age_correlation:
                         title += f"\nMode: Restricted Age Correlation"
@@ -230,7 +278,7 @@ def create_segment_dtw_animation(log_a, log_b, md_a, md_b, dtw_results, valid_dt
                 
                 fig.suptitle(title, fontsize=12, y=1.02)
                 
-                # Save with full resolution (using original DPI of 150)
+                # Save with full resolution
                 plt.savefig(frame_filename, dpi=150, bbox_inches='tight')
                 plt.close(fig)
                 
@@ -246,10 +294,7 @@ def create_segment_dtw_animation(log_a, log_b, md_a, md_b, dtw_results, valid_dt
         # Process frames in parallel or sequentially
         if parallel:
             print("Generating frames in parallel...")
-            # Use moderate number of jobs to prevent memory issues while maintaining performance
-            n_jobs = -1  # Lower number of parallel jobs to prevent memory issues
-            
-            # Set verbose level based on debug parameter
+            n_jobs = -1
             verbose_level = 10 if debug else 0
             
             png_files = Parallel(n_jobs=n_jobs, verbose=verbose_level)(
@@ -288,8 +333,7 @@ def create_segment_dtw_animation(log_a, log_b, md_a, md_b, dtw_results, valid_dt
                         gc.collect()
                 
                 if frames:
-                    # print(f"Creating GIF with {len(frames)} frames...")
-                    # Save all frames in a single GIF regardless of the number
+                    # Save all frames in a single GIF
                     os.makedirs('outputs', exist_ok=True)
                     output_filepath = os.path.join('outputs', output_filename) 
                     frames[0].save(output_filepath, format='GIF', append_images=frames[1:], 
@@ -337,21 +381,62 @@ def visualize_dtw_results_from_csv(csv_path, log_a, log_b, md_a, md_b,
                                   all_constraint_ages_a=None, all_constraint_ages_b=None,
                                   all_constraint_pos_errors_a=None, all_constraint_pos_errors_b=None,
                                   all_constraint_neg_errors_a=None, all_constraint_neg_errors_b=None,
-                                  # Age constraint visualization parameters (default None)
                                   age_constraint_a_source_cores=None,
                                   age_constraint_b_source_cores=None,
                                   core_a_name=None,
                                   core_b_name=None):
     """
-    UPDATED: Handle new compact CSV format with fewer columns.
-    age_constraint_a_source_cores : list or None, default=None
-        List of source core names for each age constraint in core A.
-        When provided, vertical constraint lines will be drawn in DTW matrix frames.
-    age_constraint_b_source_cores : list or None, default=None
-        List of source core names for each age constraint in core B.
-        When provided, horizontal constraint lines will be drawn in DTW matrix frames.
-    core_a_name, core_b_name : str or None, default=Nonew
-        Core names for determining same vs adjacent core coloring.
+    Create comprehensive DTW visualization animations from CSV mapping results.
+    
+    This function processes CSV files containing DTW mapping results and generates
+    two types of animated visualizations: correlation plots and distance matrix plots.
+    It handles both correlation mappings and matrix visualizations with age constraints.
+    
+    Args:
+        csv_path (str): Path to CSV file containing DTW mapping results
+        log_a, log_b (array): Normalized log data for cores A and B
+        md_a, md_b (array): Measured depth arrays for cores A and B
+        dtw_results (dict): Dictionary containing DTW paths and quality indicators
+        valid_dtw_pairs (set): Set of valid segment pair indices
+        segments_a, segments_b (list): Lists of segment boundary indices
+        depth_boundaries_a, depth_boundaries_b (array): Depth boundary arrays
+        dtw_distance_matrix_full (array): Full DTW distance matrix
+        color_interval_size (int, optional): Step size for warping path visualization
+        max_frames (int, optional): Maximum number of frames to generate. Defaults to 150.
+        debug (bool, optional): Enable debug output. Defaults to False.
+        creategif (bool, optional): Whether to create GIF files. Defaults to True.
+        keep_frames (bool, optional): Whether to keep individual PNG frames. Defaults to True.
+        correlation_gif_output_filename (str, optional): Output filename for correlation GIF
+        matrix_gif_output_filename (str, optional): Output filename for matrix GIF
+        visualize_pairs (bool, optional): Whether to visualize segment pairs. Defaults to False.
+        visualize_segment_labels (bool, optional): Whether to show segment labels. Defaults to False.
+        mark_depths (bool, optional): Whether to mark depth boundaries. Defaults to True.
+        mark_ages (bool, optional): Whether to mark age constraints. Defaults to True.
+        ages_a, ages_b (dict, optional): Age data dictionaries
+        all_constraint_depths_a, all_constraint_depths_b (array, optional): Constraint depth arrays
+        all_constraint_ages_a, all_constraint_ages_b (array, optional): Constraint age arrays
+        all_constraint_pos_errors_a, all_constraint_pos_errors_b (array, optional): Positive error arrays
+        all_constraint_neg_errors_a, all_constraint_neg_errors_b (array, optional): Negative error arrays
+        age_constraint_a_source_cores (list, optional): Source core names for age constraints in core A
+        age_constraint_b_source_cores (list, optional): Source core names for age constraints in core B
+        core_a_name, core_b_name (str, optional): Core names for constraint visualization
+    
+    Returns:
+        None: Creates GIF files and frame directories in outputs folder
+        
+    Example:
+        >>> visualize_dtw_results_from_csv(
+        ...     'outputs/dtw_mappings.csv',
+        ...     log_a, log_b, md_a, md_b,
+        ...     dtw_results, valid_pairs,
+        ...     segments_a, segments_b,
+        ...     depths_a, depths_b,
+        ...     distance_matrix,
+        ...     max_frames=100,
+        ...     mark_ages=True,
+        ...     ages_a=age_data_a,
+        ...     ages_b=age_data_b
+        ... )
     """
     import csv
     import os
@@ -410,14 +495,13 @@ def visualize_dtw_results_from_csv(csv_path, log_a, log_b, md_a, md_b,
             if idx in selected_indices:
                 try:
                     mapping_id = int(row[0])
-                    # UPDATED: Parse compact format instead of ast.literal_eval
                     segment_pairs = parse_compact_path(row[1])
                     selected_mappings.append((idx, mapping_id, segment_pairs))
                 except (ValueError, IndexError) as e:
                     print(f"Error parsing row {idx}: {e}")
     
-    # Define processing function for joblib (rest remains the same)
     def process_mapping_visualization(frame_idx, mapping_id, mapping):
+        """Process a single mapping for visualization."""
         # Format the frame number with leading zeros
         frame_num = str(frame_idx + 1).zfill(num_digits)
         
@@ -450,7 +534,7 @@ def visualize_dtw_results_from_csv(csv_path, log_a, log_b, md_a, md_b,
                 all_constraint_pos_errors_b=all_constraint_pos_errors_b,
                 all_constraint_neg_errors_a=all_constraint_neg_errors_a,
                 all_constraint_neg_errors_b=all_constraint_neg_errors_b,
-                # Age constraint visualization parameters (passed through)
+                # Age constraint visualization parameters
                 age_constraint_a_source_cores=age_constraint_a_source_cores,
                 age_constraint_b_source_cores=age_constraint_b_source_cores,
                 core_a_name=core_a_name,
@@ -481,7 +565,7 @@ def visualize_dtw_results_from_csv(csv_path, log_a, log_b, md_a, md_b,
     print("Starting parallel visualization processing...")
     
     # Use fewer jobs to prevent memory issues with large datasets
-    n_jobs = os.cpu_count() or 4  # Use all available cores
+    n_jobs = os.cpu_count() or 4
     
     with tqdm(total=len(batches), desc="Processing batches") as pbar:
         for batch_idx, batch in enumerate(batches):
@@ -505,7 +589,6 @@ def visualize_dtw_results_from_csv(csv_path, log_a, log_b, md_a, md_b,
     if creategif:
         try:            
             print("\nCreating GIFs from frames...")
-            # Make sure these are proper strings without trailing commas
             os.makedirs('outputs', exist_ok=True)
             corr_gif_result = create_gif(correlation_frames_dir, os.path.join('outputs', correlation_gif_output_filename))
             matrix_gif_result = create_gif(matrix_frames_dir, os.path.join('outputs', matrix_gif_output_filename))
@@ -523,4 +606,4 @@ def visualize_dtw_results_from_csv(csv_path, log_a, log_b, md_a, md_b,
         except Exception as e:
             print(f"Error creating GIFs: {e}")
             import traceback
-            traceback.print_exc()  # Print detailed traceback for debugging
+            traceback.print_exc()
