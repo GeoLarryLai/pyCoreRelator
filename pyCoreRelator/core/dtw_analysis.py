@@ -755,7 +755,7 @@ def run_comprehensive_dtw_analysis(log_a, log_b, md_a, md_b, picked_depths_a=Non
     
     # Create dtw matrix if requested
     if create_dtw_matrix:
-        _ = plot_dtw_matrix_with_paths(
+        dtwmatrix_output_file = plot_dtw_matrix_with_paths(
                                 dtw_distance_matrix_full, 
                                 mode='segment_paths',
                                 valid_dtw_pairs=valid_dtw_pairs, 
@@ -779,12 +779,12 @@ def run_comprehensive_dtw_analysis(log_a, log_b, md_a, md_b, picked_depths_a=Non
                                 core_a_name=core_a_name,
                                 core_b_name=core_b_name
                             )
-        print(f"Generated DTW matrix with paths of all segment pairs at: {dtwmatrix_output_filename}")
+        print(f"Generated DTW matrix with paths of all segment pairs at: {dtwmatrix_output_file}")
 
     # Create animation if requested
     if creategif:
         print("\nCreating GIF animation of all segment pairs...")
-        _ = create_segment_dtw_animation(
+        gif_output_file = create_segment_dtw_animation(
             log_a, log_b, md_a, md_b, 
             final_dtw_results, valid_dtw_pairs, 
             segments_a, segments_b, 
@@ -809,12 +809,12 @@ def run_comprehensive_dtw_analysis(log_a, log_b, md_a, md_b, picked_depths_a=Non
             all_constraint_neg_errors_b=all_constraint_neg_errors_b
         )
         
-        print(f"Generated GIF animation of all segment pairs at: {gif_output_filename}")
+        print(f"Generated GIF animation of all segment pairs at: {gif_output_file}")
 
         # Display only if created
-        if gif_output_filename:
+        if gif_output_file:
             from IPython.display import Image as IPImage
-            display(IPImage(filename=gif_output_filename))
+            display(IPImage(filename=gif_output_file))
 
     # Clean up memory before returning
     plt.close('all')
@@ -824,9 +824,9 @@ def run_comprehensive_dtw_analysis(log_a, log_b, md_a, md_b, picked_depths_a=Non
         plt.close(fig_num)
     
     # Display DTW matrix output figure if available
-    if dtwmatrix_output_filename and os.path.exists(dtwmatrix_output_filename):
-        print(f"\nDisplaying DTW matrix visualization from: {dtwmatrix_output_filename}")
-        display(IPImage(filename=dtwmatrix_output_filename))
+    if dtwmatrix_output_file and os.path.exists(dtwmatrix_output_file):
+        print(f"\nDisplaying DTW matrix visualization from: {dtwmatrix_output_file}")
+        display(IPImage(filename=dtwmatrix_output_file))
 
     gc.collect()
     

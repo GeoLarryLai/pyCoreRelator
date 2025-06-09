@@ -3,7 +3,7 @@ Quality metrics computation for DTW analysis
 """
 
 import numpy as np
-
+from scipy import stats
 
 def compute_quality_indicators(log1, log2, p, q, D):
     """
@@ -42,7 +42,7 @@ def compute_quality_indicators(log1, log2, p, q, D):
         # Normalized DTW distance
         norm_dtw = D[-1, -1] / float(len(p))
         
-        # Extract aligned sequences
+        # Extract aligned sequences - NO NaN filtering for repeated indices
         aligned_log1 = np.array(log1)[np.array(p)]
         aligned_log2 = np.array(log2)[np.array(q)]
         
@@ -54,10 +54,7 @@ def compute_quality_indicators(log1, log2, p, q, D):
         diff_indices = np.abs(np.array(p) - np.array(q))
         variance_deviation = np.var(diff_indices)
         
-        # COMPLETELY NEW APPROACH FOR 
-        # ITY
-        # A perfectly diagonal path would have the same number of steps in both sequences
-        # The maximum possible diagonal path length is min(len(unique_p), len(unique_q))
+        # Calculate diagonality
         unique_p = len(np.unique(p))
         unique_q = len(np.unique(q))
         
@@ -78,21 +75,25 @@ def compute_quality_indicators(log1, log2, p, q, D):
             # Convert to percentage
             perc_diag = diagonality_ratio * 100
         
-        # Calculate correlation coefficient (safely)
-        is_single_point_a = len(set(p)) == 1
-        is_single_point_b = len(set(q)) == 1
-        
-        if is_single_point_a or is_single_point_b:
-            corr_coef = 0.0
-        elif np.all(aligned_log1 == aligned_log1[0]) or np.all(aligned_log2 == aligned_log2[0]):
+        # Calculate correlation coefficient - REVISED: No NaN filtering
+        # Use all aligned values including repeated indices
+        if len(aligned_log1) < 2 or len(aligned_log2) < 2:
             corr_coef = 0.0
         else:
-            try:
-                corr_coef = np.corrcoef(aligned_log1, aligned_log2)[0, 1]
-                if np.isnan(corr_coef):
-                    corr_coef = 0.0
-            except Exception:
+            # Check for constant values
+            if (np.all(aligned_log1 == aligned_log1[0]) or 
+                np.all(aligned_log2 == aligned_log2[0])):
                 corr_coef = 0.0
+            else:
+                try:
+                    slope, intercept, r_value, p_value, slope_std_error = stats.linregress(
+                        aligned_log1, aligned_log2
+                    )
+                    corr_coef = r_value
+                    if np.isnan(corr_coef):
+                        corr_coef = 0.0
+                except Exception:
+                    corr_coef = 0.0
         
         # Calculate matching function
         if D.shape[0] == len(log1):

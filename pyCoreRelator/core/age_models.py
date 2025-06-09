@@ -491,8 +491,10 @@ def calculate_interpolated_ages(picked_depths, age_constraints_depths, age_const
         })
         
         filename = f"{core_name}_pickeddepth_age_{uncertainty_method}.csv" if core_name else f"pickeddepth_age_{uncertainty_method}.csv"
-        export_df.to_csv(filename, index=False)
-        print(f"Exported interpolated/extrapolated ages ({uncertainty_method} method) to {filename}")
+        os.makedirs('outputs', exist_ok=True)
+        full_filename = os.path.join('outputs', filename)
+        export_df.to_csv(full_filename, index=False)
+        print(f"Exported interpolated/extrapolated ages ({uncertainty_method} method) to {full_filename}")
 
     # Plot if requested
     if show_plot:

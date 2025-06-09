@@ -11,6 +11,7 @@ from matplotlib.gridspec import GridSpec
 from matplotlib.lines import Line2D
 from scipy import stats
 from IPython.display import display
+import os
 from ..utils.path_processing import combine_segment_dtw_results
 from ..visualization.matrix_plots import plot_dtw_matrix_with_paths
 
@@ -416,7 +417,7 @@ def plot_segment_pair_correlation(log_a, log_b, md_a, md_b,
                 else:
                     mean_log2 = log_b_inv[q_i]
                     
-# intervals between the two logs:
+    # intervals between the two logs:
                 if (p_i_step < p_i) or (q_i_step < q_i):
                     mean_logs = (mean_log1 + mean_log2)*0.5
                     x = [1, 2, 2, 1]
@@ -769,7 +770,16 @@ def plot_segment_pair_correlation(log_a, log_b, md_a, md_b,
 
     # Save figure if path is provided
     if save_path:
-        plt.savefig(save_path, dpi=150, bbox_inches='tight')
+        # Use the path as-is if it starts with outputs/, otherwise add outputs/
+        if save_path.startswith('outputs'):
+            final_save_path = save_path
+        else:
+            os.makedirs('outputs', exist_ok=True)
+            save_filename = os.path.basename(save_path)
+            final_save_path = os.path.join('outputs', save_filename)
+        
+        os.makedirs(os.path.dirname(final_save_path), exist_ok=True)
+        plt.savefig(final_save_path, dpi=150, bbox_inches='tight')
     
     return fig
 
@@ -1190,7 +1200,7 @@ def visualize_combined_segments(log_a, log_b, md_a, md_b, dtw_results, valid_dtw
     # Combine segment pairs
     combined_wp, combined_quality = combine_segment_dtw_results(
         dtw_results, segment_pairs_to_combine, segments_a, segments_b,
-        depth_boundaries_a, depth_boundaries_b
+        depth_boundaries_a, depth_boundaries_b, log_a, log_b
     )
     
     if combined_wp is None:
@@ -1206,6 +1216,28 @@ def visualize_combined_segments(log_a, log_b, md_a, md_b, dtw_results, valid_dtw
     
     # Create the global colormap
     global_color_func = create_global_colormap(log_a, log_b)
+
+    # Ensure outputs directory exists and update save paths
+    os.makedirs('outputs', exist_ok=True)
+
+    # Handle save paths - ensure outputs directory exists
+    os.makedirs('outputs', exist_ok=True)
+
+    if correlation_save_path:
+        if not correlation_save_path.startswith('outputs'):
+            correlation_save_path = os.path.join('outputs', correlation_save_path)
+        
+        save_dir = os.path.dirname(correlation_save_path)
+        if save_dir:  # Only create if directory path exists
+            os.makedirs(save_dir, exist_ok=True)
+
+    if matrix_save_path:
+        if not matrix_save_path.startswith('outputs'):
+            matrix_save_path = os.path.join('outputs', matrix_save_path)
+        
+        save_dir = os.path.dirname(matrix_save_path)
+        if save_dir:  # Only create if directory path exists
+            os.makedirs(save_dir, exist_ok=True)
 
     # Create correlation plot in multi-segment mode
     correlation_fig = plot_segment_pair_correlation(
@@ -1271,7 +1303,7 @@ def visualize_combined_segments(log_a, log_b, md_a, md_b, dtw_results, valid_dtw
     return combined_wp, combined_quality, correlation_fig, matrix_fig
 
 
-def plot_correlation_distribution(csv_file, target_mapping_id=None, quality_index=None, save_png=True, png_filename=None, core_a_name=None, core_b_name=None):
+def plot_correlation_distribution(csv_file, target_mapping_id=None, quality_index=None, save_png=True, png_filename=None, core_a_name=None, core_b_name=None, no_bins=50):
     """
     UPDATED: Handle new CSV format with different column structure.
     Plot distribution of a specified quality index.
@@ -1282,6 +1314,7 @@ def plot_correlation_distribution(csv_file, target_mapping_id=None, quality_inde
     - target_mapping_id: optional mapping ID to highlight in the plot
     - save_png: whether to save the plot as PNG (default: True)
     - png_filename: optional custom filename for saving PNG
+    - no_bins: number of bins for the histogram (default: 50)
     """
     
     # Define quality index display names and descriptions
@@ -1322,7 +1355,7 @@ def plot_correlation_distribution(csv_file, target_mapping_id=None, quality_inde
     total_count = len(df)
     
     # Plot histogram of quality index as percentage
-    hist, bins, _ = ax.hist(df[quality_index], bins=50, alpha=0.7, color='skyblue', 
+    hist, bins, _ = ax.hist(df[quality_index], bins=no_bins, alpha=0.7, color='skyblue', 
                             edgecolor='black', weights=np.ones(total_count)*100/total_count)
     
     # Add a KDE curve with increased bandwidth for smoother representation
@@ -1377,7 +1410,15 @@ def plot_correlation_distribution(csv_file, target_mapping_id=None, quality_inde
     if save_png:
         if png_filename is None:
             png_filename = f'{quality_index}_distribution.png'
-        plt.savefig(png_filename, dpi=150, bbox_inches='tight')
+        
+        # Ensure outputs directory exists
+        os.makedirs('outputs', exist_ok=True)
+        
+        # Use only filename, place in outputs directory
+        save_filename = os.path.basename(png_filename)
+        final_png_path = os.path.join('outputs', save_filename)
+        
+        plt.savefig(final_png_path, dpi=150, bbox_inches='tight')
     
     # Show the plot
     plt.tight_layout()

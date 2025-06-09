@@ -10,6 +10,7 @@ import pandas as pd
 from joblib import Parallel, delayed
 import warnings
 from tqdm.auto import tqdm
+import os
 
 
 def plot_dtw_matrix_with_paths(dtw_distance_matrix_full, 
@@ -27,6 +28,7 @@ def plot_dtw_matrix_with_paths(dtw_distance_matrix_full,
                            visualize_pairs=True,
                            visualize_segment_labels=False,
                            n_jobs=-1,
+                           color_metric=None,
                            # Age constraint parameters (default None)
                            age_constraint_a_depths=None,
                            age_constraint_a_ages=None, 
@@ -63,6 +65,12 @@ def plot_dtw_matrix_with_paths(dtw_distance_matrix_full,
     core_a_name, core_b_name : str or None
         Core names for determining same vs adjacent core coloring.
         If not provided, all constraint lines will use the same color.
+    color_metric : str or None, default=None
+        For mode='all_paths_colored', specifies which metric to use for coloring paths.
+        Options: 'corr_coef', 'norm_dtw', 'dtw_ratio', 'perc_diag', 'variance_deviation', 
+                'match_min', 'match_mean', 'perc_age_overlap'
+        If None, uses mapping_id for coloring (no metric-based coloring).
+        Default behavior (perc_diag) is maintained when color_metric='perc_diag'.
     """
     import numpy as np
     import matplotlib.pyplot as plt
@@ -322,19 +330,47 @@ def plot_dtw_matrix_with_paths(dtw_distance_matrix_full,
                 ax.set_title('DTW Matrix with Combined Path')
     
     elif mode == 'all_paths_colored':
-        # UPDATED: Handle new CSV format
+        # UPDATED: Handle new color_metric parameter
         try:
             # Read only the columns we need
             df = pd.read_csv(sequential_mappings_csv)
             
-            # UPDATED: Handle new column names and format
+            # Check required columns
             if 'combined_wp' not in df.columns:
                 print("Error: 'combined_wp' column not found in CSV")
                 return fig
             
             combined_wp_list = df['combined_wp'].tolist()
             length_list = df['length'].tolist()
-            perc_diag_list = df['perc_diag'].tolist()
+            
+            # Determine coloring metric and colorbar label
+            if color_metric is None:
+                # No metric-based coloring, use mapping_id
+                color_values = df['mapping_id'].tolist() if 'mapping_id' in df.columns else list(range(len(combined_wp_list)))
+                colorbar_label = 'Mapping ID'
+                colormap = 'tab10'
+            else:
+                # Use specified metric for coloring
+                if color_metric not in df.columns:
+                    print(f"Error: '{color_metric}' column not found in CSV")
+                    return fig
+                
+                color_values = df[color_metric].tolist()
+                
+                # Set colorbar labels based on metric
+                metric_labels = {
+                    'corr_coef': 'Post-warping Corr Coeff (Pearson\'s r) (higher is better)',
+                    'norm_dtw': 'Normalized DTW Distance (lower is better)', 
+                    'dtw_ratio': 'DTW Warping Ratio (lower is better)',
+                    'perc_diag': 'Diagonality % (higher is better)',
+                    'variance_deviation': 'Warping Deviation variance (lower is better)',
+                    'match_min': 'Matching Function min (lower is better)',
+                    'match_mean': 'Matching Function mean (lower is better)',
+                    'perc_age_overlap': 'Age Overlap % (higher is better)'
+                }
+                
+                colorbar_label = metric_labels.get(color_metric, color_metric)
+                colormap = 'viridis'
             
         except Exception as e:
             print(f"Error reading CSV file: {e}")
@@ -343,33 +379,40 @@ def plot_dtw_matrix_with_paths(dtw_distance_matrix_full,
         # Filter for valid paths (those with non-zero path length)
         valid_indices = [i for i, length in enumerate(length_list) if length > 0]
         valid_wp_list = [combined_wp_list[i] for i in valid_indices]
-        valid_perc_diag_list = [perc_diag_list[i] for i in valid_indices]
+        valid_color_values = [color_values[i] for i in valid_indices]
         
-        # Sort by percent diagonality for visualization (higher values on top)
-        sorted_indices = sorted(range(len(valid_perc_diag_list)), key=lambda i: valid_perc_diag_list[i])
+        # Sort by color values for visualization (higher values on top for most metrics)
+        if color_metric in ['norm_dtw', 'dtw_ratio', 'variance_deviation', 'match_min', 'match_mean']:
+            # For "lower is better" metrics, sort ascending (lower values on top, higher plotted last)
+            sorted_indices = sorted(range(len(valid_color_values)), key=lambda i: valid_color_values[i])
+        else:
+            # For "higher is better" metrics (perc_diag, corr_coef, perc_age_overlap) or mapping_id
+            # Sort ascending so higher values are plotted last (on top)
+            sorted_indices = sorted(range(len(valid_color_values)), key=lambda i: valid_color_values[i])
+        
         sorted_wp_list = [valid_wp_list[i] for i in sorted_indices]
-        sorted_perc_diag_list = [valid_perc_diag_list[i] for i in sorted_indices]
+        sorted_color_values = [valid_color_values[i] for i in sorted_indices]
         
-        # Create a colormap for the percent diagonality
-        norm = plt.Normalize(min(sorted_perc_diag_list), max(sorted_perc_diag_list))
-        cmap = cm.ScalarMappable(norm=norm, cmap='viridis')
+        # Create a colormap for the values
+        norm = plt.Normalize(min(sorted_color_values), max(sorted_color_values))
+        cmap = cm.ScalarMappable(norm=norm, cmap=colormap)
         
         # Function to process a single path
-        def process_path(i, wp_str, perc_diag):
+        def process_path(i, wp_str, color_value):
             try:
-                # UPDATED: Parse compact warping path format
+                # Parse compact warping path format
                 wp = parse_compact_warping_path(wp_str)
                 
                 # Return the path data and color
-                return wp, cmap.to_rgba(perc_diag)
+                return wp, cmap.to_rgba(color_value)
             except Exception as e:
                 warnings.warn(f"Error processing path {i}: {e}")
                 return None, None
         
         # Process paths in parallel
         results = Parallel(n_jobs=n_jobs)(
-            delayed(process_path)(i, wp_str, perc_diag) 
-            for i, (wp_str, perc_diag) in enumerate(zip(sorted_wp_list, sorted_perc_diag_list))
+            delayed(process_path)(i, wp_str, color_value) 
+            for i, (wp_str, color_value) in enumerate(zip(sorted_wp_list, sorted_color_values))
         )
         
         # Plot the processed paths
@@ -377,23 +420,34 @@ def plot_dtw_matrix_with_paths(dtw_distance_matrix_full,
             if wp is not None and len(wp) > 0:
                 ax.plot(wp[:, 1], wp[:, 0], color=color, alpha=0.7, linewidth=2)
                 
-        # Add a colorbar for the percent diagonality as a legend box in the upper left corner
+        # Add a colorbar as a legend box in the upper left corner
         # Create a white background rectangle
-        rect_ax = fig.add_axes([0.06, 0.82, 0.28, 0.12])  # Much larger to include labels
+        rect_ax = fig.add_axes([0.06, 0.82, 0.28, 0.12])
         rect_ax.add_patch(plt.Rectangle((0, 0), 1, 1, facecolor='white', alpha=0.9, 
                                     edgecolor='black', linewidth=1))
-        rect_ax.axis('off')  # Hide the axes of this rectangle
+        rect_ax.axis('off')
 
-        # Then add the colorbar on top of it
-        cax = fig.add_axes([0.075, 0.875, 0.25, 0.05])  # [left, bottom, width, height]
+        # Add the colorbar on top of it
+        cax = fig.add_axes([0.075, 0.875, 0.25, 0.05])
         cbar = plt.colorbar(cmap, cax=cax, orientation='horizontal')
-        cbar.set_label('Percent Diagonality (%)')
+        cbar.set_label(colorbar_label)
         
         ax.set_title('DTW Distance Matrix with Correlation Paths')
     
     # Save figure if filename provided
     if output_filename:
+        # Use the path as-is if it starts with outputs/, otherwise add outputs/
+        if output_filename.startswith('outputs'):
+            full_output_path = output_filename
+        else:
+            os.makedirs('outputs', exist_ok=True)
+            save_filename = os.path.basename(output_filename)
+            full_output_path = os.path.join('outputs', save_filename)
+        
+        os.makedirs(os.path.dirname(full_output_path), exist_ok=True)
         plt.tight_layout()
-        plt.savefig(output_filename, dpi=150, bbox_inches='tight')
-    
-    return fig
+        plt.savefig(full_output_path, dpi=150, bbox_inches='tight')
+        
+        return full_output_path
+
+    return None

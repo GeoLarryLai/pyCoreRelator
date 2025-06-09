@@ -8,7 +8,7 @@ import csv
 
 
 def combine_segment_dtw_results(dtw_results, segment_pairs, segments_a, segments_b, 
-                               depth_boundaries_a, depth_boundaries_b):
+                               depth_boundaries_a, depth_boundaries_b, log_a, log_b):
     """
     Combine DTW results from multiple segment pairs into a unified result.
     
@@ -80,14 +80,107 @@ def combine_segment_dtw_results(dtw_results, segment_pairs, segments_a, segments
     
     # Calculate average quality indicators
     if all_quality_indicators:
-        combined_quality = {}
-        for key in all_quality_indicators[0].keys():
-            # Calculate the average for each quality indicator
-            combined_quality[key] = np.mean([qi[key] for qi in all_quality_indicators if key in qi])
+        # Collect age overlap values
+        age_overlap_values = []
+        for qi in all_quality_indicators:
+            if 'perc_age_overlap' in qi:
+                age_overlap_values.append(float(qi['perc_age_overlap']))
+        
+        combined_quality = compute_combined_path_metrics(
+            combined_wp, log_a, log_b, all_quality_indicators, age_overlap_values
+        )
     else:
         combined_quality = None
-    
+        
     return combined_wp, combined_quality
+
+
+def compute_combined_path_metrics(combined_wp, log_a, log_b, segment_quality_indicators, age_overlap_values=None):
+    """
+    Compute quality metrics from combined warping path and log data.
+    REVISED: Uses original continuous log data with combined warping path for geological coherence.
+    
+    Parameters:
+    -----------
+    combined_wp : np.ndarray
+        Combined warping path with indices referencing original continuous logs
+    log_a, log_b : np.ndarray
+        Original continuous log data arrays
+    segment_quality_indicators : list
+        Quality indicators from individual segments
+    age_overlap_values : list, optional
+        Age overlap values for averaging
+    
+    Returns:
+    --------
+    dict : Combined quality metrics
+    """
+    from ..core.quality_metrics import compute_quality_indicators
+    
+    # Initialize metrics
+    metrics = {
+        'norm_dtw': 0.0,
+        'dtw_ratio': 0.0,
+        'variance_deviation': 0.0,
+        'perc_diag': 0.0,
+        'corr_coef': 0.0,
+        'match_min': 0.0,
+        'match_mean': 0.0,
+        'perc_age_overlap': 0.0
+    }
+    
+    # Collect distance metrics for summing
+    metric_values = {metric: [] for metric in metrics}
+    for qi in segment_quality_indicators:
+        for metric in ['norm_dtw', 'match_min', 'match_mean']:
+            if metric in qi:
+                metric_values[metric].append(float(qi[metric]))
+    
+    # Sum distance metrics
+    for metric in ['norm_dtw', 'match_min', 'match_mean']:
+        values = metric_values[metric]
+        if values:
+            metrics[metric] = float(sum(values))
+    
+    # REVISED: Use original continuous log data with combined warping path
+    if combined_wp is not None and len(combined_wp) > 1:
+        # Extract indices from combined warping path
+        p_indices = combined_wp[:, 0].astype(int)
+        q_indices = combined_wp[:, 1].astype(int)
+        
+        # Ensure indices are within bounds
+        p_indices = np.clip(p_indices, 0, len(log_a) - 1)
+        q_indices = np.clip(q_indices, 0, len(log_b) - 1)
+        
+        # Extract aligned log values directly from continuous data
+        # NO segmentation - maintains geological coherence
+        if log_a.ndim > 1:
+            aligned_log_a = log_a[p_indices].mean(axis=1)
+        else:
+            aligned_log_a = log_a[p_indices]
+            
+        if log_b.ndim > 1:
+            aligned_log_b = log_b[q_indices].mean(axis=1)
+        else:
+            aligned_log_b = log_b[q_indices]
+        
+        # Create dummy cost matrix for compatibility
+        dummy_D = np.array([[np.linalg.norm(aligned_log_a - aligned_log_b)]])
+        
+        # Compute combined metrics using the actual combined warping path indices
+        combined_metrics = compute_quality_indicators(log_a, log_b, p_indices, q_indices, dummy_D)
+        
+        # Use combined calculations for these metrics
+        metrics['dtw_ratio'] = float(combined_metrics.get('dtw_ratio', 0.0))
+        metrics['variance_deviation'] = float(combined_metrics.get('variance_deviation', 0.0))
+        metrics['corr_coef'] = float(combined_metrics.get('corr_coef', 0.0))
+        metrics['perc_diag'] = float(combined_metrics.get('perc_diag', 0.0))
+    
+    # Average age overlap
+    if age_overlap_values:
+        metrics['perc_age_overlap'] = float(sum(age_overlap_values) / len(age_overlap_values))
+    
+    return metrics
 
 
 def load_sequential_mappings(csv_path):

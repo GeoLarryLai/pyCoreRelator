@@ -18,7 +18,8 @@ from .matrix_plots import (
 
 from .animation import (
     create_segment_dtw_animation,
-    visualize_dtw_results_from_csv
+    visualize_dtw_results_from_csv,
+    create_gif
 )
 
 __all__ = [
@@ -28,5 +29,6 @@ __all__ = [
     'plot_correlation_distribution',
     'plot_dtw_matrix_with_paths',
     'create_segment_dtw_animation',
-    'visualize_dtw_results_from_csv'
+    'visualize_dtw_results_from_csv',
+    'create_gif'
 ]
