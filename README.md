@@ -1,6 +1,6 @@
 # pyCoreRelator
 
-A Python package for semi-automatic quantitative stratigraphic correlation between geological cores using Dynamic Time Warping (DTW) with age constraint integration.
+A Python package for performing semi-automatic, quantitative stratigraphic correlation between geological drill cores. The package employs Dynamic Time Warping (DTW) algorithms to align well log data while incorporating age model constraints and lithological information to ensure geologically meaningful correlations.
 
 ## Overview
 
