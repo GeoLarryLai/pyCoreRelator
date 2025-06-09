@@ -82,12 +82,54 @@ pyCoreRelator/
 The package computes comprehensive quality indicators for each correlation:
 
 - **Normalized DTW Distance**: Cost per alignment step
+  - Lower values indicate better alignment quality
+  - Calculated as total DTW cost divided by path length
 - **DTW Ratio**: DTW distance relative to Euclidean distance
+  - DTW ratio < 1.0: Better DTW alignment than linear mapping
+  - DTW ratio ≈ 1.0: Similar to linear alignment (already well-aligned sequences)
+  - DTW ratio > 1.0: Linear alignment performs better than DTW match
 - **Correlation Coefficient**: Linear correlation between aligned sequences
+  - Values range from -1 to 1 (1 = perfect positive correlation, 0 = no correlation, -1 = perfect negative correlation)
+  - Calculated using linear regression on DTW-aligned data points
 - **Diagonality Percentage**: Measure of path straightness (higher = better)
+  - 100% indicates perfect diagonal path (minimal warping)
+  - Lower values suggest more complex warping patterns
 - **Variance Deviation**: Warping path deviation from diagonal
+  - Measures how much the DTW path deviates from a straight diagonal
+  - Higher values indicate more complex temporal alignments
 - **Age Overlap Percentage**: Chronostratigraphic compatibility (when age constraints applied)
+  - Percentage of overlap between age intervals of correlated segments
+  - 100% indicates perfect chronological agreement, 0% means no temporal overlap
 
 ## License
 
 This project is licensed under the Apache-2.0 License - see the LICENSE file for details.
+
+## Requirements
+
+The following Python packages are required to run pyCoreRelator:
+
+- `numpy>=1.20.0` - Numerical computations and array operations
+- `pandas>=1.3.0` - Data manipulation and analysis
+- `matplotlib>=3.5.0` - Plotting and visualization
+- `scipy>=1.7.0` - Scientific computing and statistical functions
+- `librosa>=0.9.0` - Audio and signal processing (used for DTW algorithms)
+- `tqdm>=4.60.0` - Progress bars for long-running operations
+- `joblib>=1.1.0` - Parallel processing and caching
+- `Pillow>=8.3.0` - Image processing capabilities
+- `IPython>=7.25.0` - Interactive Python environment features
+- `psutil>=5.8.0` - System and process utilities
+
+### Installation
+
+Install all required packages using pip:
+
+```bash
+pip install -r requirements.txt
+```
+
+Or install individual packages:
+
+```bash
+pip install numpy>=1.20.0 pandas>=1.3.0 matplotlib>=3.5.0 scipy>=1.7.0 librosa>=0.9.0 tqdm>=4.60.0 joblib>=1.1.0 Pillow>=8.3.0 IPython>=7.25.0 psutil>=5.8.0
+```

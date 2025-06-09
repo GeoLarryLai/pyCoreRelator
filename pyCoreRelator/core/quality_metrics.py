@@ -41,7 +41,7 @@ def compute_quality_indicators(log1, log2, p, q, D):
         - norm_dtw : float
             Normalized DTW distance (total cost divided by path length)
         - dtw_ratio : float
-            Ratio of DTW distance to Euclidean distance
+            Ratio of DTW distance to Euclidean distance of linear alignment
         - variance_deviation : float
             Variance of index differences in warping path (measures path deviation)
         - perc_diag : float
@@ -95,9 +95,38 @@ def compute_quality_indicators(log1, log2, p, q, D):
         aligned_log1 = np.array(log1)[np.array(p)]
         aligned_log2 = np.array(log2)[np.array(q)]
         
-        # Calculate Euclidean distance and DTW ratio
-        euclidean_dist = np.linalg.norm(aligned_log1 - aligned_log2)
-        dtw_ratio = D[-1, -1] / (euclidean_dist + 1e-10)
+        # NEW: Calculate DTW ratio using linear alignment as baseline
+        # Create a linear (diagonal) alignment between the original sequences
+        len1, len2 = len(log1), len(log2)
+        
+        if len1 == 1 and len2 == 1:
+            # Special case: both sequences have single points
+            linear_euclidean_dist = abs(log1[0] - log2[0])
+        elif len1 == 1:
+            # log1 has single point, map to all points in log2
+            linear_euclidean_dist = np.mean([abs(log1[0] - log2[i]) for i in range(len2)])
+        elif len2 == 1:
+            # log2 has single point, map to all points in log1
+            linear_euclidean_dist = np.mean([abs(log1[i] - log2[0]) for i in range(len1)])
+        else:
+            # Both sequences have multiple points - create linear alignment
+            # Generate linear indices that map proportionally from one sequence to another
+            linear_p = np.linspace(0, len1-1, max(len1, len2)).astype(int)
+            linear_q = np.linspace(0, len2-1, max(len1, len2)).astype(int)
+            
+            # Clip indices to ensure they're within bounds
+            linear_p = np.clip(linear_p, 0, len1-1)
+            linear_q = np.clip(linear_q, 0, len2-1)
+            
+            # Extract linearly aligned sequences
+            linear_aligned_log1 = np.array(log1)[linear_p]
+            linear_aligned_log2 = np.array(log2)[linear_q]
+            
+            # Calculate Euclidean distance for linear alignment
+            linear_euclidean_dist = np.linalg.norm(linear_aligned_log1 - linear_aligned_log2)
+        
+        # Calculate DTW ratio: DTW distance vs linear alignment distance
+        dtw_ratio = D[-1, -1] / (linear_euclidean_dist + 1e-10)
         
         # Calculate warping path deviation from diagonal
         diff_indices = np.abs(np.array(p) - np.array(q))
