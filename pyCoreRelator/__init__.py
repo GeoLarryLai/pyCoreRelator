@@ -11,6 +11,11 @@ from .visualization.plotting import visualize_combined_segments, plot_correlatio
 from .visualization.matrix_plots import plot_dtw_matrix_with_paths
 from .visualization.animation import visualize_dtw_results_from_csv
 from .utils.data_loader import load_log_data, plot_core_data
+from .core.null_hypothesis import (
+    create_segment_pool_from_available_cores,
+    generate_synthetic_core_pair,
+    compute_pycorerelator_null_hypothesis
+)
 
 __version__ = "0.1.0"
 __author__ = "Larry Syu-Heng lai"
@@ -26,5 +31,8 @@ __all__ = [
     'plot_correlation_distribution',
     'load_log_data',
     'plot_core_data',
-    'plot_dtw_matrix_with_paths'
+    'plot_dtw_matrix_with_paths',
+    'create_segment_pool_from_available_cores',
+    'generate_synthetic_core_pair',
+    'compute_pycorerelator_null_hypothesis'
 ]

@@ -27,6 +27,12 @@ from .segment_analysis import (
     compute_total_complete_paths
 )
 
+from .null_hypothesis import (
+    create_segment_pool_from_available_cores,
+    generate_synthetic_core_pair,
+    compute_pycorerelator_null_hypothesis
+)
+
 __all__ = [
     'custom_dtw',
     'run_comprehensive_dtw_analysis',
@@ -37,5 +43,8 @@ __all__ = [
     'find_all_segments',
     'find_complete_core_paths',
     'diagnose_chain_breaks',
-    'compute_total_complete_paths'
+    'compute_total_complete_paths',
+    'create_segment_pool_from_available_cores',
+    'generate_synthetic_core_pair',
+    'compute_pycorerelator_null_hypothesis'
 ]
