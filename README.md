@@ -81,29 +81,29 @@ pyCoreRelator/
 
 The package computes comprehensive quality indicators for each correlation:
 
-- **Normalized DTW Distance**: Cost per alignment step
+- Normalized DTW Distance: Cost per alignment step
   - Lower values indicate better alignment quality
   - Calculated as total DTW cost divided by path length
-- **DTW Ratio**: DTW distance relative to Euclidean distance
+- DTW Ratio: DTW distance relative to Euclidean distance
   - DTW ratio < 1.0: Better DTW alignment than linear mapping
   - DTW ratio ≈ 1.0: Similar to linear alignment (already well-aligned sequences)
   - DTW ratio > 1.0: Linear alignment performs better than DTW match
-- **Correlation Coefficient**: Linear correlation between aligned sequences
+- Correlation Coefficient (Pearson's r value): Linear correlation between aligned sequences
   - Values range from -1 to 1 (1 = perfect positive correlation, 0 = no correlation, -1 = perfect negative correlation)
   - Calculated using linear regression on DTW-aligned data points
-- **Diagonality Percentage**: Measure of path straightness (higher = better)
+- Diagonality Percentage: Measure of path straightness (higher = better)
   - 100% indicates perfect diagonal path (minimal warping)
   - Lower values suggest more complex warping patterns
-- **Variance Deviation**: Warping path deviation from diagonal
+- Variance Deviation: Warping path deviation from diagonal
   - Measures how much the DTW path deviates from a straight diagonal
   - Higher values indicate more complex temporal alignments
-- **Age Overlap Percentage**: Chronostratigraphic compatibility (when age constraints applied)
+- Age Overlap Percentage: Chronostratigraphic compatibility (when age constraints applied)
   - Percentage of overlap between age intervals of correlated segments
   - 100% indicates perfect chronological agreement, 0% means no temporal overlap
 
 ## License
 
-pyCoreRelator is licensed under the Apache License 2.0.
+**pyCoreRelator** is licensed under the Apache License 2.0.
 
 ## Requirements
 
