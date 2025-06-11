@@ -5,6 +5,7 @@ Included Functions:
 - create_segment_pool_from_available_cores: Extract segments from all available cores
 - generate_synthetic_core_pair: Generate synthetic log pairs for null hypothesis testing
 - compute_pycorerelator_null_hypothesis: Compute null hypothesis r-value distribution
+- create_synthetic_picked_depths: Create picked depths for synthetic core
 
 This module provides null hypothesis testing functionality specifically designed for
 pyCoreRelator's segment-wise DTW correlation approach. It generates synthetic log
@@ -430,3 +431,32 @@ def compute_pycorerelator_null_hypothesis(segment_pool, core_a_config, core_b_co
         print(f"97.5th percentile: {distribution_stats['percentile_97_5']:.4f}")
     
     return results
+
+def create_synthetic_picked_depths(synthetic_md, segment_info):
+    """
+    Create picked depths for synthetic core based on segment boundaries.
+    
+    Parameters:
+    - synthetic_md: depth array for synthetic core
+    - segment_info: list of dictionaries containing segment information from generate_synthetic_core_pair
+    
+    Returns:
+    - picked_depths: list of tuples (depth, category) for synthetic core
+    """
+    picked_depths = []
+    cumulative_length = 0
+    
+    # Add boundary at the start
+    picked_depths.append((synthetic_md[0], 1))
+    
+    # Add boundaries at segment junctions
+    for i, seg_info in enumerate(segment_info[:-1]):  # Exclude last segment
+        cumulative_length += seg_info['length']
+        if cumulative_length < len(synthetic_md):
+            boundary_depth = synthetic_md[cumulative_length]
+            picked_depths.append((boundary_depth, 1))
+    
+    # Add boundary at the end
+    picked_depths.append((synthetic_md[-1], 1))
+    
+    return picked_depths

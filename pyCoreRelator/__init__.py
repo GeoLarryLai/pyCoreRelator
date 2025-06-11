@@ -14,7 +14,8 @@ from .utils.data_loader import load_log_data, plot_core_data
 from .core.null_hypothesis import (
     create_segment_pool_from_available_cores,
     generate_synthetic_core_pair,
-    compute_pycorerelator_null_hypothesis
+    compute_pycorerelator_null_hypothesis,
+    create_synthetic_picked_depths
 )
 
 __version__ = "0.1.0"
@@ -34,5 +35,6 @@ __all__ = [
     'plot_dtw_matrix_with_paths',
     'create_segment_pool_from_available_cores',
     'generate_synthetic_core_pair',
-    'compute_pycorerelator_null_hypothesis'
+    'compute_pycorerelator_null_hypothesis',
+    'create_synthetic_picked_depths'
 ]
