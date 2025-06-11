@@ -17,7 +17,7 @@ import matplotlib.pyplot as plt
 import os
 
 
-def load_log_data(log_paths, img_paths, log_columns, depth_column='SB_DEPTH_cm', normalize=True, column_alternatives=None):
+def load_log_data(log_paths, img_paths=None, log_columns=None, depth_column='SB_DEPTH_cm', normalize=True, column_alternatives=None):
     """
     Load log data and images for a core.
     
@@ -29,7 +29,7 @@ def load_log_data(log_paths, img_paths, log_columns, depth_column='SB_DEPTH_cm',
     ----------
     log_paths : dict
         Dictionary mapping log names to file paths
-    img_paths : dict
+    img_paths : dict, optional
         Dictionary mapping image types ('rgb', 'ct') to file paths
     log_columns : list of str
         List of log column names to load from the CSV files
@@ -61,25 +61,36 @@ def load_log_data(log_paths, img_paths, log_columns, depth_column='SB_DEPTH_cm',
     >>> log_columns = ['MS', 'Lumin']
     >>> log, md, cols, rgb_img, ct_img = load_log_data(log_paths, img_paths, log_columns)
     """
+    # Check if log_paths is provided
+    if log_paths is None:
+        raise ValueError("log_paths must be provided")
+    
+    # Check if log_columns is provided
+    if log_columns is None:
+        raise ValueError("log_columns must be provided")
+    
     # Initialize lists to store data
     datasets = []
     available_columns = []
     
-    # Try to load images
+    # Try to load images only if img_paths is provided
     rgb_img = None
     ct_img = None
     
-    try:
-        rgb_img = plt.imread(img_paths.get('rgb', ''))
-        print(f"Loaded RGB image")
-    except Exception as e:
-        print(f"Could not load RGB image: {e}")
-    
-    try:
-        ct_img = plt.imread(img_paths.get('ct', ''))
-        print(f"Loaded CT image")
-    except Exception as e:
-        print(f"Could not load CT image: {e}")
+    if img_paths is not None:
+        if 'rgb' in img_paths:
+            try:
+                rgb_img = plt.imread(img_paths['rgb'])
+                print(f"Loaded RGB image")
+            except Exception as e:
+                print(f"RGB image not available: {e}")
+        
+        if 'ct' in img_paths:
+            try:
+                ct_img = plt.imread(img_paths['ct'])
+                print(f"Loaded CT image")
+            except Exception as e:
+                print(f"CT image not available: {e}")
     
     # Process each log column
     for log_column in log_columns:
