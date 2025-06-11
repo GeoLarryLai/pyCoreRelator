@@ -103,7 +103,7 @@ The package computes comprehensive quality indicators for each correlation:
 
 ## License
 
-This project is licensed under the Apache-2.0 License - see the LICENSE file for details.
+pyCoreRelator is licensed under the Apache License 2.0.
 
 ## Requirements
 
