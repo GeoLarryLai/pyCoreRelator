@@ -7,6 +7,8 @@ Included Functions:
 - identify_special_segments: Identify special types of segments: tops, bottoms, dead ends, and orphans.
 - filter_dead_end_pairs: Remove dead end and orphan segment pairs from the valid set.
 - compute_total_complete_paths: Compute the total number of complete paths using dynamic programming.
+- find_complete_core_paths: Find complete core paths through the segment network.
+- diagnose_chain_breaks: Diagnose chain breaks in the segment network.
 
 This module provides comprehensive segment analysis and path finding functionality for 
 geological core correlation workflows. It enables the decomposition of well log data into 
@@ -24,6 +26,7 @@ import pandas as pd
 import os
 import csv
 import tempfile
+import random
 import heapq
 from collections import deque, defaultdict
 import gc
@@ -189,7 +192,6 @@ def build_connectivity_graph(valid_dtw_pairs, detailed_pairs):
                     predecessors[(next_a_idx, next_b_idx)].append((a_idx, b_idx))
     
     return dict(successors), dict(predecessors)
-
 
 def identify_special_segments(valid_dtw_pairs, detailed_pairs, max_depth_a, max_depth_b):
     """
@@ -645,6 +647,78 @@ def find_complete_core_paths(
         """, (f"{start_segment[0]},{start_segment[1]}", 
               f"{last_segment[0]},{last_segment[1]}", 
               compressed_path, length, is_complete))
+        
+    def prune_shared_database_if_needed(shared_conn, max_paths, debug=False):
+        """Prune paths in shared database when they exceed the maximum limit."""
+        if max_paths is None:
+            return 0
+        
+        # Count current total paths in shared database
+        cursor = shared_conn.execute("SELECT COUNT(*) FROM compressed_paths")
+        current_path_count = cursor.fetchone()[0]
+        
+        if current_path_count <= max_paths:
+            return 0  # No pruning needed
+        
+        paths_to_remove = current_path_count - max_paths
+        
+        if debug:
+            print(f"  Shared DB pruning: {current_path_count} paths exceed limit of {max_paths}")
+            print(f"  Randomly excluding {paths_to_remove} paths from shared database")
+        
+        # Get all paths with their rowids for random selection
+        cursor = shared_conn.execute("""
+            SELECT rowid, start_segment, is_complete 
+            FROM compressed_paths
+        """)
+        all_paths = cursor.fetchall()
+        
+        # Separate complete and incomplete paths for stratified sampling
+        complete_paths = [(rowid, start_seg) for rowid, start_seg, is_complete in all_paths if is_complete]
+        incomplete_paths = [(rowid, start_seg) for rowid, start_seg, is_complete in all_paths if not is_complete]
+        
+        # Calculate how many to remove from each category (proportional)
+        complete_ratio = len(complete_paths) / current_path_count if current_path_count > 0 else 0
+        complete_to_remove = min(int(paths_to_remove * complete_ratio), len(complete_paths))
+        incomplete_to_remove = paths_to_remove - complete_to_remove
+        
+        # Ensure we don't remove more than available
+        if incomplete_to_remove > len(incomplete_paths):
+            complete_to_remove += (incomplete_to_remove - len(incomplete_paths))
+            incomplete_to_remove = len(incomplete_paths)
+        
+        rowids_to_remove = []
+        
+        # Randomly select complete paths to remove (if any)
+        if complete_to_remove > 0 and len(complete_paths) > 0:
+            complete_to_remove = min(complete_to_remove, len(complete_paths))
+            selected_complete = random.sample(complete_paths, complete_to_remove)
+            rowids_to_remove.extend([rowid for rowid, _ in selected_complete])
+        
+        # Randomly select incomplete paths to remove (if any)
+        if incomplete_to_remove > 0 and len(incomplete_paths) > 0:
+            incomplete_to_remove = min(incomplete_to_remove, len(incomplete_paths))
+            selected_incomplete = random.sample(incomplete_paths, incomplete_to_remove)
+            rowids_to_remove.extend([rowid for rowid, _ in selected_incomplete])
+        
+        # Remove selected paths from database
+        if rowids_to_remove:
+            placeholders = ",".join("?" * len(rowids_to_remove))
+            shared_conn.execute(f"""
+                DELETE FROM compressed_paths 
+                WHERE rowid IN ({placeholders})
+            """, rowids_to_remove)
+            
+            shared_conn.commit()
+            
+            if debug:
+                print(f"  Removed {len(rowids_to_remove)} paths from shared DB ({complete_to_remove} complete, {incomplete_to_remove} incomplete)")
+                # Verify final count
+                cursor = shared_conn.execute("SELECT COUNT(*) FROM compressed_paths")
+                final_count = cursor.fetchone()[0]
+                print(f"  Final shared DB path count after pruning: {final_count}")
+        
+        return len(rowids_to_remove)
 
     # Setup boundary constraints and segment classification
     print("Setting up boundary constraints...")
@@ -847,7 +921,7 @@ def find_complete_core_paths(
     search_limit_reached = False
     
     def process_segment_group_with_database_and_dedup(group_idx, segment_group, shared_read_conn):
-        """Process a group of segments with optimized database operations."""
+        """Process a group of segments with optimized database operations and path pruning."""
         nonlocal complete_paths_found, search_limit_reached
         
         # Use in-memory database for temporary storage
@@ -874,6 +948,87 @@ def find_complete_core_paths(
         
         batch_inserts = []
         complete_paths_count = 0
+        
+        # Import random module for path pruning
+        import random
+        
+        def prune_paths_if_needed():
+            """Prune paths when they exceed max_search_path limit using random sampling."""
+            nonlocal complete_paths_found, search_limit_reached
+            
+            if max_search_path is None:
+                return 0  # No pruning needed if no limit set
+            
+            # Count current total paths in database
+            cursor = group_write_conn.execute("SELECT COUNT(*) FROM compressed_paths")
+            current_path_count = cursor.fetchone()[0]
+            
+            if current_path_count <= max_search_path:
+                return 0  # No pruning needed
+            
+            paths_to_remove = current_path_count - max_search_path
+            
+            if debug:
+                print(f"    Path pruning: {current_path_count} paths exceed limit of {max_search_path}")
+                print(f"    Randomly excluding {paths_to_remove} paths")
+            
+            # Get all paths with their rowids for random selection
+            cursor = group_write_conn.execute("""
+                SELECT rowid, start_segment, is_complete 
+                FROM compressed_paths
+            """)
+            all_paths = cursor.fetchall()
+            
+            # Separate complete and incomplete paths for stratified sampling
+            complete_paths = [(rowid, start_seg) for rowid, start_seg, is_complete in all_paths if is_complete]
+            incomplete_paths = [(rowid, start_seg) for rowid, start_seg, is_complete in all_paths if not is_complete]
+            
+            # Calculate how many to remove from each category (proportional)
+            complete_ratio = len(complete_paths) / current_path_count if current_path_count > 0 else 0
+            complete_to_remove = min(int(paths_to_remove * complete_ratio), len(complete_paths))
+            incomplete_to_remove = paths_to_remove - complete_to_remove
+            
+            # Ensure we don't remove more than available
+            if incomplete_to_remove > len(incomplete_paths):
+                # If we need to remove more incomplete than available, remove from complete instead
+                complete_to_remove += (incomplete_to_remove - len(incomplete_paths))
+                incomplete_to_remove = len(incomplete_paths)
+            
+            rowids_to_remove = []
+            
+            # Randomly select complete paths to remove (if any)
+            if complete_to_remove > 0 and len(complete_paths) > 0:
+                complete_to_remove = min(complete_to_remove, len(complete_paths))
+                selected_complete = random.sample(complete_paths, complete_to_remove)
+                rowids_to_remove.extend([rowid for rowid, _ in selected_complete])
+                
+                # Update complete_paths_found counter
+                complete_paths_found = max(0, complete_paths_found - complete_to_remove)
+            
+            # Randomly select incomplete paths to remove (if any)
+            if incomplete_to_remove > 0 and len(incomplete_paths) > 0:
+                incomplete_to_remove = min(incomplete_to_remove, len(incomplete_paths))
+                selected_incomplete = random.sample(incomplete_paths, incomplete_to_remove)
+                rowids_to_remove.extend([rowid for rowid, _ in selected_incomplete])
+            
+            # Remove selected paths from database
+            if rowids_to_remove:
+                placeholders = ",".join("?" * len(rowids_to_remove))
+                group_write_conn.execute(f"""
+                    DELETE FROM compressed_paths 
+                    WHERE rowid IN ({placeholders})
+                """, rowids_to_remove)
+                
+                group_write_conn.commit()
+                
+                if debug:
+                    print(f"    Removed {len(rowids_to_remove)} paths ({complete_to_remove} complete, {incomplete_to_remove} incomplete)")
+                    # Verify final count
+                    cursor = group_write_conn.execute("SELECT COUNT(*) FROM compressed_paths")
+                    final_count = cursor.fetchone()[0]
+                    print(f"    Final path count after pruning: {final_count}")
+            
+            return len(rowids_to_remove)
         
         # Process each segment in the group
         for segment in segment_group:
@@ -963,8 +1118,22 @@ def find_complete_core_paths(
             
             if search_limit_reached:
                 break
+            
+            # Insert remaining batch for this segment
+            if batch_inserts:
+                group_write_conn.executemany("""
+                    INSERT INTO compressed_paths (start_segment, last_segment, compressed_path, length, is_complete)
+                    VALUES (?, ?, ?, ?, ?)
+                """, batch_inserts)
+                batch_inserts = []
+            
+            # **NEW: Apply path pruning after processing each segment**
+            if max_search_path is not None:
+                pruned_count = prune_paths_if_needed()
+                if pruned_count > 0 and debug:
+                    print(f"  Segment ({segment[0]+1},{segment[1]+1}): Pruned {pruned_count} intermediate paths")
         
-        # Insert remaining batch
+        # Insert any remaining batch
         if batch_inserts:
             group_write_conn.executemany("""
                 INSERT INTO compressed_paths (start_segment, last_segment, compressed_path, length, is_complete)
@@ -1054,9 +1223,15 @@ def find_complete_core_paths(
                         """, all_rows)
                     
                     group_conn.close()
-                
+
                 shared_read_conn.commit()
-                
+
+                # **NEW: Apply pruning to shared database after sync**
+                if max_search_path is not None:
+                    shared_pruned = prune_shared_database_if_needed(shared_read_conn, max_search_path, debug)
+                    if shared_pruned > 0 and debug:
+                        print(f"  Pruned {shared_pruned} paths from shared database after sync")
+
                 # Remove duplicates after batch sync
                 if batch_grouping and len(group_results) > 1:
                     shared_duplicates = remove_duplicates_from_db(shared_read_conn, f"Shared DB after batch sync")

@@ -30,7 +30,7 @@ from .segment_analysis import (
 from .null_hypothesis import (
     create_segment_pool_from_available_cores,
     generate_synthetic_core_pair,
-    compute_pycorerelator_null_hypothesis
+    create_synthetic_picked_depths
 )
 
 __all__ = [
@@ -46,5 +46,5 @@ __all__ = [
     'compute_total_complete_paths',
     'create_segment_pool_from_available_cores',
     'generate_synthetic_core_pair',
-    'compute_pycorerelator_null_hypothesis'
+    'create_synthetic_picked_depths'
 ]
