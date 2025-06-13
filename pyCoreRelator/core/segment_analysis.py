@@ -945,9 +945,6 @@ def find_complete_core_paths(
         batch_inserts = []
         complete_paths_count = 0
         
-        # Import random module for path pruning
-        import random
-        
         def prune_paths_if_needed():
             """Prune paths when they exceed max_search_path limit using random sampling."""
             nonlocal complete_paths_found, search_limit_reached
@@ -1235,13 +1232,17 @@ def find_complete_core_paths(
             
             # Update progress
             pbar.update(1)
+
+            # Get current intermediate paths count from shared database
+            cursor = shared_read_conn.execute("SELECT COUNT(*) FROM compressed_paths WHERE is_complete = 0")
+            current_intermediate_paths = cursor.fetchone()[0]
+
             postfix_dict = {
                 "segment": f"{group_idx + 1}/{len(segment_groups)}",
+                "intermediate_paths": f"{current_intermediate_paths}/{max_search_path}" if max_search_path is not None else f"{current_intermediate_paths}",
                 "complete_paths": total_complete_paths,
                 "duplicates_removed": total_duplicates_removed
             }
-            if max_search_path is not None:
-                postfix_dict["limit"] = f"{complete_paths_found}/{max_search_path}"
             pbar.set_postfix(postfix_dict)
             
             # Break if search limit reached
