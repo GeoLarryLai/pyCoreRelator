@@ -925,6 +925,22 @@ def run_comprehensive_dtw_analysis(log_a, log_b, md_a, md_b, picked_depths_a=Non
     
     # Create dtw matrix if requested
     if create_dtw_matrix:
+        # Set age constraint parameters to None if age_consideration is False
+        if age_consideration:
+            matrix_age_constraint_a_depths = all_constraint_depths_a
+            matrix_age_constraint_a_ages = all_constraint_ages_a
+            matrix_age_constraint_a_source_cores = age_constraint_a_source_cores
+            matrix_age_constraint_b_depths = all_constraint_depths_b
+            matrix_age_constraint_b_ages = all_constraint_ages_b
+            matrix_age_constraint_b_source_cores = age_constraint_b_source_cores
+        else:
+            matrix_age_constraint_a_depths = None
+            matrix_age_constraint_a_ages = None
+            matrix_age_constraint_a_source_cores = None
+            matrix_age_constraint_b_depths = None
+            matrix_age_constraint_b_ages = None
+            matrix_age_constraint_b_source_cores = None
+        
         dtwmatrix_output_file = plot_dtw_matrix_with_paths(
                                 dtw_distance_matrix_full, 
                                 mode='segment_paths',
@@ -937,13 +953,13 @@ def run_comprehensive_dtw_analysis(log_a, log_b, md_a, md_b, picked_depths_a=Non
                                 output_filename=dtwmatrix_output_filename,
                                 visualize_pairs=visualize_pairs,
                                 visualize_segment_labels=visualize_segment_labels,
-                                # Age constraint parameters (passed through)
-                                age_constraint_a_depths=all_constraint_depths_a,
-                                age_constraint_a_ages=all_constraint_ages_a,
-                                age_constraint_a_source_cores=age_constraint_a_source_cores,
-                                age_constraint_b_depths=all_constraint_depths_b,
-                                age_constraint_b_ages=all_constraint_ages_b,
-                                age_constraint_b_source_cores=age_constraint_b_source_cores,
+                                # Age constraint parameters (conditionally set)
+                                age_constraint_a_depths=matrix_age_constraint_a_depths,
+                                age_constraint_a_ages=matrix_age_constraint_a_ages,
+                                age_constraint_a_source_cores=matrix_age_constraint_a_source_cores,
+                                age_constraint_b_depths=matrix_age_constraint_b_depths,
+                                age_constraint_b_ages=matrix_age_constraint_b_ages,
+                                age_constraint_b_source_cores=matrix_age_constraint_b_source_cores,
                                 md_a=md_a,
                                 md_b=md_b,
                                 core_a_name=core_a_name,

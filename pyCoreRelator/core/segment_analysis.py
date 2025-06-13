@@ -410,8 +410,6 @@ def find_complete_core_paths(
     start_from_top_only=True,
     batch_size=1000,
     n_jobs=-1,
-    batch_grouping=False,
-    n_groups=5,
     shortest_path_search=True,
     shortest_path_level=2,
     max_search_path=5000
@@ -433,8 +431,6 @@ def find_complete_core_paths(
         start_from_top_only (bool): Only start paths from top segments
         batch_size (int): Processing batch size
         n_jobs (int): Number of parallel jobs (-1 for all cores)
-        batch_grouping (bool): Enable batch processing mode
-        n_groups (int): Number of groups for batch processing
         shortest_path_search (bool): Keep only shortest path lengths during search
         shortest_path_level (int): Number of shortest unique lengths to keep
         max_search_path (int): Maximum complete paths to find before stopping
@@ -464,8 +460,8 @@ def find_complete_core_paths(
     output_csv = os.path.join('outputs', output_csv_filename)
 
     # Performance warning for unlimited search
-    if not batch_grouping and max_search_path is None:
-        print("⚠️  WARNING: max_search_path=None with batch_grouping=False can be very time consuming and require high memory usage!")
+    if max_search_path is None:
+        print("⚠️  WARNING: max_search_path=None can be very time consuming and require high memory usage!")
         print("   Consider setting max_search_path to a reasonable limit (e.g., 50000) for better performance.")
 
     def check_memory(threshold_percent=85):
@@ -1033,7 +1029,7 @@ def find_complete_core_paths(
         # Process each segment in the group
         for segment in segment_group:
             # Check search limit
-            if not batch_grouping and max_search_path is not None and complete_paths_found >= max_search_path:
+            if max_search_path is not None and complete_paths_found >= max_search_path:
                 search_limit_reached = True
                 if debug:
                     print(f"  Search limit reached ({max_search_path} complete paths). Stopping search.")
@@ -1083,7 +1079,7 @@ def find_complete_core_paths(
                     complete_paths_count += 1
             
             # Apply shortest path filtering if enabled
-            if not batch_grouping and shortest_path_search:
+            if shortest_path_search:
                 new_paths_data = filter_shortest_paths(new_paths_data, shortest_path_level)
             
             # Convert to batch inserts
@@ -1107,7 +1103,7 @@ def find_complete_core_paths(
                     batch_inserts = []
                 
                 # Check search limit
-                if not batch_grouping and max_search_path is not None:
+                if max_search_path is not None:
                     if is_complete:
                         complete_paths_found += 1
                         if complete_paths_found >= max_search_path:
@@ -1154,26 +1150,19 @@ def find_complete_core_paths(
     total_duplicates_removed = 0
     
     # Determine sync frequency
-    if batch_grouping:
-        if n_groups is not None:
-            sync_every_n_groups = max(1, min(n_groups, len(segment_groups) // 10))
-        else:
-            sync_every_n_groups = max(1, min(5, len(segment_groups) // 10))
-        print(f"Batch grouping enabled: will sync every {sync_every_n_groups} groups with incremental duplicate removal")
-    else:
-        sync_every_n_groups = 1
-        batch_grouping_msg = "syncing after every segment with incremental duplicate removal for maximum reliability"
-        
-        optimization_msgs = []
-        if shortest_path_search:
-            optimization_msgs.append(f"shortest path search (keeping {shortest_path_level} shortest lengths)")
-        if max_search_path is not None:
-            optimization_msgs.append(f"path limit ({max_search_path} complete paths)")
-        
-        if optimization_msgs:
-            batch_grouping_msg += f" with {' and '.join(optimization_msgs)}"
-        
-        print(f"Batch grouping disabled: {batch_grouping_msg}")
+    sync_every_n_groups = 1
+    processing_msg = "syncing after every segment with incremental duplicate removal for maximum reliability"
+    
+    optimization_msgs = []
+    if shortest_path_search:
+        optimization_msgs.append(f"shortest path search (keeping {shortest_path_level} shortest lengths)")
+    if max_search_path is not None:
+        optimization_msgs.append(f"path limit ({max_search_path} complete paths)")
+    
+    if optimization_msgs:
+        processing_msg += f" with {' and '.join(optimization_msgs)}"
+    
+    print(f"Processing mode: {processing_msg}")
     
     # Main processing loop
     with tqdm(total=len(segment_groups), desc="Processing segment groups") as pbar:
@@ -1181,7 +1170,7 @@ def find_complete_core_paths(
         
         for group_idx, segment_group in enumerate(segment_groups):
             
-            if not batch_grouping and search_limit_reached:
+            if search_limit_reached:
                 if debug:
                     print(f"Stopping processing due to search limit reached")
                 break
@@ -1201,9 +1190,9 @@ def find_complete_core_paths(
                 group_idx == len(segment_groups) - 1 or
                 search_limit_reached
             )
-            
+
             if should_sync:
-                if batch_grouping and len(group_results) > 1:
+                if len(group_results) > 1:
                     if debug:
                         print(f"Syncing {len(group_results)} groups to shared database...")
                 
@@ -1232,41 +1221,28 @@ def find_complete_core_paths(
                     if shared_pruned > 0 and debug:
                         print(f"  Pruned {shared_pruned} paths from shared database after sync")
 
-                # Remove duplicates after batch sync
-                if batch_grouping and len(group_results) > 1:
-                    shared_duplicates = remove_duplicates_from_db(shared_read_conn, f"Shared DB after batch sync")
+                # Remove duplicates after sync
+                if len(group_results) > 1:
+                    shared_duplicates = remove_duplicates_from_db(shared_read_conn, f"Shared DB after sync")
                     total_duplicates_removed += shared_duplicates
                 
                 # Clear the results batch
                 group_results = []
                 
-                # Garbage collection frequency based on grouping
-                if batch_grouping:
-                    # Less frequent GC when batching
-                    if group_idx % (sync_every_n_groups * 2) == 0:
-                        gc.collect()
-                else:
-                    # More frequent GC when not batching (every 10 segments)
-                    if group_idx % 10 == 0:
-                        gc.collect()
+                # Garbage collection (every 10 segments)
+                if group_idx % 10 == 0:
+                    gc.collect()
             
             # Update progress
             pbar.update(1)
-            if batch_grouping:
-                pbar.set_postfix({
-                    "batch": f"{(group_idx // sync_every_n_groups) + 1}",
-                    "complete_paths": total_complete_paths,
-                    "duplicates_removed": total_duplicates_removed
-                })
-            else:
-                postfix_dict = {
-                    "segment": f"{group_idx + 1}/{len(segment_groups)}",
-                    "complete_paths": total_complete_paths,
-                    "duplicates_removed": total_duplicates_removed
-                }
-                if max_search_path is not None:
-                    postfix_dict["limit"] = f"{complete_paths_found}/{max_search_path}"
-                pbar.set_postfix(postfix_dict)
+            postfix_dict = {
+                "segment": f"{group_idx + 1}/{len(segment_groups)}",
+                "complete_paths": total_complete_paths,
+                "duplicates_removed": total_duplicates_removed
+            }
+            if max_search_path is not None:
+                postfix_dict["limit"] = f"{complete_paths_found}/{max_search_path}"
+            pbar.set_postfix(postfix_dict)
             
             # Break if search limit reached
             if search_limit_reached:
@@ -1283,7 +1259,7 @@ def find_complete_core_paths(
     
     # Print completion message with search limit information
     completion_msg = f"Processing complete. Found {final_complete_paths} unique complete paths after removing {total_duplicates_removed} duplicates."
-    if not batch_grouping and search_limit_reached:
+    if search_limit_reached:
         completion_msg += f" (Search stopped at limit of {max_search_path} complete paths)"
     print(completion_msg)
     
@@ -1404,7 +1380,7 @@ def find_complete_core_paths(
     print(f"  Deduplication efficiency: {(total_duplicates_removed/(total_paths_written + total_duplicates_removed)*100) if (total_paths_written + total_duplicates_removed) > 0 else 0:.2f}%")
     
     # Add search limit information to final results
-    if not batch_grouping and search_limit_reached:
+    if search_limit_reached:
         print(f"  Search was limited to {max_search_path} complete paths for performance")
     
     # Cleanup - remove all temporary files
@@ -1428,7 +1404,7 @@ def find_complete_core_paths(
         'paths_from_tops': path_computation_results['paths_from_tops'],
         'output_csv': output_csv,
         'duplicates_removed': total_duplicates_removed,
-        'search_limit_reached': search_limit_reached if not batch_grouping else False
+        'search_limit_reached': search_limit_reached
     }
 
 
