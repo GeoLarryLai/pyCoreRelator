@@ -1240,7 +1240,7 @@ def find_complete_core_paths(
             postfix_dict = {
                 "segment": f"{group_idx + 1}/{len(segment_groups)}",
                 "intermediate_paths": f"{current_intermediate_paths}/{max_search_path}" if max_search_path is not None else f"{current_intermediate_paths}",
-                "complete_paths": total_complete_paths,
+                "complete_paths_found": total_complete_paths,
                 "duplicates_removed": total_duplicates_removed
             }
             pbar.set_postfix(postfix_dict)
