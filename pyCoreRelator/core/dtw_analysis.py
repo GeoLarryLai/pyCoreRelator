@@ -896,9 +896,97 @@ def run_comprehensive_dtw_analysis(log_a, log_b, md_a, md_b, picked_depths_a=Non
         print(f"Found {len(valid_dtw_pairs)}/{len(overlapping_pairs)} age-overlapping segment pairs that are compatible with age constraints")
         
     else:
-        # Flexible mode - accept overlapping pairs AND compatible non-overlapping pairs
-        print(f"\nAssessing age compatibility for segment pairs...(loose age correlation mode)")
-        pass
+            # Flexible mode - accept overlapping pairs AND compatible non-overlapping pairs
+            print(f"\nAssessing age compatibility for segment pairs...(loose age correlation mode)")
+            
+            # Process all pairs that pass DTW distance threshold
+            overlapping_pairs = {}
+            non_overlapping_pairs = {}
+            
+            for (a_idx, b_idx), pair_info in all_pairs_with_dtw.items():
+                if not pair_info['passes_distance']:
+                    continue
+                    
+                # Separate pairs by age overlap status
+                basic_criteria_met = pair_info['ranges_overlap'] or pair_info['single_point_in_range']
+                
+                if basic_criteria_met:
+                    overlapping_pairs[(a_idx, b_idx)] = pair_info
+                else:
+                    non_overlapping_pairs[(a_idx, b_idx)] = pair_info
+            
+            # Process overlapping pairs (same as restricted mode)
+            for (a_idx, b_idx), pair_info in tqdm(overlapping_pairs.items(), 
+                                                desc=f"Checking {len(overlapping_pairs)} overlapping segment pairs..."):
+                if pair_info['ranges_overlap']:
+                    # Get segment age bounds with uncertainty
+                    a_lower_bound = pair_info['age_bounds']['a_lower']
+                    a_upper_bound = pair_info['age_bounds']['a_upper']
+                    b_lower_bound = pair_info['age_bounds']['b_lower']
+                    b_upper_bound = pair_info['age_bounds']['b_upper']
+                    
+                    # Convert constraint data to numpy arrays
+                    constraint_ages_a = np.array(all_constraint_ages_a)
+                    constraint_ages_b = np.array(all_constraint_ages_b)
+                    constraint_pos_errors_a = np.array(all_constraint_pos_errors_a)
+                    constraint_pos_errors_b = np.array(all_constraint_pos_errors_b)
+                    constraint_neg_errors_a = np.array(all_constraint_neg_errors_a)
+                    constraint_neg_errors_b = np.array(all_constraint_neg_errors_b)
+                    
+                    # Check compatibility with broader constraint approach
+                    compatible = check_age_constraint_compatibility(
+                        a_lower_bound, a_upper_bound, b_lower_bound, b_upper_bound,
+                        constraint_ages_a, constraint_ages_b,
+                        constraint_pos_errors_a, constraint_pos_errors_b,
+                        constraint_neg_errors_a, constraint_neg_errors_b,
+                        ages_a=ages_a, ages_b=ages_b
+                    )
+                    
+                    # Accept pairs that meet both criteria
+                    if compatible:
+                        valid_dtw_pairs.add((a_idx, b_idx))
+                        final_dtw_results[(a_idx, b_idx)] = pair_info['dtw_results']
+                else:
+                    # Single point in range without overlapping ranges - accept without constraint check
+                    valid_dtw_pairs.add((a_idx, b_idx))
+                    final_dtw_results[(a_idx, b_idx)] = pair_info['dtw_results']
+            
+            # Process non-overlapping pairs with age constraint compatibility
+            compatible_non_overlapping = 0
+            for (a_idx, b_idx), pair_info in tqdm(non_overlapping_pairs.items(), 
+                                                desc=f"Checking {len(non_overlapping_pairs)} non-overlapping segment pairs..."):
+                # Get segment age bounds
+                a_lower_bound = pair_info['age_bounds']['a_lower']
+                a_upper_bound = pair_info['age_bounds']['a_upper']
+                b_lower_bound = pair_info['age_bounds']['b_lower']
+                b_upper_bound = pair_info['age_bounds']['b_upper']
+                
+                # Convert constraint data to numpy arrays
+                constraint_ages_a = np.array(all_constraint_ages_a)
+                constraint_ages_b = np.array(all_constraint_ages_b)
+                constraint_pos_errors_a = np.array(all_constraint_pos_errors_a)
+                constraint_pos_errors_b = np.array(all_constraint_pos_errors_b)
+                constraint_neg_errors_a = np.array(all_constraint_neg_errors_a)
+                constraint_neg_errors_b = np.array(all_constraint_neg_errors_b)
+                
+                # Check compatibility with age constraints (flexible approach)
+                compatible = check_age_constraint_compatibility(
+                    a_lower_bound, a_upper_bound, b_lower_bound, b_upper_bound,
+                    constraint_ages_a, constraint_ages_b,
+                    constraint_pos_errors_a, constraint_pos_errors_b,
+                    constraint_neg_errors_a, constraint_neg_errors_b,
+                    ages_a=ages_a, ages_b=ages_b
+                )
+                
+                if compatible:
+                    valid_dtw_pairs.add((a_idx, b_idx))
+                    final_dtw_results[(a_idx, b_idx)] = pair_info['dtw_results']
+                    compatible_non_overlapping += 1
+            
+            print(f"Found {len(overlapping_pairs)} overlapping segment pairs")
+            print(f"Found {compatible_non_overlapping}/{len(non_overlapping_pairs)} compatible non-overlapping segment pairs")
+            print(f"Total valid pairs: {len(valid_dtw_pairs)}")
+        
     
     # Filter out dead end pairs if exclude_deadend is True
     if exclude_deadend:
