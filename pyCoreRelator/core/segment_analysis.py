@@ -412,7 +412,8 @@ def find_complete_core_paths(
     n_jobs=-1,
     shortest_path_search=True,
     shortest_path_level=2,
-    max_search_path=5000
+    max_search_path=5000,
+    output_metric_only=False  # Add this new parameter
 ):
     """
     Find and enumerate all complete core-to-core correlation paths with advanced optimization features.
@@ -434,6 +435,7 @@ def find_complete_core_paths(
         shortest_path_search (bool): Keep only shortest path lengths during search
         shortest_path_level (int): Number of shortest unique lengths to keep
         max_search_path (int): Maximum complete paths to find before stopping
+        output_metric_only (bool): Only output quality metrics in the output CSV, no paths info
         
     Returns:
         dict: Comprehensive results including:
@@ -1215,12 +1217,17 @@ def find_complete_core_paths(
     def generate_output_csv():
         """Generate final CSV output directly from deduplicated database using parallel processing."""
         
-        # Create output CSV with header - ADD perc_age_overlap column
+        # Create output CSV with header
         with open(output_csv, 'w', newline='') as f:
             writer = csv.writer(f)
-            writer.writerow(['mapping_id', 'path', 'length', 'combined_wp', 
-                        'norm_dtw', 'dtw_ratio', 'variance_deviation', 
-                        'perc_diag', 'corr_coef', 'match_min', 'match_mean', 'perc_age_overlap'])
+            if output_metric_only:
+                writer.writerow(['mapping_id', 'length', 
+                            'norm_dtw', 'dtw_ratio', 'variance_deviation', 
+                            'perc_diag', 'corr_coef', 'match_min', 'match_mean', 'perc_age_overlap'])
+            else:
+                writer.writerow(['mapping_id', 'path', 'length', 'combined_wp', 
+                            'norm_dtw', 'dtw_ratio', 'variance_deviation', 
+                            'perc_diag', 'corr_coef', 'match_min', 'match_mean', 'perc_age_overlap'])
         
         # Get total number of complete paths for progress reporting
         cursor = shared_read_conn.execute("""
@@ -1268,21 +1275,35 @@ def find_complete_core_paths(
                 else:
                     combined_wp_compact = ""
                 
-                # Add result - INCLUDE perc_age_overlap in the output
-                batch_results.append([
-                    mapping_id, 
-                    formatted_path_compact,
-                    length,
-                    combined_wp_compact,
-                    round(metrics['norm_dtw'], 6),
-                    round(metrics['dtw_ratio'], 6),
-                    round(metrics['variance_deviation'], 6),
-                    round(metrics['perc_diag'], 2),
-                    round(metrics['corr_coef'], 6),
-                    round(metrics['match_min'], 6),
-                    round(metrics['match_mean'], 6),
-                    round(metrics['perc_age_overlap'], 2)  # NEW: Add age overlap percentage
-                ])
+                # Add result
+                if output_metric_only:
+                    batch_results.append([
+                        mapping_id, 
+                        length,
+                        round(metrics['norm_dtw'], 6),
+                        round(metrics['dtw_ratio'], 6),
+                        round(metrics['variance_deviation'], 6),
+                        round(metrics['perc_diag'], 2),
+                        round(metrics['corr_coef'], 6),
+                        round(metrics['match_min'], 6),
+                        round(metrics['match_mean'], 6),
+                        round(metrics['perc_age_overlap'], 2)
+                    ])
+                else:
+                    batch_results.append([
+                        mapping_id, 
+                        formatted_path_compact,
+                        length,
+                        combined_wp_compact,
+                        round(metrics['norm_dtw'], 6),
+                        round(metrics['dtw_ratio'], 6),
+                        round(metrics['variance_deviation'], 6),
+                        round(metrics['perc_diag'], 2),
+                        round(metrics['corr_coef'], 6),
+                        round(metrics['match_min'], 6),
+                        round(metrics['match_mean'], 6),
+                        round(metrics['perc_age_overlap'], 2)
+                    ])
                 
                 mapping_id += 1
                 

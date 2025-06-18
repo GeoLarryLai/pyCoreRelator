@@ -26,7 +26,7 @@ def calculate_interpolated_ages(picked_depths, age_constraints_depths, age_const
                                 age_constraints_in_sequence_flags=None, top_bottom=True, top_age=0, top_age_pos_error=0, 
                                 top_age_neg_error=0, top_depth=0.0, bottom_depth=None, 
                                 uncertainty_method='MonteCarlo', n_monte_carlo=10000,
-                                show_plot=False, core_name=None, export_csv=True):
+                                show_plot=False, core_name=None, export_csv=True, csv_filename=None):
     """
     Calculate interpolated/extrapolated ages for picked depths based on age constraints.
     
@@ -73,6 +73,8 @@ def calculate_interpolated_ages(picked_depths, age_constraints_depths, age_const
         Name of the core for plot title and file naming
     export_csv : bool, default=True
         If True, export the results to a CSV file
+    csv_filename : str, optional
+        Name of the CSV file to export the results to. If None, the default name is '{core_name}_pickeddepth_age_{uncertainty_method}.csv'
         
     Returns
     -------
@@ -502,7 +504,12 @@ def calculate_interpolated_ages(picked_depths, age_constraints_depths, age_const
             'est_age_negerr': all_neg_uncertainties
         })
         
-        filename = f"{core_name}_pickeddepth_age_{uncertainty_method}.csv" if core_name else f"pickeddepth_age_{uncertainty_method}.csv"
+        # Use provided csv_filename if given, otherwise create default name
+        if csv_filename is not None:
+            filename = csv_filename
+        else:
+            filename = f"{core_name}_pickeddepth_age_{uncertainty_method}.csv" if core_name else f"pickeddepth_age_{uncertainty_method}.csv"
+        
         os.makedirs('outputs', exist_ok=True)
         full_filename = os.path.join('outputs', filename)
         export_df.to_csv(full_filename, index=False)
