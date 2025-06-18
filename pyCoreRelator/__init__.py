@@ -12,9 +12,11 @@ from .visualization.matrix_plots import plot_dtw_matrix_with_paths
 from .visualization.animation import visualize_dtw_results_from_csv
 from .utils.data_loader import load_log_data, plot_core_data
 from .core.null_hypothesis import (
-    create_segment_pool_from_available_cores,
-    generate_synthetic_core_pair,
-    create_synthetic_picked_depths
+    load_segment_pool,
+    plot_segment_pool,
+    print_segment_pool_summary,
+    create_synthetic_log_with_depths,
+    create_and_plot_synthetic_core_pair
 )
 
 __version__ = "0.1.0"
@@ -32,7 +34,9 @@ __all__ = [
     'load_log_data',
     'plot_core_data',
     'plot_dtw_matrix_with_paths',
-    'create_segment_pool_from_available_cores',
-    'generate_synthetic_core_pair',
-    'create_synthetic_picked_depths'
+    'load_segment_pool',
+    'plot_segment_pool',
+    'print_segment_pool_summary',
+    'create_synthetic_log_with_depths',
+    'create_and_plot_synthetic_core_pair'
 ]

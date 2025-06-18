@@ -28,9 +28,11 @@ from .segment_analysis import (
 )
 
 from .null_hypothesis import (
-    create_segment_pool_from_available_cores,
-    generate_synthetic_core_pair,
-    create_synthetic_picked_depths
+    load_segment_pool,
+    plot_segment_pool,
+    print_segment_pool_summary,
+    create_synthetic_log_with_depths,
+    create_and_plot_synthetic_core_pair
 )
 
 __all__ = [
@@ -44,7 +46,9 @@ __all__ = [
     'find_complete_core_paths',
     'diagnose_chain_breaks',
     'compute_total_complete_paths',
-    'create_segment_pool_from_available_cores',
-    'generate_synthetic_core_pair',
-    'create_synthetic_picked_depths'
+    'load_segment_pool',
+    'plot_segment_pool',
+    'print_segment_pool_summary',
+    'create_synthetic_log_with_depths',
+    'create_and_plot_synthetic_core_pair'
 ]

@@ -1,296 +1,367 @@
 """
 Null hypothesis testing functions for pyCoreRelator
 
-Included Functions:
-- create_segment_pool_from_available_cores: Extract segments from all available cores
-- generate_synthetic_core_pair: Generate synthetic log pairs for null hypothesis testing
-- create_synthetic_picked_depths: Create picked depths for synthetic core
+This module provides functions for generating synthetic core data and running
+null hypothesis tests for correlation analysis. It includes segment pool management,
+synthetic log generation, and visualization tools.
 
-This module provides null hypothesis testing functionality specifically designed for
-pyCoreRelator's segment-wise DTW correlation approach. It generates synthetic log
-pairs from real segment pools and computes correlation distributions for significance
-testing without relying on geological correlations.
+Functions:
+- load_segment_pool: Load segment pool data from turbidite database
+- plot_segment_pool: Plot all segments from the pool in a grid layout
+- print_segment_pool_summary: Print summary statistics for the segment pool
+- create_synthetic_log_with_depths: Create synthetic log using turbidite database approach
+- create_and_plot_synthetic_core_pair: Generate synthetic core pair and optionally plot the results
 """
 
 import numpy as np
 import pandas as pd
-import random
+import matplotlib.pyplot as plt
 from tqdm import tqdm
+import random
+import os
 import warnings
-from scipy import stats
+warnings.filterwarnings('ignore')
 
 # Import from other pyCoreRelator modules
-from .dtw_analysis import run_comprehensive_dtw_analysis
-from .quality_metrics import compute_quality_indicators
+from ..utils.data_loader import load_log_data
 
 
-def create_segment_pool_from_available_cores(all_cores_data, all_boundaries_data):
+def load_segment_pool(core_names, core_log_paths, picked_depth_paths, log_columns, 
+                     depth_column, column_alternatives, boundary_category=1):
     """
-    Extract all segments from available cores to create synthesis pool.
-    
-    This function processes all available core data to extract individual segments
-    that can be used for generating synthetic logs. Each segment maintains its
-    original characteristics while being detached from its geological context.
-    
-    Parameters
-    ----------
-    all_cores_data : dict
-        Dictionary with core names as keys, values containing:
-        - 'log_data': numpy array of log measurements
-        - 'md_data': numpy array of measured depth values
-    all_boundaries_data : dict
-        Dictionary with core names as keys, values containing:
-        - 'depth_boundaries': list of depth boundary indices
-        - 'segments': list of (start_idx, end_idx) segment tuples
-    
-    Returns
-    -------
-    list
-        List of dictionaries, each containing:
-        - 'log_data': numpy array of segment log values
-        - 'depth_span': float, segment length in depth units
-        - 'source_core': str, originating core name
-        - 'dimensions': int, number of log dimensions
-        - 'segment_id': str, unique identifier for the segment
-    
-    Examples
-    --------
-    >>> cores = {
-    ...     'CORE_A': {'log_data': np.random.randn(100, 2), 'md_data': np.arange(100)},
-    ...     'CORE_B': {'log_data': np.random.randn(120, 2), 'md_data': np.arange(120)}
-    ... }
-    >>> boundaries = {
-    ...     'CORE_A': {'depth_boundaries': [0, 50, 100], 'segments': [(0, 1), (1, 2)]},
-    ...     'CORE_B': {'depth_boundaries': [0, 60, 120], 'segments': [(0, 1), (1, 2)]}
-    ... }
-    >>> pool = create_segment_pool_from_available_cores(cores, boundaries)
-    >>> print(f"Created pool with {len(pool)} segments")
-    Created pool with 4 segments
-    """
-    segment_pool = []
-    segment_counter = 0
-    
-    print("Extracting segments from available cores...")
-    
-    for core_name, core_data in all_cores_data.items():
-        if core_name not in all_boundaries_data:
-            print(f"Warning: No boundary data found for core {core_name}, skipping...")
-            continue
-            
-        log_data = core_data['log_data']
-        md_data = core_data['md_data']
-        depth_boundaries = all_boundaries_data[core_name]['depth_boundaries']
-        segments = all_boundaries_data[core_name]['segments']
-        
-        # Determine dimensionality
-        if log_data.ndim == 1:
-            dimensions = 1
-        else:
-            dimensions = log_data.shape[1]
-        
-        # Extract each segment
-        for i, (start_seg_idx, end_seg_idx) in enumerate(segments):
-            try:
-                # Convert segment indices to depth boundary indices
-                start_depth_idx = depth_boundaries[start_seg_idx]
-                end_depth_idx = depth_boundaries[end_seg_idx]
-                
-                # Extract segment data
-                if start_depth_idx == end_depth_idx:
-                    # Single point segment
-                    segment_log = log_data[start_depth_idx:start_depth_idx+1]
-                    segment_md = md_data[start_depth_idx:start_depth_idx+1]
-                else:
-                    # Multi-point segment
-                    segment_log = log_data[start_depth_idx:end_depth_idx+1]
-                    segment_md = md_data[start_depth_idx:end_depth_idx+1]
-                
-                # Calculate depth span
-                depth_span = segment_md[-1] - segment_md[0] if len(segment_md) > 1 else 0.0
-                
-                # Create segment dictionary
-                segment_info = {
-                    'log_data': segment_log.copy(),
-                    'depth_span': depth_span,
-                    'source_core': core_name,
-                    'dimensions': dimensions,
-                    'segment_id': f"{core_name}_seg_{segment_counter:04d}",
-                    'original_segment_idx': i,
-                    'length': len(segment_log)
-                }
-                
-                segment_pool.append(segment_info)
-                segment_counter += 1
-                
-            except (IndexError, ValueError) as e:
-                print(f"Warning: Error processing segment {i} from core {core_name}: {e}")
-                continue
-    
-    print(f"Successfully extracted {len(segment_pool)} segments from {len(all_cores_data)} cores")
-    
-    # Print summary statistics
-    if segment_pool:
-        lengths = [seg['length'] for seg in segment_pool]
-        depth_spans = [seg['depth_span'] for seg in segment_pool]
-        print(f"Segment lengths: min={min(lengths)}, max={max(lengths)}, mean={np.mean(lengths):.1f}")
-        print(f"Depth spans: min={min(depth_spans):.1f}, max={max(depth_spans):.1f}, mean={np.mean(depth_spans):.1f}")
-    
-    return segment_pool
-
-
-def generate_synthetic_core_pair(segment_pool, target_length_a, target_length_b, target_dimensions):
-    """
-    Generate synthetic log pairs matching target core characteristics.
-    
-    This function randomly samples segments from the pool to create synthetic
-    logs that match the length and dimensionality of target cores, ensuring
-    no geological correlation between the synthetic pair.
-    
-    Parameters
-    ----------
-    segment_pool : list
-        Pool of available segments from create_segment_pool_from_available_cores
-    target_length_a : int
-        Target number of data points for synthetic core A
-    target_length_b : int
-        Target number of data points for synthetic core B
-    target_dimensions : int
-        Number of log dimensions to maintain
-    
-    Returns
-    -------
-    tuple
-        (synthetic_log_a, synthetic_log_b, synthetic_md_a, synthetic_md_b, 
-         synthetic_boundaries_a, synthetic_boundaries_b)
-        
-        - synthetic_log_a/b: numpy arrays of synthetic log data
-        - synthetic_md_a/b: numpy arrays of accumulated depth values
-        - synthetic_boundaries_a/b: lists of segment boundary indices
-    
-    Examples
-    --------
-    >>> pool = [{'log_data': np.array([1, 2]), 'depth_span': 10, 'dimensions': 1}]
-    >>> log_a, log_b, md_a, md_b, bounds_a, bounds_b = generate_synthetic_core_pair(
-    ...     pool, target_length_a=100, target_length_b=120, target_dimensions=1
-    ... )
-    >>> print(f"Generated logs: A={len(log_a)}, B={len(log_b)}")
-    Generated logs: A=100, B=120
-    """
-    
-    # Filter segments by dimensionality
-    compatible_segments = [seg for seg in segment_pool if seg['dimensions'] == target_dimensions]
-    
-    if not compatible_segments:
-        raise ValueError(f"No segments found with {target_dimensions} dimensions in the pool")
-    
-    def build_synthetic_log(target_length, core_id):
-        """Helper function to build a single synthetic log"""
-        synthetic_log = []
-        synthetic_md = []
-        boundaries = [0]  # Start with boundary at index 0
-        current_depth = 0.0
-        current_length = 0
-        
-        while current_length < target_length:
-            # Randomly select a segment
-            segment = random.choice(compatible_segments)
-            segment_log = segment['log_data']
-            segment_depth_span = max(segment['depth_span'], len(segment_log))  # Ensure positive depth span
-            
-            # Determine how much of the segment to use
-            remaining_length = target_length - current_length
-            segment_length = min(len(segment_log), remaining_length)
-            
-            # Extract the portion we need
-            if segment_length == len(segment_log):
-                # Use entire segment
-                log_portion = segment_log
-            else:
-                # Use partial segment (from beginning)
-                log_portion = segment_log[:segment_length]
-            
-            # Calculate depth increment (proportional to used portion)
-            depth_increment = segment_depth_span * (segment_length / len(segment_log))
-            
-            # Append to synthetic log
-            if current_length == 0:
-                # First segment
-                synthetic_log.extend(log_portion)
-                depth_values = np.linspace(current_depth, current_depth + depth_increment, len(log_portion))
-                synthetic_md.extend(depth_values)
-            else:
-                # Subsequent segments
-                synthetic_log.extend(log_portion)
-                depth_values = np.linspace(current_depth, current_depth + depth_increment, len(log_portion))
-                synthetic_md.extend(depth_values)
-            
-            # Update counters
-            current_length += len(log_portion)
-            current_depth += depth_increment
-            
-            # Add boundary (except for the last iteration)
-            if current_length < target_length:
-                boundaries.append(current_length)
-        
-        # Ensure we have the final boundary
-        if boundaries[-1] != current_length:
-            boundaries.append(current_length)
-        
-        # Convert to numpy arrays
-        synthetic_log = np.array(synthetic_log)
-        synthetic_md = np.array(synthetic_md)
-        
-        # Reshape if multidimensional
-        if target_dimensions > 1:
-            # If segments have different dimensions, pad or truncate as needed
-            if synthetic_log.ndim == 1:
-                synthetic_log = synthetic_log.reshape(-1, 1)
-                # Replicate to match target dimensions
-                synthetic_log = np.repeat(synthetic_log, target_dimensions, axis=1)
-            elif synthetic_log.shape[1] != target_dimensions:
-                # Adjust dimensions by padding or truncating
-                if synthetic_log.shape[1] < target_dimensions:
-                    # Pad with noise
-                    padding = np.random.normal(0, 0.1, (len(synthetic_log), target_dimensions - synthetic_log.shape[1]))
-                    synthetic_log = np.hstack([synthetic_log, padding])
-                else:
-                    # Truncate
-                    synthetic_log = synthetic_log[:, :target_dimensions]
-        
-        return synthetic_log, synthetic_md, boundaries
-    
-    # Generate both synthetic cores independently
-    synthetic_log_a, synthetic_md_a, synthetic_boundaries_a = build_synthetic_log(target_length_a, 'A')
-    synthetic_log_b, synthetic_md_b, synthetic_boundaries_b = build_synthetic_log(target_length_b, 'B')
-    
-    return (synthetic_log_a, synthetic_log_b, synthetic_md_a, synthetic_md_b, 
-            synthetic_boundaries_a, synthetic_boundaries_b)
-
-def create_synthetic_picked_depths(synthetic_md, segment_info):
-    """
-    Create picked depths for synthetic core based on segment boundaries.
+    Load segment pool data from turbidite database.
     
     Parameters:
-    - synthetic_md: depth array for synthetic core
-    - segment_info: list of dictionaries containing segment information from generate_synthetic_core_pair
+    - core_names: list of core names to process
+    - core_log_paths: dict mapping core names to log file paths
+    - picked_depth_paths: dict mapping core names to picked depth file paths
+    - log_columns: list of log column names to load
+    - depth_column: name of depth column
+    - column_alternatives: dict of alternative column names
+    - boundary_category: category number for turbidite boundaries (default: 1)
     
     Returns:
-    - picked_depths: list of tuples (depth, category) for synthetic core
+    - segment_pool_cores_data: dict containing loaded core data
+    - turb_logs: list of turbidite log segments
+    - depth_logs: list of turbidite depth segments
+    - target_dimensions: number of dimensions in the data
     """
+    
+    segment_pool_cores_data = {}
+    turb_logs = []
+    depth_logs = []
+    
+    print("Loading segment pool from available cores...")
+    
+    for core_name in core_names:
+        print(f"Processing {core_name}...")
+        
+        try:
+            # Load data for segment pool
+            log_data, md_data, available_columns, _, _ = load_log_data(
+                core_log_paths[core_name],
+                {},  # No images needed
+                log_columns,
+                depth_column=depth_column,
+                normalize=True,
+                column_alternatives=column_alternatives
+            )
+            
+            # Store core data
+            segment_pool_cores_data[core_name] = {
+                'log_data': log_data,
+                'md_data': md_data,
+                'available_columns': available_columns
+            }
+            
+            # Load turbidite boundaries for this core
+            picked_file = picked_depth_paths[core_name]
+            try:
+                picked_df = pd.read_csv(picked_file)
+                # Filter for specified category boundaries only
+                category_depths = picked_df[picked_df['category'] == boundary_category]['picked_depths_cm'].values
+                category_depths = np.sort(category_depths)  # Ensure sorted order
+                
+                # Create turbidite segments (from boundary to boundary)
+                for i in range(len(category_depths) - 1):
+                    start_depth = category_depths[i]
+                    end_depth = category_depths[i + 1]
+                    
+                    # Find indices corresponding to these depths
+                    start_idx = np.argmin(np.abs(md_data - start_depth))
+                    end_idx = np.argmin(np.abs(md_data - end_depth))
+                    
+                    if end_idx > start_idx:
+                        # Extract turbidite segment
+                        turb_segment = log_data[start_idx:end_idx]
+                        turb_depth = md_data[start_idx:end_idx] - md_data[start_idx]  # Relative depths
+                        
+                        turb_logs.append(turb_segment)
+                        depth_logs.append(turb_depth)
+                
+            except Exception as e:
+                print(f"Warning: Could not load turbidite boundaries for {core_name}: {e}")
+            
+            print(f"  Loaded: {len(log_data)} points, columns: {available_columns}")
+            
+        except Exception as e:
+            print(f"Error loading {core_name}: {e}")
+    
+    # Set target dimensions based on segment pool
+    target_dimensions = turb_logs[0].shape[1] if len(turb_logs) > 0 and turb_logs[0].ndim > 1 else 1
+    
+    print(f"Segment pool created with {len(turb_logs)} turbidites")
+    print(f"Total cores processed: {len(segment_pool_cores_data)}")
+    print(f"Target dimensions: {target_dimensions}")
+    
+    return segment_pool_cores_data, turb_logs, depth_logs, target_dimensions
+
+
+def plot_segment_pool(segment_logs, segment_depths, log_column_names, n_cols=8, figsize_per_row=4, 
+                     plot_segments=True, save_plot=False, plot_filename=None):
+    """
+    Plot all segments from the pool in a grid layout.
+    
+    Parameters:
+    - segment_logs: list of log data arrays (segments)
+    - segment_depths: list of depth arrays corresponding to each segment
+    - log_column_names: list of column names for labeling
+    - n_cols: number of columns in the subplot grid
+    - figsize_per_row: height per row in the figure
+    - plot_segments: whether to plot the segments (default True)
+    - save_plot: whether to save the plot to file (default False)
+    - plot_filename: filename for saving plot (optional)
+    
+    Returns:
+    - fig, axes: matplotlib figure and axes objects
+    """
+    print(f"Plotting {len(segment_logs)} segments from the pool...")
+    
+    if not plot_segments:
+        return None, None
+    
+    # Create subplot grid
+    n_segments = len(segment_logs)
+    n_rows = int(np.ceil(n_segments / n_cols))
+    
+    fig, axes = plt.subplots(n_rows, n_cols, figsize=(20, figsize_per_row * n_rows))
+    axes = axes.flatten() if n_segments > 1 else [axes]
+    
+    for i, (segment, depth) in enumerate(zip(segment_logs, segment_depths)):
+        ax = axes[i]
+        
+        # Plot segment
+        if segment.ndim > 1:
+            # Multi-dimensional data - plot first column
+            ax.plot(segment[:, 0], depth, 'b-', linewidth=1)
+            ax.set_xlabel(f'{log_column_names[0]} (normalized)')
+        else:
+            # 1D data
+            ax.plot(segment, depth, 'b-', linewidth=1)
+            ax.set_xlabel(f'{log_column_names[0]} (normalized)')
+        
+        ax.set_ylabel('Relative Depth (cm)')
+        ax.set_title(f'Segment {i+1}\n({len(segment)} pts, {depth[-1]:.1f} cm)')
+        ax.grid(True, alpha=0.3)
+        ax.invert_yaxis()  # Depth increases downward
+    
+    # Hide unused subplots
+    for i in range(n_segments, len(axes)):
+        axes[i].set_visible(False)
+    
+    plt.tight_layout()
+    plt.suptitle(f'Turbidite Segment Pool ({len(segment_logs)} segments)', y=1.02, fontsize=16)
+    
+    if save_plot and plot_filename:
+        plt.savefig(plot_filename, dpi=300, bbox_inches='tight')
+        print(f"Plot saved as: {plot_filename}")
+    
+    plt.show()
+    
+    return fig, axes
+
+
+def print_segment_pool_summary(segment_logs, segment_depths, target_dimensions):
+    """
+    Print summary statistics for the segment pool.
+    
+    Parameters:
+    - segment_logs: list of log data arrays (segments)
+    - segment_depths: list of depth arrays corresponding to each segment
+    - target_dimensions: number of dimensions in the data
+    """
+    segment_lengths = [len(seg) for seg in segment_logs]
+    segment_depths_max = [depth[-1] for depth in segment_depths]
+    
+    print(f"\nSegment Pool Summary:")
+    print(f"  Total segments: {len(segment_logs)}")
+    print(f"  Length range: {min(segment_lengths)}-{max(segment_lengths)} points")
+    print(f"  Depth range: {min(segment_depths_max):.1f}-{max(segment_depths_max):.1f} cm")
+    print(f"  Mean depth: {np.mean(segment_depths_max):.1f} cm")
+    print(f"  Target dimensions: {target_dimensions}")
+
+
+def create_synthetic_log_with_depths(thickness, turb_logs, depth_logs, exclude_inds=None, plot_results=True, save_plot=False, plot_filename=None):
+    """Create synthetic log using turbidite database approach with picked depths at turbidite bases."""
+    # Determine target dimensions from the first available segment
+    target_dimensions = turb_logs[0].shape[1] if len(turb_logs) > 0 and turb_logs[0].ndim > 1 else 1
+    
+    fake_log = np.array([]).reshape(0, target_dimensions) if target_dimensions > 1 else np.array([])
+    md_log = np.array([])
+    max_depth = 0
+    inds = []
     picked_depths = []
-    cumulative_length = 0
     
-    # Add boundary at the start
-    picked_depths.append((synthetic_md[0], 1))
+    # Add initial boundary
+    picked_depths.append((0, 1))
     
-    # Add boundaries at segment junctions
-    for i, seg_info in enumerate(segment_info[:-1]):  # Exclude last segment
-        cumulative_length += seg_info['length']
-        if cumulative_length < len(synthetic_md):
-            boundary_depth = synthetic_md[cumulative_length]
-            picked_depths.append((boundary_depth, 1))
+    while max_depth <= thickness:
+        ind = random.choices(np.arange(len(turb_logs)), k=1)[0]
+        
+        # Skip if this index should be excluded
+        if exclude_inds is not None and ind in exclude_inds:
+            continue
+            
+        inds.append(ind)
+        
+        # Get turbidite segment from database
+        turb_segment = turb_logs[ind]
+        turb_depths = depth_logs[ind]
+        
+        # Ensure turbidite has proper dimensions
+        if turb_segment.ndim == 1:
+            turb_segment = turb_segment.reshape(-1, 1)
+        
+        # Ensure proper dimensions match target
+        if turb_segment.shape[1] < target_dimensions:
+            # Pad with noise if needed
+            padding = np.random.normal(0, 0.1, (len(turb_segment), target_dimensions - turb_segment.shape[1]))
+            turb_segment = np.hstack([turb_segment, padding])
+        elif turb_segment.shape[1] > target_dimensions:
+            # Truncate if needed
+            turb_segment = turb_segment[:, :target_dimensions]
+        
+        # Append log data
+        if target_dimensions > 1:
+            if len(fake_log) == 0:
+                fake_log = turb_segment.copy()
+            else:
+                fake_log = np.vstack((fake_log, turb_segment))
+        else:
+            fake_log = np.hstack((fake_log, turb_segment.flatten()))
+        
+        # Append depth data
+        if len(md_log) == 0:
+            md_log = np.hstack((md_log, 1 + turb_depths))
+        else:
+            md_log = np.hstack((md_log, 1 + md_log[-1] + turb_depths))
+            
+        max_depth = md_log[-1]
+        
+        # Add picked depth at the base of this turbidite (current max_depth)
+        if max_depth <= thickness:
+            picked_depths.append((max_depth, 1))
     
-    # Add boundary at the end
-    picked_depths.append((synthetic_md[-1], 1))
+    # Truncate to target thickness
+    valid_indices = md_log <= thickness
+    if target_dimensions > 1:
+        log = fake_log[valid_indices]
+    else:
+        log = fake_log[valid_indices]
+    d = md_log[valid_indices]
     
-    return picked_depths
+    # Filter picked depths to only include those within the valid range
+    valid_picked_depths = [(depth, category) for depth, category in picked_depths if depth <= thickness]
+    
+    # Ensure we have an end boundary
+    if len(valid_picked_depths) == 0 or valid_picked_depths[-1][0] != d[-1]:
+        valid_picked_depths.append((d[-1], 1))
+    
+    return log, d, inds, valid_picked_depths
+
+
+def create_and_plot_synthetic_core_pair(core_a_length, core_b_length, turb_logs, depth_logs, 
+                                       log_columns, plot_results=True, save_plot=False, plot_filename=None):
+    """
+    Generate synthetic core pair and optionally plot the results.
+    
+    Parameters:
+    - core_a_length: target length for core A
+    - core_b_length: target length for core B
+    - turb_logs: list of turbidite log segments
+    - depth_logs: list of corresponding depth arrays
+    - log_columns: list of log column names for labeling
+    - plot_results: whether to display the plot
+    - save_plot: whether to save the plot to file
+    - plot_filename: filename for saving plot (if save_plot=True)
+    
+    Returns:
+    - tuple: (synthetic_log_a, synthetic_md_a, inds_a, synthetic_picked_a,
+              synthetic_log_b, synthetic_md_b, inds_b, synthetic_picked_b)
+    """
+    
+    # Generate synthetic logs for cores A and B
+    print("Generating synthetic core pair...")
+
+    synthetic_log_a, synthetic_md_a, inds_a, synthetic_picked_a_tuples = create_synthetic_log_with_depths(
+        core_a_length, turb_logs, depth_logs, exclude_inds=None
+    )
+    synthetic_log_b, synthetic_md_b, inds_b, synthetic_picked_b_tuples = create_synthetic_log_with_depths(
+        core_b_length, turb_logs, depth_logs, exclude_inds=None
+    )
+
+    # Extract just the depths from the tuples
+    synthetic_picked_a = [depth for depth, category in synthetic_picked_a_tuples]
+    synthetic_picked_b = [depth for depth, category in synthetic_picked_b_tuples]
+
+    # Plot synthetic core pair if requested
+    if plot_results:
+        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(4, 8))
+
+        # Plot synthetic core A
+        if synthetic_log_a.ndim > 1:
+            ax1.plot(synthetic_log_a[:, 0], synthetic_md_a, 'b-', linewidth=1)
+        else:
+            ax1.plot(synthetic_log_a, synthetic_md_a, 'b-', linewidth=1)
+
+        # Add picked depths as horizontal lines
+        for depth in synthetic_picked_a:
+            ax1.axhline(y=depth, color='red', linestyle='--', alpha=0.7, linewidth=1)
+
+        ax1.set_xlabel(f'{log_columns[0]}\n(normalized)')
+        ax1.set_ylabel('Depth (cm)')
+        ax1.set_title(f'Synthetic Core A\n({len(inds_a)} turbidites)')
+        ax1.grid(True, alpha=0.3)
+        ax1.invert_yaxis()
+
+        # Plot synthetic core B
+        if synthetic_log_b.ndim > 1:
+            ax2.plot(synthetic_log_b[:, 0], synthetic_md_b, 'g-', linewidth=1)
+        else:
+            ax2.plot(synthetic_log_b, synthetic_md_b, 'g-', linewidth=1)
+
+        # Add picked depths as horizontal lines
+        for depth in synthetic_picked_b:
+            ax2.axhline(y=depth, color='red', linestyle='--', alpha=0.7, linewidth=1)
+
+        ax2.set_xlabel(f'{log_columns[0]}\n(normalized)')
+        ax2.set_ylabel('Depth (cm)')
+        ax2.set_title(f'Synthetic Core B\n({len(inds_b)} turbidites)')
+        ax2.grid(True, alpha=0.3)
+        ax2.invert_yaxis()
+
+        plt.tight_layout()
+        
+        if save_plot and plot_filename:
+            plt.savefig(plot_filename, dpi=300, bbox_inches='tight')
+            print(f"Plot saved as: {plot_filename}")
+        
+        plt.show()
+
+    print(f"Synthetic Core A: {len(synthetic_log_a)} points, {len(inds_a)} turbidites, {len(synthetic_picked_a)} boundaries")
+    print(f"Synthetic Core B: {len(synthetic_log_b)} points, {len(inds_b)} turbidites, {len(synthetic_picked_b)} boundaries")
+    print(f"Turbidite indices used in A: {[int(x) for x in inds_a[:10]]}..." if len(inds_a) > 10 else f"Turbidite indices used in A: {[int(x) for x in inds_a]}")
+    print(f"Turbidite indices used in B: {[int(x) for x in inds_b[:10]]}..." if len(inds_b) > 10 else f"Turbidite indices used in B: {[int(x) for x in inds_b]}")
+    
+    return (synthetic_log_a, synthetic_md_a, inds_a, synthetic_picked_a,
+            synthetic_log_b, synthetic_md_b, inds_b, synthetic_picked_b)
