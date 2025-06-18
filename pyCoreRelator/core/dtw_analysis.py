@@ -459,7 +459,8 @@ def run_comprehensive_dtw_analysis(log_a, log_b, md_a, md_b, picked_depths_a=Non
                               age_constraint_a_source_cores=None,
                               age_constraint_b_source_cores=None,
                               core_a_name=None,
-                              core_b_name=None):
+                              core_b_name=None,
+                              mute_mode=False):
     """
     Run comprehensive DTW analysis with integrated age correlation functionality.
     
@@ -544,6 +545,8 @@ def run_comprehensive_dtw_analysis(log_a, log_b, md_a, md_b, picked_depths_a=Non
         Name of first core for labeling
     core_b_name : str, optional
         Name of second core for labeling
+    mute_mode : bool, default=False
+        If True, suppress all print output
     
     Returns
     -------
@@ -583,19 +586,22 @@ def run_comprehensive_dtw_analysis(log_a, log_b, md_a, md_b, picked_depths_a=Non
     Found 3 valid segment pairs
     """
     
-    print("Starting comprehensive DTW analysis with integrated age correlation...")
+    if not mute_mode:
+        print("Starting comprehensive DTW analysis with integrated age correlation...")
     
     # Find all segments
     segments_a, segments_b, depth_boundaries_a, depth_boundaries_b, dated_picked_depths_a, dated_picked_depths_b = find_all_segments(
         log_a, log_b, md_a, md_b, 
         picked_depths_a, picked_depths_b,
         top_bottom=top_bottom, 
-        top_depth=top_depth
+        top_depth=top_depth,
+        mute_mode=mute_mode
     )
 
     # Check if age consideration is enabled and validate age data
     if age_consideration:
-        print(f"\nAge consideration enabled - {'restricted' if restricted_age_correlation else 'flexible'} age correlation")
+        if not mute_mode:
+            print(f"\nAge consideration enabled - {'restricted' if restricted_age_correlation else 'flexible'} age correlation")
         
         if ages_a is None or ages_b is None:
             raise ValueError("Both ages_a and ages_b must be provided when age_consideration is True")
@@ -620,7 +626,8 @@ def run_comprehensive_dtw_analysis(log_a, log_b, md_a, md_b, picked_depths_a=Non
                 raise ValueError("Complete age constraint data must be provided when restricted_age_correlation is False")
     
     # Calculate full DTW distance matrix for reference
-    print("Calculating full DTW distance matrix...")
+    if not mute_mode:
+        print("Calculating full DTW distance matrix...")
     dtw_distance_matrix_full, _ = custom_dtw(log_a, log_b, subseq=False, exponent=1, independent_dtw=independent_dtw)
     
     # Create all possible segment pairs for evaluation
@@ -666,14 +673,15 @@ def run_comprehensive_dtw_analysis(log_a, log_b, md_a, md_b, picked_depths_a=Non
             
             all_possible_pairs.append((i, j))
     
-    print(f"Found {len(all_possible_pairs)} valid segment pairs after boundary checks")
+    if not mute_mode:
+        print(f"Found {len(all_possible_pairs)} valid segment pairs after boundary checks")
     
     # Create a dictionary to store all pairs with their age information and DTW results
     all_pairs_with_dtw = {}
     
     # Process all possible pairs and calculate age criteria
     if age_consideration:        
-        for a_idx, b_idx in tqdm(all_possible_pairs, desc="Calculating age bounds for all segment pairs..."):
+        for a_idx, b_idx in tqdm(all_possible_pairs, desc="Calculating age bounds for all segment pairs..." if not mute_mode else None, disable=mute_mode):
             # Get segment depths
             a_start_depth = md_a[depth_boundaries_a[segments_a[a_idx][0]]]
             a_end_depth = md_a[depth_boundaries_a[segments_a[a_idx][1]]]
@@ -794,14 +802,14 @@ def run_comprehensive_dtw_analysis(log_a, log_b, md_a, md_b, picked_depths_a=Non
             if dtw_distance_threshold is None:
                 # No DTW distance filtering - accept all segments
                 passes_distance = True
-                if debug:
+                if debug and not mute_mode:
                     print(f"Segment ({a_idx+1}, {b_idx+1}): DTW distance {final_dist:.2f} - ACCEPTED (no threshold)")
             else:
                 # Apply DTW distance threshold
                 passes_distance = final_dist < dtw_distance_threshold or len(segment_a) == 1 or len(segment_b) == 1
-                if debug and not passes_distance:
+                if debug and not mute_mode and not passes_distance:
                     print(f"Segment ({a_idx+1}, {b_idx+1}): DTW distance {final_dist:.2f} - REJECTED (threshold: {dtw_distance_threshold})")
-                elif debug:
+                elif debug and not mute_mode:
                     print(f"Segment ({a_idx+1}, {b_idx+1}): DTW distance {final_dist:.2f} - ACCEPTED (threshold: {dtw_distance_threshold})")
             
             return {
@@ -810,7 +818,7 @@ def run_comprehensive_dtw_analysis(log_a, log_b, md_a, md_b, picked_depths_a=Non
                 'passes_distance': passes_distance,
             }
         except Exception as e:
-            if debug:
+            if debug and not mute_mode:
                 print(f"Error calculating DTW for pair ({a_idx}, {b_idx}): {e}")
             return {
                 'dtw_results': ([], [], []),
@@ -819,7 +827,7 @@ def run_comprehensive_dtw_analysis(log_a, log_b, md_a, md_b, picked_depths_a=Non
             }
     
     # Calculate DTW for candidate pairs
-    for a_idx, b_idx in tqdm(all_possible_pairs, desc="Calculating DTW for segment pairs..."):
+    for a_idx, b_idx in tqdm(all_possible_pairs, desc="Calculating DTW for segment pairs..." if not mute_mode else None, disable=mute_mode):
         pair_info = all_pairs_with_dtw[(a_idx, b_idx)]
         
         # Get DTW results for this pair
@@ -839,10 +847,12 @@ def run_comprehensive_dtw_analysis(log_a, log_b, md_a, md_b, picked_depths_a=Non
                 valid_dtw_pairs.add((a_idx, b_idx))
                 final_dtw_results[(a_idx, b_idx)] = pair_info['dtw_results']
         
-        print(f"\nFound {len(valid_dtw_pairs)} valid segment pairs based on DTW distance")
+        if not mute_mode:
+            print(f"\nFound {len(valid_dtw_pairs)} valid segment pairs based on DTW distance")
         
     elif restricted_age_correlation:
-        print(f"\nAssessing age compatibility for segment pairs...(restricted age correlation mode)")
+        if not mute_mode:
+            print(f"\nAssessing age compatibility for segment pairs...(restricted age correlation mode)")
         # Restricted mode - only accept pairs with overlapping age ranges
         # Separate pairs into overlapping and non-overlapping
         overlapping_pairs = {}
@@ -858,7 +868,7 @@ def run_comprehensive_dtw_analysis(log_a, log_b, md_a, md_b, picked_depths_a=Non
                 overlapping_pairs[(a_idx, b_idx)] = pair_info
         
         # Process overlapping pairs with tqdm
-        for (a_idx, b_idx), pair_info in tqdm(overlapping_pairs.items(), desc=f"Checking {len(overlapping_pairs)} segment pairs with overlapping age range..."):
+        for (a_idx, b_idx), pair_info in tqdm(overlapping_pairs.items(), desc=f"Checking {len(overlapping_pairs)} segment pairs with overlapping age range..." if not mute_mode else None, disable=mute_mode):
             # For overlapping ranges, check age constraint compatibility
             if pair_info['ranges_overlap']:
                 # Get segment age bounds with uncertainty
@@ -893,11 +903,13 @@ def run_comprehensive_dtw_analysis(log_a, log_b, md_a, md_b, picked_depths_a=Non
                 valid_dtw_pairs.add((a_idx, b_idx))
                 final_dtw_results[(a_idx, b_idx)] = pair_info['dtw_results']
         
-        print(f"Found {len(valid_dtw_pairs)}/{len(overlapping_pairs)} age-overlapping segment pairs that are compatible with age constraints")
+        if not mute_mode:
+            print(f"Found {len(valid_dtw_pairs)}/{len(overlapping_pairs)} age-overlapping segment pairs that are compatible with age constraints")
         
     else:
             # Flexible mode - accept overlapping pairs AND compatible non-overlapping pairs
-            print(f"\nAssessing age compatibility for segment pairs...(loose age correlation mode)")
+            if not mute_mode:
+                print(f"\nAssessing age compatibility for segment pairs...(loose age correlation mode)")
             
             # Process all pairs that pass DTW distance threshold
             overlapping_pairs = {}
@@ -917,7 +929,7 @@ def run_comprehensive_dtw_analysis(log_a, log_b, md_a, md_b, picked_depths_a=Non
             
             # Process overlapping pairs (same as restricted mode)
             for (a_idx, b_idx), pair_info in tqdm(overlapping_pairs.items(), 
-                                                desc=f"Checking {len(overlapping_pairs)} overlapping segment pairs..."):
+                                                desc=f"Checking {len(overlapping_pairs)} overlapping segment pairs..." if not mute_mode else None, disable=mute_mode):
                 if pair_info['ranges_overlap']:
                     # Get segment age bounds with uncertainty
                     a_lower_bound = pair_info['age_bounds']['a_lower']
@@ -954,7 +966,7 @@ def run_comprehensive_dtw_analysis(log_a, log_b, md_a, md_b, picked_depths_a=Non
             # Process non-overlapping pairs with age constraint compatibility
             compatible_non_overlapping = 0
             for (a_idx, b_idx), pair_info in tqdm(non_overlapping_pairs.items(), 
-                                                desc=f"Checking {len(non_overlapping_pairs)} non-overlapping segment pairs..."):
+                                                desc=f"Checking {len(non_overlapping_pairs)} non-overlapping segment pairs..." if not mute_mode else None, disable=mute_mode):
                 # Get segment age bounds
                 a_lower_bound = pair_info['age_bounds']['a_lower']
                 a_upper_bound = pair_info['age_bounds']['a_upper']
@@ -983,14 +995,16 @@ def run_comprehensive_dtw_analysis(log_a, log_b, md_a, md_b, picked_depths_a=Non
                     final_dtw_results[(a_idx, b_idx)] = pair_info['dtw_results']
                     compatible_non_overlapping += 1
             
-            print(f"Found {len(overlapping_pairs)} overlapping segment pairs")
-            print(f"Found {compatible_non_overlapping}/{len(non_overlapping_pairs)} compatible non-overlapping segment pairs")
-            print(f"Total valid pairs: {len(valid_dtw_pairs)}")
+            if not mute_mode:
+                print(f"Found {len(overlapping_pairs)} overlapping segment pairs")
+                print(f"Found {compatible_non_overlapping}/{len(non_overlapping_pairs)} compatible non-overlapping segment pairs")
+                print(f"Total valid pairs: {len(valid_dtw_pairs)}")
         
     
     # Filter out dead end pairs if exclude_deadend is True
     if exclude_deadend:
-        print(f"\nFiltering dead-end pairs (exclude_deadend=True)...")
+        if not mute_mode:
+            print(f"\nFiltering dead-end pairs (exclude_deadend=True)...")
         
         # Get max depths
         max_depth_a = max(depth_boundaries_a)
@@ -998,7 +1012,7 @@ def run_comprehensive_dtw_analysis(log_a, log_b, md_a, md_b, picked_depths_a=Non
         
         # Apply dead end filtering
         filtered_valid_pairs = filter_dead_end_pairs(
-            valid_dtw_pairs, detailed_pairs, max_depth_a, max_depth_b, debug=debug
+            valid_dtw_pairs, detailed_pairs, max_depth_a, max_depth_b, debug=debug and not mute_mode
         )
         
         # Update valid_dtw_pairs and final_dtw_results
@@ -1009,7 +1023,8 @@ def run_comprehensive_dtw_analysis(log_a, log_b, md_a, md_b, picked_depths_a=Non
         
         valid_dtw_pairs = filtered_valid_pairs
         
-        print(f"Dead-end filtering complete: {len(valid_dtw_pairs)} segments retained")
+        if not mute_mode:
+            print(f"Dead-end filtering complete: {len(valid_dtw_pairs)} segments retained")
     
     # Create dtw matrix if requested
     if create_dtw_matrix:
@@ -1053,11 +1068,13 @@ def run_comprehensive_dtw_analysis(log_a, log_b, md_a, md_b, picked_depths_a=Non
                                 core_a_name=core_a_name,
                                 core_b_name=core_b_name
                             )
-        print(f"Generated DTW matrix with paths of all segment pairs at: {dtwmatrix_output_file}")
+        if not mute_mode:
+            print(f"Generated DTW matrix with paths of all segment pairs at: {dtwmatrix_output_file}")
 
     # Create animation if requested
     if creategif:
-        print("\nCreating GIF animation of all segment pairs...")
+        if not mute_mode:
+            print("\nCreating GIF animation of all segment pairs...")
         gif_output_file = create_segment_dtw_animation(
             log_a, log_b, md_a, md_b, 
             final_dtw_results, valid_dtw_pairs, 
@@ -1065,7 +1082,7 @@ def run_comprehensive_dtw_analysis(log_a, log_b, md_a, md_b, picked_depths_a=Non
             depth_boundaries_a, depth_boundaries_b,
             max_frames=max_frames,
             parallel=True,
-            debug=debug,
+            debug=debug and not mute_mode,
             color_interval_size=color_interval_size,
             keep_frames=keep_frames,
             output_filename=gif_output_filename,
@@ -1083,7 +1100,8 @@ def run_comprehensive_dtw_analysis(log_a, log_b, md_a, md_b, picked_depths_a=Non
             all_constraint_neg_errors_b=all_constraint_neg_errors_b
         )
         
-        print(f"Generated GIF animation of all segment pairs at: {gif_output_file}")
+        if not mute_mode:
+            print(f"Generated GIF animation of all segment pairs at: {gif_output_file}")
 
         # Display only if created
         if gif_output_file:
@@ -1099,7 +1117,8 @@ def run_comprehensive_dtw_analysis(log_a, log_b, md_a, md_b, picked_depths_a=Non
     
     # Display DTW matrix output figure if available
     if create_dtw_matrix and dtwmatrix_output_file and os.path.exists(dtwmatrix_output_file):
-        print(f"\nDisplaying DTW matrix visualization from: {dtwmatrix_output_file}")
+        if not mute_mode:
+            print(f"\nDisplaying DTW matrix visualization from: {dtwmatrix_output_file}")
         display(IPImage(filename=dtwmatrix_output_file))
 
     gc.collect()

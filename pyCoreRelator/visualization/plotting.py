@@ -1264,7 +1264,7 @@ def visualize_combined_segments(log_a, log_b, md_a, md_b, dtw_results, valid_dtw
     return combined_wp, combined_quality, correlation_fig, matrix_fig
 
 
-def plot_correlation_distribution(csv_file, target_mapping_id=None, quality_index=None, save_png=True, png_filename=None, core_a_name=None, core_b_name=None, no_bins=None, pdf_method='KDE', kde_bandwidth=0.05):
+def plot_correlation_distribution(csv_file, target_mapping_id=None, quality_index=None, save_png=True, png_filename=None, core_a_name=None, core_b_name=None, no_bins=None, pdf_method='KDE', kde_bandwidth=0.05, mute_mode=False):
     """
     UPDATED: Handle new CSV format with different column structure.
     Plot distribution of a specified quality index.
@@ -1278,6 +1278,7 @@ def plot_correlation_distribution(csv_file, target_mapping_id=None, quality_inde
     - no_bins: number of bins for the histogram (default: None for automatic estimation)
     - pdf_method: str, method for probability density function overlay: 'KDE' (default), 'skew-normal', or 'normal'
     - kde_bandwidth: float, bandwidth for KDE when pdf_method='KDE' (default: 0.05)
+    - mute_mode: bool, if True, suppress all print statements (default: False)
     """
     
     # Define quality index display names and descriptions
@@ -1294,21 +1295,24 @@ def plot_correlation_distribution(csv_file, target_mapping_id=None, quality_inde
     
     # Check if quality_index is provided
     if quality_index is None:
-        print("Error: quality_index parameter is required")
-        print("Available quality indices: perc_diag, norm_dtw, dtw_ratio, corr_coef, wrapping_deviation, mean_matching_function, perc_age_overlap")
+        if not mute_mode:
+            print("Error: quality_index parameter is required")
+            print("Available quality indices: perc_diag, norm_dtw, dtw_ratio, corr_coef, wrapping_deviation, mean_matching_function, perc_age_overlap")
         return
     
     # Load the CSV file
     try:
         df = pd.read_csv(csv_file)
     except FileNotFoundError:
-        print(f"File not found: {csv_file}")
+        if not mute_mode:
+            print(f"File not found: {csv_file}")
         return
     
     # Check if quality_index column exists
     if quality_index not in df.columns:
-        print(f"Error: '{quality_index}' column not found in the CSV file")
-        print(f"Available columns: {list(df.columns)}")
+        if not mute_mode:
+            print(f"Error: '{quality_index}' column not found in the CSV file")
+            print(f"Available columns: {list(df.columns)}")
         return
     
     # Convert to numpy array and remove NaN values
@@ -1316,7 +1320,8 @@ def plot_correlation_distribution(csv_file, target_mapping_id=None, quality_inde
     quality_values = quality_values[~np.isnan(quality_values)]
     # Check if there are enough unique values for proper distribution
     if len(quality_values) == 0:
-        print("Error: No valid quality values found (all NaN)")
+        if not mute_mode:
+            print("Error: No valid quality values found (all NaN)")
         return None, None, {}
     
     # Automatically estimate number of bins if not provided
@@ -1354,15 +1359,12 @@ def plot_correlation_distribution(csv_file, target_mapping_id=None, quality_inde
         no_bins = int(np.median(estimated_bins))
         no_bins = max(10, min(no_bins, 100))  # Constrain between 10 and 100 bins
     
-    # Create the figure
-    fig, ax = plt.subplots(figsize=(6, 4))
-    
     # Calculate total count for percentage
     total_count = len(quality_values)
     
-    # Plot histogram of quality index as percentage
-    hist, bins, _ = ax.hist(quality_values, bins=no_bins, alpha=0.7, color='skyblue', 
-                            edgecolor='black', weights=np.ones(total_count)*100/total_count)
+    # Calculate histogram data
+    hist, bins = np.histogram(quality_values, bins=no_bins)
+    hist = hist * 100 / total_count  # Convert to percentage
     
     # Initialize fit_params dictionary with common statistics
     fit_params = {
@@ -1393,9 +1395,6 @@ def plot_correlation_distribution(csv_file, target_mapping_id=None, quality_inde
             fit_params['kde_object'] = kde
             fit_params['x_range'] = x
             fit_params['y_values'] = y
-            
-            ax.plot(x, y, 'r-', linewidth=2, alpha=0.8, 
-                    label=f'KDE\n(bandwidth = {kde_bandwidth})\n(n = {total_count:,})')
         
         elif pdf_method.upper() == 'SKEW-NORMAL':
             # Fit skew-normal distribution
@@ -1417,12 +1416,10 @@ def plot_correlation_distribution(csv_file, target_mapping_id=None, quality_inde
                 fit_params['x_range'] = x
                 fit_params['y_values'] = y
                 
-                ax.plot(x, y, 'r-', linewidth=2, alpha=0.8, 
-                        label=f'Skew-Normal Fit\n(α = {shape:.3f})\n(μ = {location:.3f})\n(σ = {scale:.3f})\nn = {total_count:,}')
-                
             except (RuntimeError, ValueError, TypeError) as e:
-                print(f"Warning: Skew-normal fitting failed: {e}")
-                print("Falling back to normal distribution fit")
+                if not mute_mode:
+                    print(f"Warning: Skew-normal fitting failed: {e}")
+                    print("Falling back to normal distribution fit")
                 pdf_method = 'normal'
         
         if pdf_method.upper() == 'NORMAL':
@@ -1437,89 +1434,120 @@ def plot_correlation_distribution(csv_file, target_mapping_id=None, quality_inde
             fit_params['std'] = std_val
             fit_params['x_range'] = x
             fit_params['y_values'] = y
-            
-            ax.plot(x, y, 'r-', linewidth=2, alpha=0.8, 
-                    label=f'Normal Fit\n(mean = {mean_val:.3f})\n(σ = {std_val:.3f})\nn = {total_count:,}')
     
-    # Add vertical line for median
+    # Add median value
     median_value = np.median(quality_values)
-    ax.axvline(median_value, color='green', linestyle='dashed', linewidth=2, 
-               label=f'Median: {median_value:.3f}')
     
-    # If target_mapping_id is provided, highlight it
+    # If target_mapping_id is provided, calculate its statistics
     if target_mapping_id is not None:
         target_row = df[df['mapping_id'] == target_mapping_id]
         if not target_row.empty:
             target_value = target_row[quality_index].values[0]
             percentile = (quality_values < target_value).mean() * 100
-            ax.axvline(target_value, color='purple', linestyle='solid', linewidth=2,
-                      label=f'Mapping {target_mapping_id}: {target_value:.3f}\n({percentile:.3f}th percentile)')
             fit_params['target_value'] = target_value
             fit_params['target_percentile'] = percentile
-    
-    # Set x-axis based on quality index
-    if quality_index == 'corr_coef':
-        ax.set_xlim(0, 1.0)
     
     # Get the display name for the quality index
     quality_display_name = quality_index_mapping.get(quality_index, quality_index)
     
-    # Add labels and title
-    ax.set_xlabel(quality_display_name)
-    ax.set_ylabel('Percentage (%)')
-    title = f'Distribution of {quality_index}'
-    if core_a_name and core_b_name:
-        title += f'\n{core_a_name} vs {core_b_name}'
-    plt.title(title)
-    ax.legend()
-    ax.grid(True, alpha=0.3)
-    
-    # Save the figure if requested
-    if save_png:
-        if png_filename is None:
-            png_filename = f'{quality_index}_distribution_{pdf_method.lower()}.png'
+    # If not in mute mode, create and show the plot
+    if not mute_mode:
+        # Create the figure
+        fig, ax = plt.subplots(figsize=(6, 4))
         
-        # Ensure outputs directory exists
-        os.makedirs('outputs', exist_ok=True)
+        # Plot histogram of quality index as percentage
+        ax.hist(quality_values, bins=no_bins, alpha=0.7, color='skyblue', 
+                edgecolor='black', weights=np.ones(total_count)*100/total_count)
         
-        # Use only filename, place in outputs directory
-        save_filename = os.path.basename(png_filename)
-        final_png_path = os.path.join('outputs', save_filename)
+        # Add probability density function curve if available
+        if 'x_range' in fit_params and 'y_values' in fit_params:
+            x = fit_params['x_range']
+            y = fit_params['y_values']
+            
+            if fit_params['method'] == 'KDE':
+                ax.plot(x, y, 'r-', linewidth=2, alpha=0.8, 
+                        label=f'KDE\n(bandwidth = {fit_params["bandwidth"]})\n(n = {total_count:,})')
+            elif fit_params['method'] == 'skew-normal':
+                ax.plot(x, y, 'r-', linewidth=2, alpha=0.8, 
+                        label=f'Skew-Normal Fit\n(α = {fit_params["shape"]:.3f})\n(μ = {fit_params["location"]:.3f})\n(σ = {fit_params["scale"]:.3f})\nn = {total_count:,}')
+            elif fit_params['method'] == 'normal':
+                ax.plot(x, y, 'r-', linewidth=2, alpha=0.8, 
+                        label=f'Normal Fit\n(mean = {fit_params["mean"]:.3f})\n(σ = {fit_params["std"]:.3f})\nn = {total_count:,}')
         
-        plt.savefig(final_png_path, dpi=150, bbox_inches='tight')
-    
-    # Show the plot
-    plt.tight_layout()
-    plt.show()
-    
-    # Print summary statistics
-    print(f"Summary Statistics for {quality_display_name}:")
-    print(f"Median: {median_value:.3f}")
-    print(f"Min: {quality_values.min():.3f}")
-    print(f"Max: {quality_values.max():.3f}")
-    print(f"Standard Deviation: {quality_values.std():.3f}")
-    print(f"Number of data points: {total_count}")
-    
-    # Print distribution fitting results
-    if 'method' in fit_params:
-        print(f"\nDistribution Fitting Results ({fit_params['method']}):")
-        print(f"{'='*60}")
-        if fit_params['method'] == 'KDE':
-            print(f"Bandwidth: {fit_params['bandwidth']} (Controls smoothness of the density curve)")
-        elif fit_params['method'] == 'skew-normal':
-            print(f"Shape parameter (α): {fit_params['shape']:.5f} (Asymmetry; α=0 gives normal distribution; positive α = right skew, negative α = left skew; magnitude indicates strength of skew)")
-            print(f"Location parameter (μ): {fit_params['location']:.5f} (Center/peak position of the distribution; larger magnitude shifts distribution)")
-            print(f"Scale parameter (σ): {fit_params['scale']:.5f} (Width/spread of the distribution; magnitude indicates the degree of spread)")
-            print(f"Skewness: {fit_params['skewness']:.5f} (Measure of asymmetry; positive = longer right tail; magnitude indicates severity of skew)")
-        elif fit_params['method'] == 'normal':
-            print(f"Mean (μ): {fit_params['mean']:.5f} (Center of the distribution; magnitude indicates distance from zero)")
-            print(f"Standard deviation (σ): {fit_params['std']:.5f} (Width/spread of the distribution; larger magnitude increases variability)")
-    
-    # If target_mapping_id is provided, show its percentile
-    if target_mapping_id is not None and not target_row.empty:
-        target_value = target_row[quality_index].values[0]
-        percentile = (quality_values < target_value).mean() * 100
-        print(f"\nMapping ID {target_mapping_id} {quality_display_name}: {target_value:.3f}")
-        print(f"Percentile: {percentile:.3f}%")
-    
-    return fig, ax, fit_params
+        # Add vertical line for median
+        ax.axvline(median_value, color='green', linestyle='dashed', linewidth=2, 
+                   label=f'Median: {median_value:.3f}')
+        
+        # If target_mapping_id is provided, highlight it
+        if target_mapping_id is not None and 'target_value' in fit_params:
+            target_value = fit_params['target_value']
+            percentile = fit_params['target_percentile']
+            ax.axvline(target_value, color='purple', linestyle='solid', linewidth=2,
+                      label=f'Mapping {target_mapping_id}: {target_value:.3f}\n({percentile:.3f}th percentile)')
+        
+        # Set x-axis based on quality index
+        if quality_index == 'corr_coef':
+            ax.set_xlim(0, 1.0)
+        
+        # Add labels and title
+        ax.set_xlabel(quality_display_name)
+        ax.set_ylabel('Percentage (%)')
+        title = f'Distribution of {quality_index}'
+        if core_a_name and core_b_name:
+            title += f'\n{core_a_name} vs {core_b_name}'
+        plt.title(title)
+        ax.legend()
+        ax.grid(True, alpha=0.3)
+        
+        # Save the figure if requested
+        if save_png:
+            if png_filename is None:
+                png_filename = f'{quality_index}_distribution_{pdf_method.lower()}.png'
+            
+            # Ensure outputs directory exists
+            os.makedirs('outputs', exist_ok=True)
+            
+            # Use only filename, place in outputs directory
+            save_filename = os.path.basename(png_filename)
+            final_png_path = os.path.join('outputs', save_filename)
+            
+            plt.savefig(final_png_path, dpi=150, bbox_inches='tight')
+        
+        # Show the plot
+        plt.tight_layout()
+        plt.show()
+        
+        # Print summary statistics
+        print(f"Summary Statistics for {quality_display_name}:")
+        print(f"Median: {median_value:.3f}")
+        print(f"Min: {quality_values.min():.3f}")
+        print(f"Max: {quality_values.max():.3f}")
+        print(f"Standard Deviation: {quality_values.std():.3f}")
+        print(f"Number of data points: {total_count}")
+        
+        # Print distribution fitting results
+        if 'method' in fit_params:
+            print(f"\nDistribution Fitting Results ({fit_params['method']}):")
+            print(f"{'='*60}")
+            if fit_params['method'] == 'KDE':
+                print(f"Bandwidth: {fit_params['bandwidth']} (Controls smoothness of the density curve)")
+            elif fit_params['method'] == 'skew-normal':
+                print(f"Shape parameter (α): {fit_params['shape']:.5f} (Asymmetry; α=0 gives normal distribution; positive α = right skew, negative α = left skew; magnitude indicates strength of skew)")
+                print(f"Location parameter (μ): {fit_params['location']:.5f} (Center/peak position of the distribution; larger magnitude shifts distribution)")
+                print(f"Scale parameter (σ): {fit_params['scale']:.5f} (Width/spread of the distribution; magnitude indicates the degree of spread)")
+                print(f"Skewness: {fit_params['skewness']:.5f} (Measure of asymmetry; positive = longer right tail; magnitude indicates severity of skew)")
+            elif fit_params['method'] == 'normal':
+                print(f"Mean (μ): {fit_params['mean']:.5f} (Center of the distribution; magnitude indicates distance from zero)")
+                print(f"Standard deviation (σ): {fit_params['std']:.5f} (Width/spread of the distribution; larger magnitude increases variability)")
+        
+        # If target_mapping_id is provided, show its percentile
+        if target_mapping_id is not None and 'target_value' in fit_params:
+            target_value = fit_params['target_value']
+            percentile = fit_params['target_percentile']
+            print(f"\nMapping ID {target_mapping_id} {quality_display_name}: {target_value:.3f}")
+            print(f"Percentile: {percentile:.3f}%")
+        
+        return fig, ax, fit_params
+    else:
+        # In mute mode, just return fit_params
+        return None, None, fit_params

@@ -42,7 +42,7 @@ import random
 import math
 
 
-def find_all_segments(log_a, log_b, md_a, md_b, picked_depths_a=None, picked_depths_b=None, top_bottom=True, top_depth=0.0):
+def find_all_segments(log_a, log_b, md_a, md_b, picked_depths_a=None, picked_depths_b=None, top_bottom=True, top_depth=0.0, mute_mode=False):
     """
     Find segments in two logs using depth boundaries to create consecutive and single-point segments.
     
@@ -58,6 +58,7 @@ def find_all_segments(log_a, log_b, md_a, md_b, picked_depths_a=None, picked_dep
         picked_depths_b (list, optional): User-selected depth values for core B boundaries
         top_bottom (bool): Whether to add top and bottom boundaries automatically
         top_depth (float): Depth value to use for top boundary
+        mute_mode (bool, default=False): If True, suppress all print output
         
     Returns:
         tuple: (segments_a, segments_b, depth_boundaries_a, depth_boundaries_b, depth_values_a, depth_values_b)
@@ -110,11 +111,13 @@ def find_all_segments(log_a, log_b, md_a, md_b, picked_depths_a=None, picked_dep
     
     # Create default segments if no depths specified
     if len(depth_values_a) == 0:
-        print("Warning: No depth boundaries specified for log A. Using evenly spaced boundaries.")
+        if not mute_mode:
+            print("Warning: No depth boundaries specified for log A. Using evenly spaced boundaries.")
         depth_values_a = [top_depth, md_a[len(log_a) // 3], md_a[2 * len(log_a) // 3], md_a[-1]]
     
     if len(depth_values_b) == 0:
-        print("Warning: No depth boundaries specified for log B. Using evenly spaced boundaries.")
+        if not mute_mode:
+            print("Warning: No depth boundaries specified for log B. Using evenly spaced boundaries.")
         depth_values_b = [top_depth, md_b[len(log_b) // 3], md_b[2 * len(log_b) // 3], md_b[-1]]
     
     def find_nearest_index(depth_array, depth_value):
@@ -139,12 +142,13 @@ def find_all_segments(log_a, log_b, md_a, md_b, picked_depths_a=None, picked_dep
             segments_b.append((i, i+1))  # Consecutive segment
 
     # Print summary information
-    print(f"\nLog A depth values: {[float(d) for d in depth_values_a]}")
-    print(f"Log A depth boundaries: {[int(i) for i in depth_boundaries_a]}")
-    print(f"\nLog B depth values: {[float(d) for d in depth_values_b]}")
-    print(f"Log B depth boundaries: {[int(i) for i in depth_boundaries_b]}")
-    print(f"Generated {len(segments_a)} possible segments for log A")
-    print(f"Generated {len(segments_b)} possible segments for log B")
+    if not mute_mode:
+        print(f"\nLog A depth values: {[float(d) for d in depth_values_a]}")
+        print(f"Log A depth boundaries: {[int(i) for i in depth_boundaries_a]}")
+        print(f"\nLog B depth values: {[float(d) for d in depth_values_b]}")
+        print(f"Log B depth boundaries: {[int(i) for i in depth_boundaries_b]}")
+        print(f"Generated {len(segments_a)} possible segments for log A")
+        print(f"Generated {len(segments_b)} possible segments for log B")
     
     return segments_a, segments_b, depth_boundaries_a, depth_boundaries_b, depth_values_a, depth_values_b
 
@@ -293,7 +297,7 @@ def filter_dead_end_pairs(valid_dtw_pairs, detailed_pairs, max_depth_a, max_dept
     return filtered_pairs
 
 
-def compute_total_complete_paths(valid_dtw_pairs, detailed_pairs, max_depth_a, max_depth_b):
+def compute_total_complete_paths(valid_dtw_pairs, detailed_pairs, max_depth_a, max_depth_b, mute_mode=False):
     """
     Compute the total number of complete paths using dynamic programming.
     
@@ -306,6 +310,7 @@ def compute_total_complete_paths(valid_dtw_pairs, detailed_pairs, max_depth_a, m
         detailed_pairs (dict): Segment depth details
         max_depth_a (float): Maximum depth for core A  
         max_depth_b (float): Maximum depth for core B
+        mute_mode (bool): If True, suppress all print output
         
     Returns:
         dict: Path computation results including:
@@ -331,12 +336,14 @@ def compute_total_complete_paths(valid_dtw_pairs, detailed_pairs, max_depth_a, m
     viable_tops = [seg for seg in top_segments if seg in viable_segments]
     viable_bottoms = [seg for seg in bottom_segments if seg in viable_segments]
     
-    print(f"Viable segments (excluding dead ends and orphans): {len(viable_segments)}")
-    print(f"Viable top segments: {len(viable_tops)}")
-    print(f"Viable bottom segments: {len(viable_bottoms)}")
+    if not mute_mode:
+        print(f"Viable segments (excluding dead ends and orphans): {len(viable_segments)}")
+        print(f"Viable top segments: {len(viable_tops)}")
+        print(f"Viable bottom segments: {len(viable_bottoms)}")
     
     if not viable_tops or not viable_bottoms:
-        print("No viable complete paths possible")
+        if not mute_mode:
+            print("No viable complete paths possible")
         return {
             'total_complete_paths': 0,
             'viable_segments': viable_segments,
@@ -384,9 +391,11 @@ def compute_total_complete_paths(valid_dtw_pairs, detailed_pairs, max_depth_a, m
             paths_from_top = count_paths_from(top_seg)
             paths_from_tops[top_seg] = paths_from_top
             total_complete_paths += paths_from_top
-            print(f"  Paths from top segment ({top_seg[0]+1},{top_seg[1]+1}): {paths_from_top}")
+            if not mute_mode:
+                print(f"  Paths from top segment ({top_seg[0]+1},{top_seg[1]+1}): {paths_from_top}")
     
-    print(f"Total complete paths: {total_complete_paths}")
+    if not mute_mode:
+        print(f"Total complete paths: {total_complete_paths}")
     
     return {
         'total_complete_paths': total_complete_paths,
@@ -413,7 +422,8 @@ def find_complete_core_paths(
     shortest_path_search=True,
     shortest_path_level=2,
     max_search_path=5000,
-    output_metric_only=False  # Add this new parameter
+    output_metric_only=False,  # Add this new parameter
+    mute_mode=False  # Add this new parameter
 ):
     """
     Find and enumerate all complete core-to-core correlation paths with advanced optimization features.
@@ -436,6 +446,7 @@ def find_complete_core_paths(
         shortest_path_level (int): Number of shortest unique lengths to keep
         max_search_path (int): Maximum complete paths to find before stopping
         output_metric_only (bool): Only output quality metrics in the output CSV, no paths info
+        mute_mode (bool): If True, suppress all print output
         
     Returns:
         dict: Comprehensive results including:
@@ -462,7 +473,7 @@ def find_complete_core_paths(
     output_csv = os.path.join('outputs', output_csv_filename)
 
     # Performance warning for unlimited search
-    if max_search_path is None:
+    if max_search_path is None and not mute_mode:
         print("⚠️  WARNING: max_search_path=None can be very time consuming and require high memory usage!")
         print("   Consider setting max_search_path to a reasonable limit (e.g., 50000) for better performance.")
 
@@ -470,7 +481,8 @@ def find_complete_core_paths(
         """Check if memory usage is high and force cleanup if needed."""
         memory_percent = psutil.virtual_memory().percent
         if memory_percent > threshold_percent:
-            print(f"⚠️ Memory usage high ({memory_percent}%)! Forcing cleanup...")
+            if not mute_mode:
+                print(f"⚠️ Memory usage high ({memory_percent}%)! Forcing cleanup...")
             gc.collect()
             return True
         return False
@@ -513,7 +525,7 @@ def find_complete_core_paths(
     
     def remove_duplicates_from_db(conn, debug_info=""):
         """Remove duplicate paths from database and return count of removed duplicates."""
-        if debug:
+        if debug and not mute_mode:
             print(f"Removing duplicates from database... {debug_info}")
         
         # Create temporary table for unique paths
@@ -538,7 +550,7 @@ def find_complete_core_paths(
                 WHERE rowid NOT IN (SELECT keep_rowid FROM temp_unique_paths)
             """)
             
-            if debug:
+            if debug and not mute_mode:
                 print(f"  Removed {total_duplicates} duplicate paths")
         
         conn.execute("DROP TABLE temp_unique_paths")
@@ -560,7 +572,7 @@ def find_complete_core_paths(
         filtered_paths = [(path, length, is_complete) for path, length, is_complete in paths_data 
                          if length in keep_lengths]
         
-        if debug and len(filtered_paths) < len(paths_data):
+        if debug and not mute_mode and len(filtered_paths) < len(paths_data):
             print(f"  Shortest path filtering: kept {len(filtered_paths)}/{len(paths_data)} paths with lengths {sorted(keep_lengths)}")
         
         return filtered_paths
@@ -660,7 +672,7 @@ def find_complete_core_paths(
         
         paths_to_remove = current_intermediate_count - max_paths
         
-        if debug:
+        if debug and not mute_mode:
             print(f"  Shared DB pruning: {current_intermediate_count} intermediate paths exceed limit of {max_paths}")
             print(f"  Randomly excluding {paths_to_remove} intermediate paths from shared database")
         
@@ -687,7 +699,7 @@ def find_complete_core_paths(
                 
                 shared_conn.commit()
                 
-                if debug:
+                if debug and not mute_mode:
                     print(f"  Removed {len(rowids_to_remove)} intermediate paths")
                     # Verify final count
                     cursor = shared_conn.execute("SELECT COUNT(*) FROM compressed_paths WHERE is_complete = 0")
@@ -699,7 +711,8 @@ def find_complete_core_paths(
         return 0
 
     # Setup boundary constraints and segment classification
-    print("Setting up boundary constraints...")
+    if not mute_mode:
+        print("Setting up boundary constraints...")
     
     max_depth_a = max(depth_boundaries_a)
     max_depth_b = max(depth_boundaries_b)
@@ -733,14 +746,16 @@ def find_complete_core_paths(
     valid_top_segments = true_top_segments.intersection(valid_dtw_pairs)
     valid_bottom_segments = true_bottom_segments.intersection(valid_dtw_pairs)
     
-    print(f"Identified {len(valid_top_segments)} valid segments at the top of both cores")
-    print(f"Valid top segments (1-based indices): {[(a_idx+1, b_idx+1) for a_idx, b_idx in valid_top_segments]}")
-    print(f"Identified {len(valid_bottom_segments)} valid segments at the bottom of both cores")
-    print(f"Valid bottom segments (1-based indices): {[(a_idx+1, b_idx+1) for a_idx, b_idx in valid_bottom_segments]}")
+    if not mute_mode:
+        print(f"Identified {len(valid_top_segments)} valid segments at the top of both cores")
+        print(f"Valid top segments (1-based indices): {[(a_idx+1, b_idx+1) for a_idx, b_idx in valid_top_segments]}")
+        print(f"Identified {len(valid_bottom_segments)} valid segments at the bottom of both cores")
+        print(f"Valid bottom segments (1-based indices): {[(a_idx+1, b_idx+1) for a_idx, b_idx in valid_bottom_segments]}")
 
     # Early exit if no complete paths possible
     if not true_bottom_segments:
-        print("No segments found that contain the bottom of both cores. Cannot find complete paths.")
+        if not mute_mode:
+            print("No segments found that contain the bottom of both cores. Cannot find complete paths.")
         return {
             'total_complete_paths_theoretical': 0,
             'total_complete_paths_found': 0,
@@ -752,7 +767,8 @@ def find_complete_core_paths(
         }
         
     if not true_top_segments:
-        print("No segments found that contain the top of both cores. Cannot find complete paths.")
+        if not mute_mode:
+            print("No segments found that contain the top of both cores. Cannot find complete paths.")
         return {
             'total_complete_paths_theoretical': 0,
             'total_complete_paths_found': 0,
@@ -764,11 +780,13 @@ def find_complete_core_paths(
         }
 
     # Compute theoretical path count
-    print(f"\n=== COMPLETE PATH COMPUTATION ===")
-    path_computation_results = compute_total_complete_paths(valid_dtw_pairs, detailed_pairs, max_depth_a, max_depth_b)
+    if not mute_mode:
+        print(f"\n=== COMPLETE PATH COMPUTATION ===")
+    path_computation_results = compute_total_complete_paths(valid_dtw_pairs, detailed_pairs, max_depth_a, max_depth_b, mute_mode=mute_mode)
 
     # Build segment relationships
-    print("\nBuilding segment relationships...")
+    if not mute_mode:
+        print("\nBuilding segment relationships...")
     predecessor_lookup = defaultdict(list)
     successor_lookup = defaultdict(list)
     
@@ -795,7 +813,8 @@ def find_complete_core_paths(
         allowed_top_pairs = [(1,0), (1,1), (0,1)]
         final_top_segments = {seg for seg in true_top_segments if seg in allowed_top_pairs}
         
-    print(f"Using {len(final_top_segments)} valid top segments for path starting points")
+    if not mute_mode:
+        print(f"Using {len(final_top_segments)} valid top segments for path starting points")
     
     # Topological ordering for processing
     def topological_sort():
@@ -827,14 +846,16 @@ def find_complete_core_paths(
         for segment in final_top_segments:
             if segment not in visited:
                 if not dfs(segment):
-                    print("Warning: Cycle detected in segment relationships. Using BFS ordering instead.")
+                    if not mute_mode:
+                        print("Warning: Cycle detected in segment relationships. Using BFS ordering instead.")
                     return None
         
         # Process remaining segments
         for segment in valid_dtw_pairs:
             if segment not in visited:
                 if not dfs(segment):
-                    print("Warning: Cycle detected in segment relationships. Using BFS ordering instead.")
+                    if not mute_mode:
+                        print("Warning: Cycle detected in segment relationships. Using BFS ordering instead.")
                     return None
         
         return list(reversed(order))  # Reverse for top-to-bottom order
@@ -844,7 +865,8 @@ def find_complete_core_paths(
     
     if topo_order is None:
         # Fall back to level-based ordering
-        print("Using level-based ordering instead of topological sort...")
+        if not mute_mode:
+            print("Using level-based ordering instead of topological sort...")
         
         levels = {}
         queue = deque([(seg, 0) for seg in final_top_segments])
@@ -863,17 +885,20 @@ def find_complete_core_paths(
         
         topo_order = sorted(valid_dtw_pairs, key=lambda seg: levels.get(seg, float('inf')))
     
-    print(f"Identified {len(topo_order)} segments in processing order")
+    if not mute_mode:
+        print(f"Identified {len(topo_order)} segments in processing order")
     
     # Database setup
     temp_dir = tempfile.mkdtemp()
-    print(f"Created temporary directory for databases: {temp_dir}")
+    if not mute_mode:
+        print(f"Created temporary directory for databases: {temp_dir}")
     
     shared_read_db_path = os.path.join(temp_dir, "shared_read.db")
     shared_read_conn = setup_database(shared_read_db_path, read_only=False)
     
     # Initialize with top segments
-    print("Initializing shared database with top segments...")
+    if not mute_mode:
+        print("Initializing shared database with top segments...")
     for segment in final_top_segments:
         compressed_path = compress_path([segment])
         insert_compressed_path(shared_read_conn, segment, segment, compressed_path, 1, False)
@@ -892,7 +917,8 @@ def find_complete_core_paths(
     if current_group:
         segment_groups.append(current_group)
     
-    print(f"Processing {len(topo_order)} segments in {len(segment_groups)} groups (1 segment per group for complete enumeration)")
+    if not mute_mode:
+        print(f"Processing {len(topo_order)} segments in {len(segment_groups)} groups (1 segment per group for complete enumeration)")
     
     # Initialize path tracking
     complete_paths_found = 0
@@ -944,7 +970,7 @@ def find_complete_core_paths(
             
             paths_to_remove = current_intermediate_count - max_search_path
             
-            if debug:
+            if debug and not mute_mode:
                 print(f"    Path pruning: {current_intermediate_count} intermediate paths exceed limit of {max_search_path}")
                 print(f"    Randomly excluding {paths_to_remove} intermediate paths")
             
@@ -971,7 +997,7 @@ def find_complete_core_paths(
                     
                     group_write_conn.commit()
                     
-                    if debug:
+                    if debug and not mute_mode:
                         print(f"    Removed {len(rowids_to_remove)} intermediate paths")
                         # Verify final count
                         cursor = group_write_conn.execute("SELECT COUNT(*) FROM compressed_paths WHERE is_complete = 0")
@@ -1039,7 +1065,7 @@ def find_complete_core_paths(
                 
                 # If intermediate paths exceed limit, randomly exclude excess
                 if len(intermediate_paths) > max_search_path:
-                    if debug:
+                    if debug and not mute_mode:
                         print(f"  Segment ({segment[0]+1},{segment[1]+1}): {len(intermediate_paths)} intermediate paths exceed limit of {max_search_path}")
                         print(f"  Randomly excluding {len(intermediate_paths) - max_search_path} intermediate paths")
                     
@@ -1092,7 +1118,7 @@ def find_complete_core_paths(
     
     # Determine sync frequency
     sync_every_n_groups = 1
-    if debug:
+    if debug and not mute_mode:
         processing_msg = "syncing after every segment with incremental duplicate removal for maximum reliability"
         
         optimization_msgs = []
@@ -1107,85 +1133,88 @@ def find_complete_core_paths(
         print(f"Processing mode: {processing_msg}")
     
     # Main processing loop
-    with tqdm(total=len(segment_groups), desc="Processing segment groups") as pbar:
-        group_results = []
+    if not mute_mode:
+        pbar = tqdm(total=len(segment_groups), desc="Processing segment groups")
+    group_results = []
+    
+    for group_idx, segment_group in enumerate(segment_groups):
         
-        for group_idx, segment_group in enumerate(segment_groups):
-            
-            if search_limit_reached:
-                if debug:
-                    print(f"Stopping processing due to search limit reached")
-                break
-            
-            # Process group
-            group_write_conn, group_complete_paths, group_duplicates = process_segment_group_with_database_and_dedup(
-                group_idx, segment_group, shared_read_conn
-            )
-            
-            group_results.append((group_write_conn, group_complete_paths, group_duplicates))
-            total_complete_paths += group_complete_paths
-            total_duplicates_removed += group_duplicates
-            
-            # Determine if should sync
-            should_sync = (
-                (group_idx + 1) % sync_every_n_groups == 0 or
-                group_idx == len(segment_groups) - 1 or
-                search_limit_reached
-            )
+        if search_limit_reached:
+            if debug and not mute_mode:
+                print(f"Stopping processing due to search limit reached")
+            break
+        
+        # Process group
+        group_write_conn, group_complete_paths, group_duplicates = process_segment_group_with_database_and_dedup(
+            group_idx, segment_group, shared_read_conn
+        )
+        
+        group_results.append((group_write_conn, group_complete_paths, group_duplicates))
+        total_complete_paths += group_complete_paths
+        total_duplicates_removed += group_duplicates
+        
+        # Determine if should sync
+        should_sync = (
+            (group_idx + 1) % sync_every_n_groups == 0 or
+            group_idx == len(segment_groups) - 1 or
+            search_limit_reached
+        )
 
-            if should_sync:
-                if len(group_results) > 1:
-                    if debug:
-                        print(f"Syncing {len(group_results)} groups to shared database...")
+        if should_sync:
+            if len(group_results) > 1:
+                if debug and not mute_mode:
+                    print(f"Syncing {len(group_results)} groups to shared database...")
+            
+            # Bulk transfer from group databases
+            for group_conn, _, _ in group_results:
+                cursor = group_conn.execute("""
+                    SELECT start_segment, last_segment, compressed_path, length, is_complete 
+                    FROM compressed_paths
+                """)
                 
-                # Bulk transfer from group databases
-                for group_conn, _, _ in group_results:
-                    cursor = group_conn.execute("""
-                        SELECT start_segment, last_segment, compressed_path, length, is_complete 
-                        FROM compressed_paths
-                    """)
-                    
-                    all_rows = cursor.fetchall()
-                    
-                    if all_rows:
-                        shared_read_conn.executemany("""
-                            INSERT INTO compressed_paths (start_segment, last_segment, compressed_path, length, is_complete)
-                            VALUES (?, ?, ?, ?, ?)
-                        """, all_rows)
-                    
-                    group_conn.close()
-
-                shared_read_conn.commit()
-
-                # **NEW: Apply pruning to shared database after sync**
-                if max_search_path is not None:
-                    shared_pruned = prune_shared_database_if_needed(shared_read_conn, max_search_path, debug)
-                    if shared_pruned > 0 and debug:
-                        print(f"  Pruned {shared_pruned} paths from shared database after sync")
-
-                # Remove duplicates after sync
-                if len(group_results) > 1:
-                    shared_duplicates = remove_duplicates_from_db(shared_read_conn, f"Shared DB after sync")
-                    total_duplicates_removed += shared_duplicates
+                all_rows = cursor.fetchall()
                 
-                # Clear the results batch
-                group_results = []
+                if all_rows:
+                    shared_read_conn.executemany("""
+                        INSERT INTO compressed_paths (start_segment, last_segment, compressed_path, length, is_complete)
+                        VALUES (?, ?, ?, ?, ?)
+                    """, all_rows)
                 
-                # Garbage collection (every 10 segments)
-                if group_idx % 10 == 0:
-                    gc.collect()
+                group_conn.close()
+
+            shared_read_conn.commit()
+
+            # **NEW: Apply pruning to shared database after sync**
+            if max_search_path is not None:
+                shared_pruned = prune_shared_database_if_needed(shared_read_conn, max_search_path, debug)
+                if shared_pruned > 0 and debug and not mute_mode:
+                    print(f"  Pruned {shared_pruned} paths from shared database after sync")
+
+            # Remove duplicates after sync
+            if len(group_results) > 1:
+                shared_duplicates = remove_duplicates_from_db(shared_read_conn, f"Shared DB after sync")
+                total_duplicates_removed += shared_duplicates
             
-            # Update progress
+            # Clear the results batch
+            group_results = []
+            
+            # Garbage collection (every 10 segments)
+            if group_idx % 10 == 0:
+                gc.collect()
+        
+        # Update progress
+        if not mute_mode:
             pbar.update(1)
 
-            # Get current counts from shared database
-            cursor = shared_read_conn.execute("SELECT COUNT(*) FROM compressed_paths WHERE is_complete = 0")
-            current_intermediate_paths = cursor.fetchone()[0]
+        # Get current counts from shared database
+        cursor = shared_read_conn.execute("SELECT COUNT(*) FROM compressed_paths WHERE is_complete = 0")
+        current_intermediate_paths = cursor.fetchone()[0]
 
-            cursor = shared_read_conn.execute("SELECT COUNT(*) FROM compressed_paths WHERE is_complete = 1")
-            current_complete_paths = cursor.fetchone()[0]
+        cursor = shared_read_conn.execute("SELECT COUNT(*) FROM compressed_paths WHERE is_complete = 1")
+        current_complete_paths = cursor.fetchone()[0]
 
-            # Update progress bar with current statistics
+        # Update progress bar with current statistics
+        if not mute_mode:
             postfix_dict = {
                 "segment": f"{group_idx + 1}/{len(segment_groups)}",
                 "intermediate_paths": f"{current_intermediate_paths}/{max_search_path}" if max_search_path is not None else f"{current_intermediate_paths}",
@@ -1193,10 +1222,13 @@ def find_complete_core_paths(
                 "duplicates_removed": total_duplicates_removed
             }
             pbar.set_postfix(postfix_dict)
-            
+    
+    if not mute_mode:
+        pbar.close()
     
     # Final deduplication on shared database
-    print("Performing final deduplication on complete database...")
+    if not mute_mode:
+        print("Performing final deduplication on complete database...")
     final_duplicates = remove_duplicates_from_db(shared_read_conn, "Final cleanup")
     total_duplicates_removed += final_duplicates
     
@@ -1205,13 +1237,15 @@ def find_complete_core_paths(
     final_complete_paths = cursor.fetchone()[0]
     
     # Print completion message with search limit information
-    completion_msg = f"Processing complete. Found {final_complete_paths} unique complete paths after removing {total_duplicates_removed} duplicates."
-    if search_limit_reached:
-        completion_msg += f" (Search stopped at limit of {max_search_path} complete paths)"
-    print(completion_msg)
+    if not mute_mode:
+        completion_msg = f"Processing complete. Found {final_complete_paths} unique complete paths after removing {total_duplicates_removed} duplicates."
+        if search_limit_reached:
+            completion_msg += f" (Search stopped at limit of {max_search_path} complete paths)"
+        print(completion_msg)
     
     # Direct output generation from deduplicated database
-    print("\n=== Computing Metrics and Generating CSV Output ===")
+    if not mute_mode:
+        print("\n=== Computing Metrics and Generating CSV Output ===")
     
     # Create output CSV with batch processing for memory efficiency
     def generate_output_csv():
@@ -1309,27 +1343,34 @@ def find_complete_core_paths(
                 
             return batch_results
         
-        print(f"Processing {total_paths} paths in {len(batches)} batches")
+        if not mute_mode:
+            print(f"Processing {total_paths} paths in {len(batches)} batches")
         
         # Process batches in parallel
-        with tqdm(total=len(batches), desc="Processing batches") as pbar:
-            for batch_idx, batch in enumerate(batches):
-                # Calculate starting ID for this batch
-                start_id = batch_idx * batch_size + 1
-                
-                # Process this batch
-                batch_results = process_batch(batch, start_id)
-                
-                # Write batch results
-                with open(output_csv, 'a', newline='') as f:
-                    writer = csv.writer(f)
-                    writer.writerows(batch_results)
-                
+        if not mute_mode:
+            pbar = tqdm(total=len(batches), desc="Processing batches")
+        
+        for batch_idx, batch in enumerate(batches):
+            # Calculate starting ID for this batch
+            start_id = batch_idx * batch_size + 1
+            
+            # Process this batch
+            batch_results = process_batch(batch, start_id)
+            
+            # Write batch results
+            with open(output_csv, 'a', newline='') as f:
+                writer = csv.writer(f)
+                writer.writerows(batch_results)
+            
+            if not mute_mode:
                 pbar.update(1)
                 
-                # Periodic garbage collection
-                if batch_idx % 5 == 0:
-                    gc.collect()
+            # Periodic garbage collection
+            if batch_idx % 5 == 0:
+                gc.collect()
+        
+        if not mute_mode:
+            pbar.close()
         
         return total_paths
     
@@ -1340,25 +1381,30 @@ def find_complete_core_paths(
     shared_read_conn.close()
     
     # Print final statistics
-    print(f"\nFinal Results:")
-    print(f"  Total unique complete paths written: {total_paths_written}")
-    print(f"  Total duplicates removed during processing: {total_duplicates_removed}")
-    print(f"  Deduplication efficiency: {(total_duplicates_removed/(total_paths_written + total_duplicates_removed)*100) if (total_paths_written + total_duplicates_removed) > 0 else 0:.2f}%")
-    
-    # Add search limit information to final results
-    if search_limit_reached:
-        print(f"  Search was limited to {max_search_path} complete paths for performance")
+    if not mute_mode:
+        print(f"\nFinal Results:")
+        print(f"  Total unique complete paths written: {total_paths_written}")
+        print(f"  Total duplicates removed during processing: {total_duplicates_removed}")
+        print(f"  Deduplication efficiency: {(total_duplicates_removed/(total_paths_written + total_duplicates_removed)*100) if (total_paths_written + total_duplicates_removed) > 0 else 0:.2f}%")
+        
+        # Add search limit information to final results
+        if search_limit_reached:
+            print(f"  Search was limited to {max_search_path} complete paths for performance")
     
     # Cleanup - remove all temporary files
     try:
-        print("Cleaning up temporary databases...")
+        if not mute_mode:
+            print("Cleaning up temporary databases...")
         import shutil
         shutil.rmtree(temp_dir)
-        print("Cleanup complete.")
+        if not mute_mode:
+            print("Cleanup complete.")
     except Exception as e:
-        print(f"Could not clean temporary directory: {e}")
+        if not mute_mode:
+            print(f"Could not clean temporary directory: {e}")
     
-    print(f"All complete core-to-core paths saved to {output_csv}")
+    if not mute_mode:
+        print(f"All complete core-to-core paths saved to {output_csv}")
     
     # Return comprehensive results dictionary
     return {
