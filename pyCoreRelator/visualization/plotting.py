@@ -1314,6 +1314,10 @@ def plot_correlation_distribution(csv_file, target_mapping_id=None, quality_inde
     # Convert to numpy array and remove NaN values
     quality_values = np.array(df[quality_index])
     quality_values = quality_values[~np.isnan(quality_values)]
+    # Check if there are enough unique values for proper distribution
+    if len(quality_values) == 0:
+        print("Error: No valid quality values found (all NaN)")
+        return None, None, {}
     
     # Automatically estimate number of bins if not provided
     if no_bins is None:
@@ -1360,8 +1364,17 @@ def plot_correlation_distribution(csv_file, target_mapping_id=None, quality_inde
     hist, bins, _ = ax.hist(quality_values, bins=no_bins, alpha=0.7, color='skyblue', 
                             edgecolor='black', weights=np.ones(total_count)*100/total_count)
     
-    # Initialize fit_params dictionary
-    fit_params = {}
+    # Initialize fit_params dictionary with common statistics
+    fit_params = {
+        'data_min': quality_values.min(),
+        'data_max': quality_values.max(),
+        'median': np.median(quality_values),
+        'std': quality_values.std(),
+        'n_points': total_count,
+        'hist_area': np.sum(hist) * (bins[1] - bins[0]),
+        'bins': bins,
+        'hist': hist
+    }
     
     # Add probability density function curve based on method
     if len(quality_values) > 1:  # Only plot PDF if we have multiple values
@@ -1377,6 +1390,9 @@ def plot_correlation_distribution(csv_file, target_mapping_id=None, quality_inde
             y = kde(x) * hist_area
             fit_params['method'] = 'KDE'
             fit_params['bandwidth'] = kde_bandwidth
+            fit_params['kde_object'] = kde
+            fit_params['x_range'] = x
+            fit_params['y_values'] = y
             
             ax.plot(x, y, 'r-', linewidth=2, alpha=0.8, 
                     label=f'KDE\n(bandwidth = {kde_bandwidth})\n(n = {total_count:,})')
@@ -1390,14 +1406,19 @@ def plot_correlation_distribution(csv_file, target_mapping_id=None, quality_inde
                 # Generate PDF
                 y = stats.skewnorm.pdf(x, shape, location, scale) * hist_area
                 
+                # Calculate skewness
+                skewness = shape / np.sqrt(1 + shape**2) * np.sqrt(2/np.pi)
+                
                 fit_params['method'] = 'skew-normal'
                 fit_params['shape'] = shape
                 fit_params['location'] = location
                 fit_params['scale'] = scale
-                fit_params['skewness'] = shape / np.sqrt(1 + shape**2) * np.sqrt(2/np.pi)
+                fit_params['skewness'] = skewness
+                fit_params['x_range'] = x
+                fit_params['y_values'] = y
                 
                 ax.plot(x, y, 'r-', linewidth=2, alpha=0.8, 
-                        label=f'Skew-Normal Fit\n(α = {shape:.3f})\n(μ = {location:.3f})\n(σ = {scale:.3f})\n(n = {total_count:,})')
+                        label=f'Skew-Normal Fit\n(α = {shape:.3f})\n(μ = {location:.3f})\n(σ = {scale:.3f})\nn = {total_count:,}')
                 
             except (RuntimeError, ValueError, TypeError) as e:
                 print(f"Warning: Skew-normal fitting failed: {e}")
@@ -1414,9 +1435,11 @@ def plot_correlation_distribution(csv_file, target_mapping_id=None, quality_inde
             fit_params['method'] = 'normal'
             fit_params['mean'] = mean_val
             fit_params['std'] = std_val
+            fit_params['x_range'] = x
+            fit_params['y_values'] = y
             
             ax.plot(x, y, 'r-', linewidth=2, alpha=0.8, 
-                    label=f'Normal Fit\n(μ = {mean_val:.3f})\n(σ = {std_val:.3f})\n(n = {total_count:,})')
+                    label=f'Normal Fit\n(mean = {mean_val:.3f})\n(σ = {std_val:.3f})\nn = {total_count:,}')
     
     # Add vertical line for median
     median_value = np.median(quality_values)
@@ -1431,6 +1454,8 @@ def plot_correlation_distribution(csv_file, target_mapping_id=None, quality_inde
             percentile = (quality_values < target_value).mean() * 100
             ax.axvline(target_value, color='purple', linestyle='solid', linewidth=2,
                       label=f'Mapping {target_mapping_id}: {target_value:.3f}\n({percentile:.3f}th percentile)')
+            fit_params['target_value'] = target_value
+            fit_params['target_percentile'] = percentile
     
     # Set x-axis based on quality index
     if quality_index == 'corr_coef':
@@ -1476,7 +1501,7 @@ def plot_correlation_distribution(csv_file, target_mapping_id=None, quality_inde
     print(f"Number of data points: {total_count}")
     
     # Print distribution fitting results
-    if fit_params:
+    if 'method' in fit_params:
         print(f"\nDistribution Fitting Results ({fit_params['method']}):")
         print(f"{'='*60}")
         if fit_params['method'] == 'KDE':

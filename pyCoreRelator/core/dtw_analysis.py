@@ -441,11 +441,11 @@ def custom_dtw(log1, log2, subseq=False, exponent=1, QualityIndex=False, indepen
 def run_comprehensive_dtw_analysis(log_a, log_b, md_a, md_b, picked_depths_a=None, picked_depths_b=None, 
                               top_bottom=True, top_depth=0.0,
                               independent_dtw=False, 
-                              create_dtw_matrix=True,
+                              create_dtw_matrix=False,
                               visualize_pairs=True, 
                               visualize_segment_labels=False,
                               dtwmatrix_output_filename='SegmentPair_DTW_matrix.png',
-                              creategif=True, 
+                              creategif=False, 
                               gif_output_filename='SegmentPair_DTW_animation.gif', max_frames=150, 
                               debug=False, color_interval_size=None,
                               keep_frames=True, age_consideration=False, ages_a=None, ages_b=None,
@@ -1098,7 +1098,7 @@ def run_comprehensive_dtw_analysis(log_a, log_b, md_a, md_b, picked_depths_a=Non
         plt.close(fig_num)
     
     # Display DTW matrix output figure if available
-    if dtwmatrix_output_file and os.path.exists(dtwmatrix_output_file):
+    if create_dtw_matrix and dtwmatrix_output_file and os.path.exists(dtwmatrix_output_file):
         print(f"\nDisplaying DTW matrix visualization from: {dtwmatrix_output_file}")
         display(IPImage(filename=dtwmatrix_output_file))
 
