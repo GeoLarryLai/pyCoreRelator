@@ -36,7 +36,7 @@ from scipy import stats
 # Import from other modules
 from .quality_metrics import compute_quality_indicators, calculate_age_overlap_percentage
 from .age_models import check_age_constraint_compatibility
-from .segment_analysis import find_all_segments, filter_dead_end_pairs
+from .segment_operations import find_all_segments, filter_dead_end_pairs
 from ..utils.helpers import find_nearest_index
 from ..visualization.plotting import plot_segment_pair_correlation
 from ..visualization.matrix_plots import plot_dtw_matrix_with_paths

@@ -7,7 +7,6 @@ and general helper utilities.
 
 from .data_loader import (
     load_log_data,
-    plot_core_data,
     resample_datasets
 )
 
@@ -24,7 +23,6 @@ from .helpers import (
 
 __all__ = [
     'load_log_data',
-    'plot_core_data', 
     'resample_datasets',
     'combine_segment_dtw_results',
     'load_sequential_mappings',
