@@ -29,6 +29,15 @@ from .core.path_finding import (
 # Core analysis functions - Diagnostics
 from .core.diagnostics import diagnose_chain_breaks
 
+# Core analysis functions - Null hypothesis testing
+from .core.null_hypothesis import (
+    load_segment_pool,
+    plot_segment_pool, 
+    print_segment_pool_summary,
+    create_synthetic_log_with_depths,
+    create_and_plot_synthetic_core_pair
+)
+
 # DTW and quality analysis
 from .core.dtw_analysis import run_comprehensive_dtw_analysis
 from .core.quality_metrics import (
@@ -67,6 +76,13 @@ __all__ = [
     'find_complete_core_paths',
     'diagnose_chain_breaks',
     'calculate_interpolated_ages',
+    
+    # Null hypothesis testing functions
+    'load_segment_pool',
+    'plot_segment_pool', 
+    'print_segment_pool_summary',
+    'create_synthetic_log_with_depths',
+    'create_and_plot_synthetic_core_pair',
     
     # Visualization functions
     'visualize_combined_segments',
