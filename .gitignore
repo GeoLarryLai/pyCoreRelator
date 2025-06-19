@@ -2,7 +2,6 @@
 /*
 !/pyCoreRelator/
 !/.gitignore
-!/pickeddepth/
 !/pyCoreRelator_test.ipynb
 !/pyCoreRelator_null_hypothesis.ipynb
 !/Core_depthboundary_picker.ipynb
