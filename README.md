@@ -1,135 +1,167 @@
 # pyCoreRelator
 
-A Python package for performing semi-automatic, quantitative stratigraphic correlation between geological drill cores. The package employs Dynamic Time Warping (DTW) algorithms to align well log data while incorporating age model constraints and lithological information to ensure geologically meaningful correlations.
+A Python package for quantitative stratigraphic correlation between geological drill cores using Dynamic Time Warping (DTW) algorithms. The package performs segment-based correlation analysis with age model constraints and comprehensive quality assessment for geological core correlation workflows.
 
 ## Overview
 
-pyCoreRelator provides comprehensive tools for correlating well log data between geological cores using advanced DTW algorithms. The package features segment-based correlation analysis, age constraint compatibility checking, quality metrics computation, and rich visualization capabilities for geological correlation workflows.
+pyCoreRelator enables automated correlation of well log data between geological cores using advanced DTW algorithms. It provides segment-based analysis, age constraint integration, quality metrics computation, null hypothesis testing, and rich visualization capabilities designed specifically for geological correlation studies.
 
 ## Key Features
 
-- **Segment-based DTW Analysis**: Divide cores into analyzable segments using user-picked depth boundaries
-- **Age Constraint Integration**: Apply age model constraints to filter correlations based on chronostratigraphic compatibility
-- **Quality Metrics**: Comprehensive quality indicators including correlation coefficients, diagonality measures, and DTW distance metrics
+- **Segment-Based DTW Correlation**: Divide cores into analyzable segments using user-picked depth boundaries
+- **Age Model Integration**: Apply chronostratigraphic constraints to filter correlations based on age compatibility
+- **Quality Assessment**: Comprehensive quality metrics including correlation coefficients, diagonality measures, and DTW statistics
 - **Complete Path Finding**: Identify correlation paths spanning entire cores from top to bottom
-- **Rich Visualizations**: DTW matrices, segment correlation plots, and animated correlation sequences
-- **Multidimensional Support**: Handle multiple log types simultaneously with independent or joint processing
-- **Robust Edge Case Handling**: Custom DTW implementation with special handling for single-point segments
+- **Null Hypothesis Testing**: Generate synthetic cores and test correlation significance
+- **Multidimensional Log Support**: Handle multiple log types (MS, CT, RGB, density) simultaneously
+- **Rich Visualizations**: DTW matrices, segment correlations, animated sequences, and diagnostic plots
+- **Edge Case Handling**: Robust DTW implementation for single-point segments and irregular data
 
-## Core Dependencies
+## Installation
 
-- `numpy`: Numerical computations
-- `pandas`: Data manipulation
-- `matplotlib`: Plotting and visualization
-- `scipy`: Statistical functions
-- `librosa`: DTW algorithms
-- `tqdm`: Progress bars
-- `joblib`: Parallel processing
-
-## Package Structure
-
-```
-pyCoreRelator/
-├── core/
-│   ├── dtw_analysis.py      # DTW computation and analysis
-│   ├── segment_analysis.py  # Segment identification and path finding
-│   ├── quality_metrics.py  # Quality indicators computation
-│   └── age_models.py        # Age constraint handling
-├── utils/
-│   ├── data_loader.py       # Data loading and preprocessing
-│   ├── path_processing.py   # Path analysis utilities
-│   └── helpers.py           # General utility functions
-└── visualization/
-    ├── plotting.py          # Core plotting functions
-    ├── matrix_plots.py      # DTW matrix visualizations
-    └── animation.py         # Animated correlation displays
-```
-
-## Core Functions
-
-### Data Loading
-- `load_log_data()`: Load and preprocess log data from CSV files with optional image support
-- `resample_datasets()`: Resample multiple datasets to common depth scales
-
-### DTW Analysis
-- `run_comprehensive_dtw_analysis()`: Main function for segment-based DTW correlation with age constraints
-- `custom_dtw()`: Robust DTW implementation with edge case handling
-- `compute_quality_indicators()`: Calculate correlation quality metrics
-
-### Segment Analysis
-- `find_all_segments()`: Identify correlation segments from picked depths
-- `find_complete_core_paths()`: Find complete correlation paths spanning entire cores
-- `diagnose_chain_breaks()`: Identify and diagnose connectivity issues
-
-### Age Models
-- `calculate_interpolated_ages()`: Interpolate ages for picked depths using age constraints
-- `check_age_constraint_compatibility()`: Validate age compatibility between segments
-
-### Visualization
-- `plot_dtw_matrix_with_paths()`: Visualize DTW distance matrices with optimal paths
-- `visualize_combined_segments()`: Display segment correlations on log plots
-- `create_segment_dtw_animation()`: Generate animated correlation sequences
-
-## Output Files
-
-- **DTW Matrix Plot**: `SegmentPair_DTW_matrix.png` - Heatmap showing DTW distances between all segment pairs
-- **Animation**: `SegmentPair_DTW_animation.gif` - Animated sequence of segment correlations
-- **Complete Paths**: `complete_core_paths.csv` - Detailed results of complete correlation paths
-- **Quality Metrics**: Embedded in results with correlation coefficients, diagonality measures, and DTW statistics
-
-## Quality Metrics
-
-The package computes comprehensive quality indicators for each correlation:
-
-- Normalized DTW Distance: Cost per alignment step
-  - Lower values indicate better alignment quality
-  - Calculated as total DTW cost divided by path length
-- DTW Ratio: DTW distance relative to Euclidean distance
-  - DTW ratio < 1.0: Better DTW alignment than linear mapping
-  - DTW ratio ≈ 1.0: Similar to linear alignment (already well-aligned sequences)
-  - DTW ratio > 1.0: Linear alignment performs better than DTW match
-- Correlation Coefficient (Pearson's r value): Linear correlation between aligned sequences
-  - Values range from -1 to 1 (1 = perfect positive correlation, 0 = no correlation, -1 = perfect negative correlation)
-  - Calculated using linear regression on DTW-aligned data points
-- Diagonality Percentage: Measure of path straightness (higher = better)
-  - 100% indicates perfect diagonal path (minimal warping)
-  - Lower values suggest more complex warping patterns
-- Variance Deviation: Warping path deviation from diagonal
-  - Measures how much the DTW path deviates from a straight diagonal
-  - Higher values indicate more complex temporal alignments
-- Age Overlap Percentage: Chronostratigraphic compatibility (when age constraints applied)
-  - Percentage of overlap between age intervals of correlated segments
-  - 100% indicates perfect chronological agreement, 0% means no temporal overlap
-
-## License
-
-**pyCoreRelator** is licensed under the Apache License 2.0.
-
-## Requirements
-
-The following Python packages are required to run pyCoreRelator:
-
-- `numpy>=1.20.0` - Numerical computations and array operations
-- `pandas>=1.3.0` - Data manipulation and analysis
-- `matplotlib>=3.5.0` - Plotting and visualization
-- `scipy>=1.7.0` - Scientific computing and statistical functions
-- `librosa>=0.9.0` - Audio and signal processing (used for DTW algorithms)
-- `tqdm>=4.60.0` - Progress bars for long-running operations
-- `joblib>=1.1.0` - Parallel processing and caching
-- `Pillow>=8.3.0` - Image processing capabilities
-- `IPython>=7.25.0` - Interactive Python environment features
-- `psutil>=5.8.0` - System and process utilities
-
-### Installation
-
-Install all required packages using pip:
+### Requirements
+Python 3.7+ with the following packages:
 
 ```bash
 pip install -r requirements.txt
 ```
 
-Or install individual packages:
+### Package Structure
 
-```bash
-pip install numpy>=1.20.0 pandas>=1.3.0 matplotlib>=3.5.0 scipy>=1.7.0 librosa>=0.9.0 tqdm>=4.60.0 joblib>=1.1.0 Pillow>=8.3.0 IPython>=7.25.0 psutil>=5.8.0
 ```
+pyCoreRelator/
+├── core/                    # Core analysis modules
+│   ├── dtw_analysis.py      # DTW computation and comprehensive analysis
+│   ├── segment_analysis.py  # Segment identification and correlation
+│   ├── segment_operations.py # Segment manipulation utilities
+│   ├── path_finding.py      # Complete path discovery algorithms
+│   ├── quality_metrics.py   # Quality indicators computation
+│   ├── age_models.py        # Age constraint handling and interpolation
+│   ├── diagnostics.py       # Chain break analysis and debugging
+│   ├── null_hypothesis.py   # Synthetic data generation and testing
+│   └── path_helpers.py      # Path processing utilities
+├── utils/                   # Data handling utilities
+│   ├── data_loader.py       # Multi-format data loading with image support
+│   ├── path_processing.py   # Path analysis and manipulation
+│   └── helpers.py           # General utility functions
+└── visualization/           # Plotting and visualization
+    ├── plotting.py          # Core plotting functions and segment visualization
+    ├── matrix_plots.py      # DTW matrix heatmaps and path overlays
+    ├── animation.py         # Animated correlation sequences
+    └── core_plots.py        # Basic core data visualization
+```
+
+## Quick Start
+
+### Basic Workflow
+
+```python
+import pyCoreRelator as pcr
+
+# 1. Load well log data
+log_a, md_a, columns_a, rgb_img_a, ct_img_a = pcr.load_log_data(
+    core_a_paths, image_paths_a, ['hiresMS', 'CT'], normalize=True
+)
+log_b, md_b, columns_b, rgb_img_b, ct_img_b = pcr.load_log_data(
+    core_b_paths, image_paths_b, ['hiresMS', 'CT'], normalize=True
+)
+
+# 2. Run comprehensive DTW analysis
+dtw_results, valid_pairs, segments_a, segments_b, boundaries_a, boundaries_b, dtw_matrix = pcr.run_comprehensive_dtw_analysis(
+    log_a, log_b, md_a, md_b,
+    picked_depths_a=picked_depths_a,
+    picked_depths_b=picked_depths_b,
+    age_consideration=True,
+    ages_a=age_constraints_a,
+    ages_b=age_constraints_b
+)
+
+# 3. Find complete correlation paths
+complete_paths_csv = pcr.find_complete_core_paths(
+    valid_pairs, segments_a, segments_b, log_a, log_b,
+    boundaries_a, boundaries_b, dtw_results
+)
+
+# 4. Visualize results
+pcr.visualize_combined_segments(log_a, log_b, md_a, md_b, dtw_results, valid_pairs)
+pcr.plot_dtw_matrix_with_paths(dtw_matrix, valid_pairs, segments_a, segments_b)
+```
+
+### Null Hypothesis Testing
+
+```python
+# Generate synthetic core pairs for significance testing
+segment_pool = pcr.load_segment_pool(log_a, log_b, md_a, md_b, picked_depths_a, picked_depths_b)
+synthetic_log, synthetic_md = pcr.create_synthetic_log_with_depths(segment_pool, target_length=500)
+pcr.create_and_plot_synthetic_core_pair(segment_pool, show_images=True)
+```
+
+## Core Functions
+
+### Data Loading and Preprocessing
+- **`load_log_data()`**: Load multi-column log data with optional image support and normalization
+- **`plot_core_data()`**: Visualize core data with multiple log curves and images
+
+### DTW Analysis
+- **`run_comprehensive_dtw_analysis()`**: Main function for segment-based DTW with age constraints
+- **`compute_quality_indicators()`**: Calculate correlation quality metrics and statistics
+- **`calculate_interpolated_ages()`**: Interpolate ages for depth boundaries using age models
+
+### Segment Operations
+- **`find_all_segments()`**: Identify correlation segments from user-picked depths
+- **`find_complete_core_paths()`**: Discover complete correlation paths spanning entire cores
+- **`diagnose_chain_breaks()`**: Identify and analyze connectivity gaps in correlation chains
+
+### Null Hypothesis Testing
+- **`load_segment_pool()`**: Create pools of real segments for synthetic core generation
+- **`create_synthetic_log_with_depths()`**: Generate synthetic cores from segment pools
+- **`create_and_plot_synthetic_core_pair()`**: Create and visualize synthetic core pairs
+
+### Visualization
+- **`plot_dtw_matrix_with_paths()`**: Visualize DTW distance matrices with correlation paths
+- **`visualize_combined_segments()`**: Display segment correlations overlaid on log plots
+- **`visualize_dtw_results_from_csv()`**: Generate animated correlation sequences from results
+- **`plot_correlation_distribution()`**: Analyze and plot correlation quality distributions
+
+## Quality Metrics
+
+The package computes comprehensive quality indicators for each correlation:
+
+- **Normalized DTW Distance**: Cost per alignment step (lower = better alignment)
+- **DTW Ratio**: DTW distance relative to Euclidean distance (<1.0 = DTW improves alignment)
+- **Correlation Coefficient**: Pearson's r between aligned sequences (-1 to 1)
+- **Diagonality Percentage**: Path straightness measure (100% = perfect diagonal)
+- **Variance Deviation**: Warping path deviation from diagonal
+- **Age Overlap Percentage**: Chronostratigraphic compatibility when age constraints applied
+
+## Output Files
+
+- **DTW Matrix**: `SegmentPair_DTW_matrix.png` - Heatmap of segment-to-segment distances
+- **Animations**: `SegmentPair_DTW_animation.gif` - Step-by-step correlation sequences  
+- **Complete Paths**: `complete_core_paths.csv` - Detailed results of end-to-end correlations
+- **Diagnostic Plots**: Various PNG files for quality assessment and troubleshooting
+
+## Use Cases
+
+- **Turbidite Correlation**: Correlate event beds between marine sediment cores
+- **Paleoclimate Studies**: Align proxy records between drilling sites
+- **Hydrocarbon Exploration**: Correlate well logs across petroleum reservoirs
+- **Stratigraphic Analysis**: Quantitative correlation with age model constraints
+- **Method Development**: Test correlation algorithms using synthetic data
+
+## Example Applications
+
+The package includes several Jupyter notebooks demonstrating real-world applications:
+
+- `pyCoreRelator_test.ipynb`: Comprehensive workflow with Cascadia margin turbidite cores
+- `LSHL_Cascadia_turbidite_correlation.ipynb`: Large-scale multi-core correlation project
+- `pyCoreRelator_null_hypothesis.ipynb`: Synthetic data generation and significance testing
+- `Core_depthboundary_picker.ipynb`: Interactive depth boundary selection tool
+
+## License
+
+pyCoreRelator is licensed under the Apache License 2.0.
+
+## Documentation
+
+Detailed function documentation is available in `FUNCTION_DOCUMENTATION.md`.

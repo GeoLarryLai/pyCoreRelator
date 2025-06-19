@@ -7,6 +7,10 @@
 !/pyCoreRelator_test.ipynb
 !/pyCoreRelator_null_hypothesis.ipynb
 !/Core_depthboundary_picker.ipynb
+!/LICENSE
+!/FUNCTION_DOCUMENTATION.md
+!/requirements.txt
+!/README.md
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
