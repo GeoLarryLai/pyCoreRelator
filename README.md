@@ -22,6 +22,23 @@ pyCoreRelator enables automated correlation of well log data between geological 
 ### Requirements
 Python 3.7+ with the following packages:
 
+**Core Dependencies:**
+- `numpy>=1.20.0` - Numerical computing and array operations
+- `pandas>=1.3.0` - Data manipulation and analysis
+- `scipy>=1.7.0` - Scientific computing and optimization
+- `matplotlib>=3.5.0` - Plotting and visualization
+- `Pillow>=8.3.0` - Image processing
+- `librosa>=0.9.0` - Audio/signal processing for DTW algorithms
+- `tqdm>=4.60.0` - Progress bars
+- `joblib>=1.1.0` - Parallel processing
+- `IPython>=7.25.0` - Interactive environment support
+- `psutil>=5.8.0` - System utilities and memory monitoring
+
+**Optional Dependencies (for advanced features):**
+- `scikit-image>=0.18.0` - Advanced image processing
+- `opencv-python>=4.5.0` - Computer vision tasks
+
+**Installation:**
 ```bash
 pip install -r requirements.txt
 ```

@@ -3,7 +3,6 @@
 !/pyCoreRelator/
 !/.gitignore
 !/pickeddepth/
-!/LSHL_Cascadia_turbidite_correlation.ipynb
 !/pyCoreRelator_test.ipynb
 !/pyCoreRelator_null_hypothesis.ipynb
 !/Core_depthboundary_picker.ipynb
