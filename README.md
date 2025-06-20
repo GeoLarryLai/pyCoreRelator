@@ -16,9 +16,8 @@
 - **Multidimensional Log Support**: Handle multiple log types (MS, CT, RGB, density) simultaneously
 - **Rich Visualizations**: DTW matrices, segment correlations, animated sequences, and diagnostic plots
 
-## Installation
+## Requirements
 
-### Requirements
 Python 3.7+ with the following packages:
 
 **Core Dependencies:**
@@ -40,7 +39,7 @@ Python 3.7+ with the following packages:
 pip install -r requirements.txt
 ```
 
-### Package Structure
+## Package Structure
 
 ```
 pyCoreRelator/
@@ -112,6 +111,8 @@ pcr.create_and_plot_synthetic_core_pair(segment_pool, show_images=True)
 
 ## Core Functions
 
+Detailed function documentation is available in [FUNCTION_DOCUMENTATION.md](FUNCTION_DOCUMENTATION.md).
+
 ### Data Loading and Preprocessing
 - **`load_log_data()`**: Load multi-column log data with optional image support and normalization
 - **`plot_core_data()`**: Visualize core data with multiple log curves and images
@@ -166,7 +167,3 @@ The package includes several Jupyter notebooks demonstrating real-world applicat
 ## License
 
 **pyCoreRelator** is licensed under the Apache License 2.0. See [LICENSE](LICENSE) for details.
-
-## Documentation
-
-Detailed function documentation is available in [FUNCTION_DOCUMENTATION.md](FUNCTION_DOCUMENTATION.md).
