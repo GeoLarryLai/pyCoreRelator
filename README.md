@@ -4,11 +4,11 @@
   <img src="pyCoreRelator_logodraft.png" alt="pyCoreRelator Logo" width="200"/>
 </div>
 
-A Python package for quantitative stratigraphic correlation between geological drill cores using Dynamic Time Warping (DTW) algorithms. The package performs segment-based correlation analysis with age model constraints and comprehensive quality assessment for geological core correlation workflows.
+**pyCoreRelator** is a Python package for quantitative stratigraphic correlation between geological drill cores using Dynamic Time Warping (DTW) algorithms. The package performs segment-based correlation analysis with age model constraints and comprehensive quality assessment for geological core correlation workflows.
 
 ## Overview
 
-pyCoreRelator enables automated correlation of well log data between geological cores using advanced DTW algorithms. It provides segment-based analysis, age constraint integration, quality metrics computation, null hypothesis testing, and rich visualization capabilities designed specifically for geological correlation studies.
+**pyCoreRelator** enables automated correlation of well log data between geological cores using advanced DTW algorithms. It provides segment-based analysis, age constraint integration, quality metrics computation, null hypothesis testing, and rich visualization capabilities designed specifically for geological correlation studies.
 
 ## Key Features
 
@@ -37,12 +37,10 @@ Python 3.7+ with the following packages:
 - `joblib>=1.1.0` - Parallel processing
 - `IPython>=7.25.0` - Interactive environment support
 - `psutil>=5.8.0` - System utilities and memory monitoring
+- `opencv-python>=4.5.0` - Computer vision tasks in the notebooks (optional)
+- `scikit-image>=0.18.0` - Advanced image processing in the notebooks (optional)
 
-**Optional Dependencies (for advanced features):**
-- `scikit-image>=0.18.0` - Advanced image processing
-- `opencv-python>=4.5.0` - Computer vision tasks
-
-**Installation:**
+**Required Package Dnstallation:**
 ```bash
 pip install -r requirements.txt
 ```
@@ -144,7 +142,7 @@ pcr.create_and_plot_synthetic_core_pair(segment_pool, show_images=True)
 - **`visualize_dtw_results_from_csv()`**: Generate animated correlation sequences from results
 - **`plot_correlation_distribution()`**: Analyze and plot correlation quality distributions
 
-## Quality Metrics
+## Measures of the Correlation Quality
 
 The package computes comprehensive quality indicators for each correlation:
 
@@ -162,27 +160,18 @@ The package computes comprehensive quality indicators for each correlation:
 - **Complete Paths**: `complete_core_paths.csv` - Detailed results of end-to-end correlations
 - **Diagnostic Plots**: Various PNG files for quality assessment and troubleshooting
 
-## Use Cases
-
-- **Turbidite Correlation**: Correlate event beds between marine sediment cores
-- **Paleoclimate Studies**: Align proxy records between drilling sites
-- **Hydrocarbon Exploration**: Correlate well logs across petroleum reservoirs
-- **Stratigraphic Analysis**: Quantitative correlation with age model constraints
-- **Method Development**: Test correlation algorithms using synthetic data
-
 ## Example Applications
 
 The package includes several Jupyter notebooks demonstrating real-world applications:
 
 - `pyCoreRelator_test.ipynb`: Comprehensive workflow with Cascadia margin turbidite cores
-- `LSHL_Cascadia_turbidite_correlation.ipynb`: Large-scale multi-core correlation project
 - `pyCoreRelator_null_hypothesis.ipynb`: Synthetic data generation and significance testing
 - `Core_depthboundary_picker.ipynb`: Interactive depth boundary selection tool
 
 ## License
 
-pyCoreRelator is licensed under the Apache License 2.0.
+**pyCoreRelator** is licensed under the Apache License 2.0. See [LICENSE](LICENSE) for details.
 
 ## Documentation
 
-Detailed function documentation is available in `FUNCTION_DOCUMENTATION.md`.
+Detailed function documentation is available in [FUNCTION_DOCUMENTATION.md](FUNCTION_DOCUMENTATION.md).
