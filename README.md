@@ -6,10 +6,6 @@
 
 **pyCoreRelator** is a Python package for quantitative stratigraphic correlation between geological core data, leveraging Dynamic Time Warping (DTW) algorithms for automatic signal alignment and considering stratigraphic principles (e.g., superposition, age succession, pinchouts, etc.). The package performs segment-based correlation analysis with age model constraints and comprehensive quality assessment for geological core correlation workflows.
 
-## Overview
-
-**pyCoreRelator** enables automated correlation of well log data between geological cores using advanced DTW algorithms. It provides segment-based analysis, age constraint integration, quality metrics computation, null hypothesis testing, and rich visualization capabilities designed specifically for geological correlation studies.
-
 ## Key Features
 
 - **Segment-Based DTW Correlation**: Divide cores into analyzable segments using user-picked depth boundaries, enabling controls on the stratigraphic pinchouts or forced correlation datums.
