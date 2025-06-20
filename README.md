@@ -4,7 +4,7 @@
   <img src="pyCoreRelator_logodraft.png" alt="pyCoreRelator Logo" width="200"/>
 </div>
 
-**pyCoreRelator** is a Python package for quantitative stratigraphic correlation between geological drill cores using Dynamic Time Warping (DTW) algorithms. The package performs segment-based correlation analysis with age model constraints and comprehensive quality assessment for geological core correlation workflows.
+**pyCoreRelator** is a Python package for quantitative stratigraphic correlation between geological core data, leveraging Dynamic Time Warping (DTW) algorithms for automatic signal alignment and considering stratigraphic principles (e.g., superposition, age succession, pinchouts, etc.). The package performs segment-based correlation analysis with age model constraints and comprehensive quality assessment for geological core correlation workflows.
 
 ## Overview
 
@@ -12,14 +12,13 @@
 
 ## Key Features
 
-- **Segment-Based DTW Correlation**: Divide cores into analyzable segments using user-picked depth boundaries
-- **Age Model Integration**: Apply chronostratigraphic constraints to filter correlations based on age compatibility
+- **Segment-Based DTW Correlation**: Divide cores into analyzable segments using user-picked depth boundaries, enabling controls on the stratigraphic pinchouts or forced correlation datums.
+- **Age Constraints Integration**: Apply chronostratigraphic constraints to filter correlations based on age compatibility
 - **Quality Assessment**: Comprehensive quality metrics including correlation coefficients, diagonality measures, and DTW statistics
 - **Complete Path Finding**: Identify correlation paths spanning entire cores from top to bottom
 - **Null Hypothesis Testing**: Generate synthetic cores and test correlation significance
 - **Multidimensional Log Support**: Handle multiple log types (MS, CT, RGB, density) simultaneously
 - **Rich Visualizations**: DTW matrices, segment correlations, animated sequences, and diagnostic plots
-- **Edge Case Handling**: Robust DTW implementation for single-point segments and irregular data
 
 ## Installation
 
@@ -40,7 +39,7 @@ Python 3.7+ with the following packages:
 - `opencv-python>=4.5.0` - Computer vision tasks in the notebooks (optional)
 - `scikit-image>=0.18.0` - Advanced image processing in the notebooks (optional)
 
-**Required Package Dnstallation:**
+**Required Package Installation:**
 ```bash
 pip install -r requirements.txt
 ```
