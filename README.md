@@ -1,7 +1,7 @@
 # pyCoreRelator
 
 <div align="center">
-  <img src="pyCoreRelator_logodraft.png" alt="pyCoreRelator Logo" width="400"/>
+  <img src="pyCoreRelator_logodraft.png" alt="pyCoreRelator Logo" width="200"/>
 </div>
 
 A Python package for quantitative stratigraphic correlation between geological drill cores using Dynamic Time Warping (DTW) algorithms. The package performs segment-based correlation analysis with age model constraints and comprehensive quality assessment for geological core correlation workflows.
