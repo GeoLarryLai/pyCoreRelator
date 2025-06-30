@@ -41,6 +41,7 @@ from ..utils.helpers import find_nearest_index
 from ..visualization.plotting import plot_segment_pair_correlation
 from ..visualization.matrix_plots import plot_dtw_matrix_with_paths
 from ..visualization.animation import create_segment_dtw_animation
+from .diagnostics import diagnose_chain_breaks
 
 
 def handle_single_point_dtw(log1, log2, exponent=1, QualityIndex=False):
@@ -894,7 +895,7 @@ def run_comprehensive_dtw_analysis(log_a, log_b, md_a, md_b, picked_depths_a=Non
                     ages_a=ages_a, ages_b=ages_b
                 )
                 
-                # Accept pairs that meet both criteria
+                # Accept pairs that meet both criteriaf
                 if compatible:
                     valid_dtw_pairs.add((a_idx, b_idx))
                     final_dtw_results[(a_idx, b_idx)] = pair_info['dtw_results']
@@ -999,8 +1000,8 @@ def run_comprehensive_dtw_analysis(log_a, log_b, md_a, md_b, picked_depths_a=Non
                 print(f"Found {len(overlapping_pairs)} overlapping segment pairs")
                 print(f"Found {compatible_non_overlapping}/{len(non_overlapping_pairs)} compatible non-overlapping segment pairs")
                 print(f"Total valid pairs: {len(valid_dtw_pairs)}")
-        
     
+
     # Filter out dead end pairs if exclude_deadend is True
     if exclude_deadend:
         if not mute_mode:
@@ -1026,6 +1027,103 @@ def run_comprehensive_dtw_analysis(log_a, log_b, md_a, md_b, picked_depths_a=Non
         if not mute_mode:
             print(f"Dead-end filtering complete: {len(valid_dtw_pairs)} segments retained")
     
+    
+    # Check for chain breaks and add gap-filling pairs if needed
+    if not mute_mode:
+        print("\n=== CHECKING FOR CHAIN BREAKS ===")
+    
+    # Run chain break diagnosis
+    chain_diagnostics = diagnose_chain_breaks(
+        valid_dtw_pairs, segments_a, segments_b, 
+        depth_boundaries_a, depth_boundaries_b
+    )
+    
+    # If chain breaks are detected, find gap-filling pairs
+    if chain_diagnostics and chain_diagnostics.get('total_complete_paths', 0) == 0:
+        if not mute_mode:
+            print("Chain breaks detected! Searching for gap-filling pairs...")
+        
+        # Find all possible segment pairs (ignoring age constraints)
+        all_candidate_pairs = []
+        for a_idx in range(len(segments_a)):
+            for b_idx in range(len(segments_b)):
+                if (a_idx, b_idx) not in valid_dtw_pairs:
+                    all_candidate_pairs.append((a_idx, b_idx))
+        
+        # Evaluate gap-filling candidates based on age range proximity
+        gap_fill_candidates = []
+        
+        for a_idx, b_idx in all_candidate_pairs:
+            # Get segment boundaries
+            a_start_depth = depth_boundaries_a[segments_a[a_idx][0]]
+            a_end_depth = depth_boundaries_a[segments_a[a_idx][1]]
+            b_start_depth = depth_boundaries_b[segments_b[b_idx][0]]
+            b_end_depth = depth_boundaries_b[segments_b[b_idx][1]]
+            
+            # Calculate age ranges if available
+            if age_consideration and ages_a is not None and ages_b is not None:
+                # Get age ranges for segments
+                a_start_age = np.interp(a_start_depth, ages_a['depths'], ages_a['ages'])
+                a_end_age = np.interp(a_end_depth, ages_a['depths'], ages_a['ages'])
+                b_start_age = np.interp(b_start_depth, ages_b['depths'], ages_b['ages'])
+                b_end_age = np.interp(b_end_depth, ages_b['depths'], ages_b['ages'])
+                
+                # Calculate age range overlap/proximity
+                a_age_range = [min(a_start_age, a_end_age), max(a_start_age, a_end_age)]
+                b_age_range = [min(b_start_age, b_end_age), max(b_start_age, b_end_age)]
+                
+                # Calculate distance between age ranges (0 if overlapping)
+                age_distance = max(0, 
+                    max(a_age_range[0] - b_age_range[1], b_age_range[0] - a_age_range[1]))
+            else:
+                # Use depth-based proximity if no ages available
+                a_mid_depth = (a_start_depth + a_end_depth) / 2
+                b_mid_depth = (b_start_depth + b_end_depth) / 2
+                age_distance = abs(a_mid_depth - b_mid_depth)
+            
+            gap_fill_candidates.append({
+                'pair': (a_idx, b_idx),
+                'age_distance': age_distance,
+                'a_depths': (a_start_depth, a_end_depth),
+                'b_depths': (b_start_depth, b_end_depth)
+            })
+        
+        # Sort by age proximity (closest age ranges first)
+        gap_fill_candidates.sort(key=lambda x: x['age_distance'])
+        
+        # Add gap-filling pairs to valid pairs
+        added_pairs = 0
+        for candidate in gap_fill_candidates[:10]:  # Limit to top 10 candidates
+            pair = candidate['pair']
+            
+            # Calculate DTW for this gap-filling pair
+            a_idx, b_idx = pair
+            log_a_segment = log_a[segments_a[a_idx][0]:segments_a[a_idx][1]+1]
+            log_b_segment = log_b[segments_b[b_idx][0]:segments_b[b_idx][1]+1]
+            
+            try:
+                # Use existing DTW calculation function
+                D, wp = custom_dtw(log_a_segment, log_b_segment, QualityIndex=False)
+                
+                # Add to valid pairs and results
+                valid_dtw_pairs.add(pair)
+                final_dtw_results[pair] = ([wp], [], [])
+                added_pairs += 1
+                
+                if not mute_mode:
+                    print(f"Added gap-filling pair ({a_idx+1}, {b_idx+1}) - age distance: {candidate['age_distance']:.2f}")
+                
+            except Exception as e:
+                if not mute_mode:
+                    print(f"Failed to calculate DTW for gap-filling pair ({a_idx+1}, {b_idx+1}): {e}")
+                continue
+        
+        if not mute_mode:
+            print(f"Added {added_pairs} gap-filling pairs to bridge chain breaks")
+    
+    elif not mute_mode:
+        print("No chain breaks detected - correlation chain is complete")
+
     # Create dtw matrix if requested
     if create_dtw_matrix:
         # Set age constraint parameters to None if age_consideration is False
