@@ -2,7 +2,13 @@
 Core DTW analysis functions for pyCoreRelator
 
 Included Functions:
+- has_complete_paths: Quick check if complete paths exist without verbose diagnostics
+- find_depth_gaps: Identify gaps in depth coverage from valid segment pairs
 - custom_dtw: Core DTW implementation with edge case handling
+- handle_single_point: Handle DTW for single-point segments
+- handle_identical_segments: Handle DTW for identical log segments  gap-filling pairs
+- handle_dtw_edge_cases: Wrapper for all DTW edge case scenarios
+- process_segment_pair: Process a single segment pair for DTW analysis
 - run_comprehensive_dtw_analysis: Complete workflow for segment-based DTW analysis
 - Various helper functions for single-point and edge case scenarios
 
@@ -42,6 +48,86 @@ from ..visualization.plotting import plot_segment_pair_correlation
 from ..visualization.matrix_plots import plot_dtw_matrix_with_paths
 from ..visualization.animation import create_segment_dtw_animation
 from .diagnostics import diagnose_chain_breaks
+
+def has_complete_paths(valid_pairs, segments_a, segments_b, depth_boundaries_a, depth_boundaries_b):
+    """Quick check if complete paths exist without verbose diagnostics."""
+    if not valid_pairs:
+        return False
+    
+    max_depth_a = max(depth_boundaries_a)
+    max_depth_b = max(depth_boundaries_b)
+    
+    # Find top segments (start at 0,0)
+    top_segments = []
+    for a_idx, b_idx in valid_pairs:
+        a_start = depth_boundaries_a[segments_a[a_idx][0]]
+        b_start = depth_boundaries_b[segments_b[b_idx][0]]
+        if a_start == 0 and b_start == 0:
+            top_segments.append((a_idx, b_idx))
+    
+    # Find bottom segments (end at max depths)
+    bottom_segments = []
+    for a_idx, b_idx in valid_pairs:
+        a_end = depth_boundaries_a[segments_a[a_idx][1]]
+        b_end = depth_boundaries_b[segments_b[b_idx][1]]
+        if a_end == max_depth_a and b_end == max_depth_b:
+            bottom_segments.append((a_idx, b_idx))
+    
+    # Quick connectivity check: if we have both tops and bottoms, likely connected
+    return len(top_segments) > 0 and len(bottom_segments) > 0
+
+
+def find_depth_gaps(valid_pairs, segments_a, segments_b, depth_boundaries_a, depth_boundaries_b):
+    """Find uncovered depth ranges needing gap-filling."""
+    if not valid_pairs:
+        max_depth_a = max(depth_boundaries_a)
+        max_depth_b = max(depth_boundaries_b)
+        return [(0, max_depth_a)], [(0, max_depth_b)]
+    
+    # Get covered ranges
+    covered_a = []
+    covered_b = []
+    
+    for a_idx, b_idx in valid_pairs:
+        a_start = depth_boundaries_a[segments_a[a_idx][0]]
+        a_end = depth_boundaries_a[segments_a[a_idx][1]]
+        b_start = depth_boundaries_b[segments_b[b_idx][0]]
+        b_end = depth_boundaries_b[segments_b[b_idx][1]]
+        
+        covered_a.append((a_start, a_end))
+        covered_b.append((b_start, b_end))
+    
+    def find_gaps(covered_ranges, max_depth):
+        if not covered_ranges:
+            return [(0, max_depth)]
+        
+        sorted_ranges = sorted(covered_ranges)
+        gaps = []
+        
+        # Gap at start
+        if sorted_ranges[0][0] > 0:
+            gaps.append((0, sorted_ranges[0][0]))
+        
+        # Gaps between ranges
+        for i in range(len(sorted_ranges) - 1):
+            current_end = sorted_ranges[i][1]
+            next_start = sorted_ranges[i + 1][0]
+            if next_start > current_end:
+                gaps.append((current_end, next_start))
+        
+        # Gap at end
+        if sorted_ranges[-1][1] < max_depth:
+            gaps.append((sorted_ranges[-1][1], max_depth))
+        
+        return gaps
+    
+    max_depth_a = max(depth_boundaries_a)
+    max_depth_b = max(depth_boundaries_b)
+    
+    gaps_a = find_gaps(covered_a, max_depth_a)
+    gaps_b = find_gaps(covered_b, max_depth_b)
+    
+    return gaps_a, gaps_b
 
 
 def handle_single_point_dtw(log1, log2, exponent=1, QualityIndex=False):
@@ -1001,22 +1087,138 @@ def run_comprehensive_dtw_analysis(log_a, log_b, md_a, md_b, picked_depths_a=Non
                 print(f"Found {compatible_non_overlapping}/{len(non_overlapping_pairs)} compatible non-overlapping segment pairs")
                 print(f"Total valid pairs: {len(valid_dtw_pairs)}")
     
+    # Check connectivity before dead-end filtering
+    if not mute_mode:
+        print("\n=== CONNECTIVITY CHECK ===")
 
-    # Filter out dead end pairs if exclude_deadend is True
+    has_paths = has_complete_paths(valid_dtw_pairs, segments_a, segments_b, depth_boundaries_a, depth_boundaries_b)
+
+    if not has_paths:
+        if not mute_mode:
+            print("No complete paths - searching for gap-filling pairs...")
+        
+        # Find depth gaps
+        gaps_a, gaps_b = find_depth_gaps(valid_dtw_pairs, segments_a, segments_b, depth_boundaries_a, depth_boundaries_b)
+        
+        if not mute_mode:
+            if gaps_a:
+                print(f"Core A gaps: {len(gaps_a)} ranges")
+            if gaps_b:
+                print(f"Core B gaps: {len(gaps_b)} ranges")
+        
+        # Find gap-filling candidates with flexible criteria
+        gap_candidates = []
+        
+        for a_idx in range(len(segments_a)):
+            for b_idx in range(len(segments_b)):
+                if (a_idx, b_idx) in valid_dtw_pairs:
+                    continue
+                
+                a_start = depth_boundaries_a[segments_a[a_idx][0]]
+                a_end = depth_boundaries_a[segments_a[a_idx][1]]
+                b_start = depth_boundaries_b[segments_b[b_idx][0]]
+                b_end = depth_boundaries_b[segments_b[b_idx][1]]
+                
+                # Check overlap with gaps - use OR for different core depths
+                a_in_gap = any(not (a_end < gap_start or a_start > gap_end) for gap_start, gap_end in gaps_a)
+                b_in_gap = any(not (b_end < gap_start or b_start > gap_end) for gap_start, gap_end in gaps_b)
+                
+                # Use OR logic for gap-filling
+                if a_in_gap or b_in_gap:
+                    # Process candidate as before...
+                    if (a_idx, b_idx) in all_pairs_with_dtw:
+                        pair_info = all_pairs_with_dtw[(a_idx, b_idx)]
+                        if pair_info.get('passes_distance', False):
+                            gap_candidates.append((a_idx, b_idx))
+                    else:
+                        # Calculate DTW for new candidate
+                        log_a_segment = log_a[segments_a[a_idx][0]:segments_a[a_idx][1]+1]
+                        log_b_segment = log_b[segments_b[b_idx][0]:segments_b[b_idx][1]+1]
+                        
+                        try:
+                            D, wp = custom_dtw(log_a_segment, log_b_segment, QualityIndex=False)
+                            dtw_dist = D[-1, -1] / len(wp)
+                            
+                            if dtw_distance_threshold is None:
+                                passes = True
+                            else:
+                                passes = dtw_dist < dtw_distance_threshold or len(log_a_segment) == 1 or len(log_b_segment) == 1
+                            
+                            if passes:
+                                gap_candidates.append((a_idx, b_idx))
+                        except:
+                            continue
+        
+        # Find lowest depth of existing valid pairs
+        if valid_dtw_pairs:
+            lowest_a_depth = max(depth_boundaries_a[segments_a[a_idx][1]] for a_idx, b_idx in valid_dtw_pairs)
+            lowest_b_depth = max(depth_boundaries_b[segments_b[b_idx][1]] for a_idx, b_idx in valid_dtw_pairs)
+        else:
+            lowest_a_depth = 0
+            lowest_b_depth = 0
+        
+        # Add gap-filling pairs
+        added_pairs = 0
+        for pair in gap_candidates:
+            a_idx, b_idx = pair
+            
+            # Check if pair is below lowest existing pairs
+            a_start = depth_boundaries_a[segments_a[a_idx][0]]
+            b_start = depth_boundaries_b[segments_b[b_idx][0]]
+            below_existing = a_start > lowest_a_depth or b_start > lowest_b_depth
+            
+            # If below existing pairs, only add single-point segments
+            if below_existing:
+                is_single_point = (segments_a[a_idx][0] == segments_a[a_idx][1] and 
+                                segments_b[b_idx][0] == segments_b[b_idx][1])
+                if not is_single_point:
+                    continue
+            
+            log_a_segment = log_a[segments_a[a_idx][0]:segments_a[a_idx][1]+1]
+            log_b_segment = log_b[segments_b[b_idx][0]:segments_b[b_idx][1]+1]
+            
+            try:
+                D, wp = custom_dtw(log_a_segment, log_b_segment, QualityIndex=False)
+                valid_dtw_pairs.add(pair)
+                final_dtw_results[pair] = ([wp], [], [])
+                added_pairs += 1
+            except:
+                continue
+        
+        if not mute_mode:
+            print(f"WARNING: {added_pairs} gap-filling pairs are added to ensure complete path exists, making all segments being correlated in relative stratigraphic order).")
+            print(f"These gap-filling pairs may not comply with given age constraints and introduce bias in correlation).")
+
+    elif not mute_mode:
+        print("Complete paths exist")
+
+    # Create detailed_pairs for dead-end filtering
+    detailed_pairs = {}
+    for a_idx, b_idx in valid_dtw_pairs:
+        a_start = depth_boundaries_a[segments_a[a_idx][0]]
+        a_end = depth_boundaries_a[segments_a[a_idx][1]]
+        b_start = depth_boundaries_b[segments_b[b_idx][0]]
+        b_end = depth_boundaries_b[segments_b[b_idx][1]]
+        
+        detailed_pairs[(a_idx, b_idx)] = {
+            'a_start': a_start, 'a_end': a_end,
+            'b_start': b_start, 'b_end': b_end,
+            'a_len': a_end - a_start + 1,
+            'b_len': b_end - b_start + 1
+        }
+
+    # NOW do dead-end filtering (after gap-filling)
     if exclude_deadend:
         if not mute_mode:
-            print(f"\nFiltering dead-end pairs (exclude_deadend=True)...")
+            print("\n=== DEAD-END FILTERING ===")
         
-        # Get max depths
         max_depth_a = max(depth_boundaries_a)
         max_depth_b = max(depth_boundaries_b)
         
-        # Apply dead end filtering
         filtered_valid_pairs = filter_dead_end_pairs(
             valid_dtw_pairs, detailed_pairs, max_depth_a, max_depth_b, debug=debug and not mute_mode
         )
         
-        # Update valid_dtw_pairs and final_dtw_results
         removed_pairs = valid_dtw_pairs - filtered_valid_pairs
         for pair in removed_pairs:
             if pair in final_dtw_results:
@@ -1025,104 +1227,8 @@ def run_comprehensive_dtw_analysis(log_a, log_b, md_a, md_b, picked_depths_a=Non
         valid_dtw_pairs = filtered_valid_pairs
         
         if not mute_mode:
-            print(f"Dead-end filtering complete: {len(valid_dtw_pairs)} segments retained")
+            print(f"Retained {len(valid_dtw_pairs)} segments after filtering")
     
-    
-    # Check for chain breaks and add gap-filling pairs if needed
-    if not mute_mode:
-        print("\n=== CHECKING FOR CHAIN BREAKS ===")
-    
-    # Run chain break diagnosis
-    chain_diagnostics = diagnose_chain_breaks(
-        valid_dtw_pairs, segments_a, segments_b, 
-        depth_boundaries_a, depth_boundaries_b
-    )
-    
-    # If chain breaks are detected, find gap-filling pairs
-    if chain_diagnostics and chain_diagnostics.get('total_complete_paths', 0) == 0:
-        if not mute_mode:
-            print("Chain breaks detected! Searching for gap-filling pairs...")
-        
-        # Find all possible segment pairs (ignoring age constraints)
-        all_candidate_pairs = []
-        for a_idx in range(len(segments_a)):
-            for b_idx in range(len(segments_b)):
-                if (a_idx, b_idx) not in valid_dtw_pairs:
-                    all_candidate_pairs.append((a_idx, b_idx))
-        
-        # Evaluate gap-filling candidates based on age range proximity
-        gap_fill_candidates = []
-        
-        for a_idx, b_idx in all_candidate_pairs:
-            # Get segment boundaries
-            a_start_depth = depth_boundaries_a[segments_a[a_idx][0]]
-            a_end_depth = depth_boundaries_a[segments_a[a_idx][1]]
-            b_start_depth = depth_boundaries_b[segments_b[b_idx][0]]
-            b_end_depth = depth_boundaries_b[segments_b[b_idx][1]]
-            
-            # Calculate age ranges if available
-            if age_consideration and ages_a is not None and ages_b is not None:
-                # Get age ranges for segments
-                a_start_age = np.interp(a_start_depth, ages_a['depths'], ages_a['ages'])
-                a_end_age = np.interp(a_end_depth, ages_a['depths'], ages_a['ages'])
-                b_start_age = np.interp(b_start_depth, ages_b['depths'], ages_b['ages'])
-                b_end_age = np.interp(b_end_depth, ages_b['depths'], ages_b['ages'])
-                
-                # Calculate age range overlap/proximity
-                a_age_range = [min(a_start_age, a_end_age), max(a_start_age, a_end_age)]
-                b_age_range = [min(b_start_age, b_end_age), max(b_start_age, b_end_age)]
-                
-                # Calculate distance between age ranges (0 if overlapping)
-                age_distance = max(0, 
-                    max(a_age_range[0] - b_age_range[1], b_age_range[0] - a_age_range[1]))
-            else:
-                # Use depth-based proximity if no ages available
-                a_mid_depth = (a_start_depth + a_end_depth) / 2
-                b_mid_depth = (b_start_depth + b_end_depth) / 2
-                age_distance = abs(a_mid_depth - b_mid_depth)
-            
-            gap_fill_candidates.append({
-                'pair': (a_idx, b_idx),
-                'age_distance': age_distance,
-                'a_depths': (a_start_depth, a_end_depth),
-                'b_depths': (b_start_depth, b_end_depth)
-            })
-        
-        # Sort by age proximity (closest age ranges first)
-        gap_fill_candidates.sort(key=lambda x: x['age_distance'])
-        
-        # Add gap-filling pairs to valid pairs
-        added_pairs = 0
-        for candidate in gap_fill_candidates[:10]:  # Limit to top 10 candidates
-            pair = candidate['pair']
-            
-            # Calculate DTW for this gap-filling pair
-            a_idx, b_idx = pair
-            log_a_segment = log_a[segments_a[a_idx][0]:segments_a[a_idx][1]+1]
-            log_b_segment = log_b[segments_b[b_idx][0]:segments_b[b_idx][1]+1]
-            
-            try:
-                # Use existing DTW calculation function
-                D, wp = custom_dtw(log_a_segment, log_b_segment, QualityIndex=False)
-                
-                # Add to valid pairs and results
-                valid_dtw_pairs.add(pair)
-                final_dtw_results[pair] = ([wp], [], [])
-                added_pairs += 1
-                
-                if not mute_mode:
-                    print(f"Added gap-filling pair ({a_idx+1}, {b_idx+1}) - age distance: {candidate['age_distance']:.2f}")
-                
-            except Exception as e:
-                if not mute_mode:
-                    print(f"Failed to calculate DTW for gap-filling pair ({a_idx+1}, {b_idx+1}): {e}")
-                continue
-        
-        if not mute_mode:
-            print(f"Added {added_pairs} gap-filling pairs to bridge chain breaks")
-    
-    elif not mute_mode:
-        print("No chain breaks detected - correlation chain is complete")
 
     # Create dtw matrix if requested
     if create_dtw_matrix:

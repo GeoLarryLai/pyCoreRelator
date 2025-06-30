@@ -172,40 +172,119 @@ def build_connectivity_graph(valid_dtw_pairs, detailed_pairs):
     return dict(successors), dict(predecessors)
 
 
-def identify_special_segments(valid_dtw_pairs, detailed_pairs, max_depth_a, max_depth_b):
+def filter_dead_end_pairs(valid_dtw_pairs, detailed_pairs, max_depth_a, max_depth_b, debug=False):
     """
-    Identify special types of segments: tops, bottoms, dead ends, and orphans.
+    Enhanced dead-end filtering that removes ALL segments that cannot be part of complete paths.
     
-    - Top segments: Start at depth 0 for both cores
-    - Bottom segments: End at maximum depth for both cores  
-    - Dead ends: Have no successors (but aren't bottom segments)
-    - Orphans: Have no predecessors (but aren't top segments)
-    
-    Parameters:
-        valid_dtw_pairs (set): Valid segment pairs
-        detailed_pairs (dict): Segment depth details
-        max_depth_a (float): Maximum depth for core A
-        max_depth_b (float): Maximum depth for core B
-        
-    Returns:
-        tuple: (top_segments, bottom_segments, dead_ends, orphans, successors, predecessors)
-    
-    Example:
-        >>> tops, bottoms, dead, orphans, succ, pred = identify_special_segments(
-        ...     valid_pairs, details, 1000.0, 1200.0
-        ... )
-        >>> print(f"Found {len(tops)} top segments and {len(bottoms)} bottom segments")
-        >>> print(f"Warning: {len(dead)} dead ends and {len(orphans)} orphans detected")
+    Uses forward/backward reachability analysis to ensure every retained segment can participate
+    in at least one complete path from top to bottom.
     """
+    from collections import deque
     
-    # Build connectivity graph first
+    # Build connectivity graph
     successors, predecessors = build_connectivity_graph(valid_dtw_pairs, detailed_pairs)
     
-    # Classify segments based on position and connectivity
+    # Find top and bottom segments
+    top_segments = []
+    bottom_segments = []
+    
+    for a_idx, b_idx in valid_dtw_pairs:
+        details = detailed_pairs[(a_idx, b_idx)]
+        
+        # Top segments start at depth 0 for both cores
+        if abs(details['a_start']) < 1e-6 and abs(details['b_start']) < 1e-6:
+            top_segments.append((a_idx, b_idx))
+        
+        # Bottom segments end at maximum depth for both cores
+        if (abs(details['a_end'] - max_depth_a) < 1e-6 and 
+            abs(details['b_end'] - max_depth_b) < 1e-6):
+            bottom_segments.append((a_idx, b_idx))
+    
+    # Forward reachability: segments reachable from tops
+    forward_reachable = set()
+    
+    def forward_search_from_tops():
+        """Find all segments reachable from top segments."""
+        queue = deque(top_segments)
+        visited = set(top_segments)
+        
+        while queue:
+            current = queue.popleft()
+            forward_reachable.add(current)
+            
+            # Add all successors to queue
+            for successor in successors.get(current, []):
+                if successor not in visited:
+                    visited.add(successor)
+                    queue.append(successor)
+    
+    # Backward reachability: segments that can reach bottoms
+    backward_reachable = set()
+    
+    def backward_search_from_bottoms():
+        """Find all segments that can reach bottom segments."""
+        queue = deque(bottom_segments)
+        visited = set(bottom_segments)
+        
+        while queue:
+            current = queue.popleft()
+            backward_reachable.add(current)
+            
+            # Add all predecessors to queue
+            for predecessor in predecessors.get(current, []):
+                if predecessor not in visited:
+                    visited.add(predecessor)
+                    queue.append(predecessor)
+    
+    # Perform reachability analysis
+    if top_segments:
+        forward_search_from_tops()
+    if bottom_segments:
+        backward_search_from_bottoms()
+    
+    # Viable segments must be reachable from tops AND able to reach bottoms
+    viable_segments = forward_reachable & backward_reachable
+    
+    # If no tops or bottoms, keep all segments (prevent over-filtering)
+    if not top_segments or not bottom_segments:
+        if debug:
+            print("Warning: No complete start/end points found - keeping all segments")
+        viable_segments = set(valid_dtw_pairs)
+    
+    # Statistics
+    removed_count = len(valid_dtw_pairs) - len(viable_segments)
+    
+    if debug:
+        print(f"Enhanced dead-end filtering results:")
+        print(f"  Original segments: {len(valid_dtw_pairs)}")
+        print(f"  Top segments: {len(top_segments)}")
+        print(f"  Bottom segments: {len(bottom_segments)}")
+        print(f"  Forward reachable: {len(forward_reachable)}")
+        print(f"  Backward reachable: {len(backward_reachable)}")
+        print(f"  Viable segments: {len(viable_segments)}")
+        print(f"  Removed: {removed_count}")
+        
+        if removed_count > 0:
+            removed_segments = valid_dtw_pairs - viable_segments
+            sample_removed = list(removed_segments)[:5]
+            print(f"  Sample removed: {[(a+1, b+1) for a, b in sample_removed]}")
+    
+    return viable_segments
+
+
+def identify_special_segments(valid_dtw_pairs, detailed_pairs, max_depth_a, max_depth_b):
+    """
+    Enhanced segment classification that also identifies isolation issues.
+    """
+    # Build connectivity graph
+    successors, predecessors = build_connectivity_graph(valid_dtw_pairs, detailed_pairs)
+    
+    # Initialize lists
     top_segments = []
     bottom_segments = []
     dead_ends = []
     orphans = []
+    isolated = []  # New category: segments with no connections
     
     for a_idx, b_idx in valid_dtw_pairs:
         details = detailed_pairs[(a_idx, b_idx)]
@@ -219,54 +298,20 @@ def identify_special_segments(valid_dtw_pairs, detailed_pairs, max_depth_a, max_
             abs(details['b_end'] - max_depth_b) < 1e-6):
             bottom_segments.append((a_idx, b_idx))
         
-        # Dead ends have no successors but aren't bottom segments
-        if len(successors.get((a_idx, b_idx), [])) == 0 and (a_idx, b_idx) not in bottom_segments:
+        # Check connectivity
+        has_successors = len(successors.get((a_idx, b_idx), [])) > 0
+        has_predecessors = len(predecessors.get((a_idx, b_idx), [])) > 0
+        
+        # Dead ends: no successors but not bottom segments
+        if not has_successors and (a_idx, b_idx) not in bottom_segments:
             dead_ends.append((a_idx, b_idx))
         
-        # Orphans have no predecessors but aren't top segments
-        if len(predecessors.get((a_idx, b_idx), [])) == 0 and (a_idx, b_idx) not in top_segments:
+        # Orphans: no predecessors but not top segments
+        if not has_predecessors and (a_idx, b_idx) not in top_segments:
             orphans.append((a_idx, b_idx))
+        
+        # Isolated: no connections at all
+        if not has_successors and not has_predecessors:
+            isolated.append((a_idx, b_idx))
     
     return top_segments, bottom_segments, dead_ends, orphans, successors, predecessors
-
-
-def filter_dead_end_pairs(valid_dtw_pairs, detailed_pairs, max_depth_a, max_depth_b, debug=False):
-    """
-    Remove dead end and orphan segment pairs from the valid set.
-    
-    This filtering improves path finding by removing segments that cannot be part
-    of complete paths from top to bottom.
-    
-    Parameters:
-        valid_dtw_pairs (set): Valid segment pairs to filter
-        detailed_pairs (dict): Segment depth details  
-        max_depth_a (float): Maximum depth for core A
-        max_depth_b (float): Maximum depth for core B
-        debug (bool): Whether to print filtering statistics
-        
-    Returns:
-        set: Filtered segment pairs without dead ends and orphans
-    
-    Example:
-        >>> filtered_pairs = filter_dead_end_pairs(valid_pairs, details, 1000, 1200, debug=True)
-        >>> print(f"Retained {len(filtered_pairs)} viable segments")
-    """
-    
-    # Get special segment classifications
-    top_segments, bottom_segments, dead_ends, orphans, successors, predecessors = identify_special_segments(
-        valid_dtw_pairs, detailed_pairs, max_depth_a, max_depth_b
-    )
-    
-    # Combine problematic segments
-    dead_end_pairs = set(dead_ends + orphans)
-    
-    # Filter out problematic segments
-    filtered_pairs = set(valid_dtw_pairs) - dead_end_pairs
-    
-    if debug:
-        print(f"Dead end filtering: {len(filtered_pairs)}/{len(valid_dtw_pairs)} segments retained")
-        print(f"Removed {len(dead_end_pairs)} dead-end pairs:")
-        print(f"  - {len(dead_ends)} dead ends (no successors)")
-        print(f"  - {len(orphans)} orphans (no predecessors)")
-    
-    return filtered_pairs 
