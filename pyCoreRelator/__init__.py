@@ -8,7 +8,13 @@ advanced dynamic time warping algorithms, segment analysis, and quality assessme
 __version__ = "0.1.1"
 
 # Core functionality - Data loading and basic operations
-from .utils.data_loader import load_log_data, resample_datasets
+from .utils.data_loader import (
+    load_log_data, 
+    resample_datasets,
+    load_age_constraints_from_csv,
+    combine_age_constraints,
+    load_core_age_constraints
+)
 from .utils.helpers import find_nearest_index
 from .utils.path_processing import combine_segment_dtw_results
 
@@ -69,6 +75,9 @@ __all__ = [
     
     # Core data operations
     'load_log_data',
+    'load_age_constraints_from_csv',
+    'combine_age_constraints',
+    'load_core_age_constraints',
     'plot_core_data',
     
     # Main analysis functions  

@@ -4,6 +4,9 @@ Data loading functions for pyCoreRelator.
 Included Functions:
 - load_log_data: Load log data from CSV files and resample to common depth scale
 - resample_datasets: Resample multiple datasets to a common depth scale
+- load_age_constraints_from_csv: Load age constraints from a single CSV file
+- combine_age_constraints: Combine multiple age constraint dictionaries
+- load_core_age_constraints: Helper function to load age constraints for a single core
 
 This module provides utilities for loading core log data from CSV files.
 It handles multiple log types, data normalization, and resampling to common depth scales.
@@ -221,6 +224,292 @@ def resample_datasets(datasets, target_resolution_factor=2):
                 resampled_data[key] = np.interp(target_depth, dataset['depth'], values)
     
     return resampled_data
+
+
+def load_age_constraints_from_csv(csv_file_path, data_columns):
+    """
+    Load age constraints from a single CSV file with configurable column mapping.
+    
+    Parameters
+    ----------
+    csv_file_path : str
+        Path to the CSV file containing age constraint data
+    data_columns : dict
+        Dictionary mapping standard column names to actual CSV column names.
+        Expected keys: 'age', 'pos_error', 'neg_error', 'min_depth', 'max_depth', 
+                      'in_sequence', 'core', 'interpreted_bed'
+        This parameter is required and must be provided.
+    
+    Returns
+    -------
+    dict
+        Dictionary containing all age constraint data with standardized structure
+        
+    Example
+    -------
+    >>> data_columns = {
+    ...     'age': 'calib502_agebp',
+    ...     'pos_error': 'calib502_2sigma_pos',
+    ...     'neg_error': 'calib502_2sigma_neg',
+    ...     'min_depth': 'mindepth_cm',
+    ...     'max_depth': 'maxdepth_cm',
+    ...     'in_sequence': 'in_sequence',
+    ...     'core': 'core',
+    ...     'interpreted_bed': 'interpreted_bed'
+    ... }
+    >>> age_data = load_age_constraints_from_csv('age_constraints.csv', data_columns)
+    """
+    # Check if data_columns is provided
+    if data_columns is None:
+        raise ValueError("data_columns parameter is required. "
+                        "Provide a dictionary mapping: {'age': 'column_name', 'pos_error': 'column_name', "
+                        "'neg_error': 'column_name', 'min_depth': 'column_name', 'max_depth': 'column_name', "
+                        "'in_sequence': 'column_name', 'core': 'column_name', 'interpreted_bed': 'column_name'}")
+    
+    # Initialize result containers
+    result = {
+        'depths': [],
+        'ages': [],
+        'pos_errors': [],
+        'neg_errors': [],
+        'in_sequence_flags': [],
+        'in_sequence_depths': [],
+        'in_sequence_ages': [],
+        'in_sequence_pos_errors': [],
+        'in_sequence_neg_errors': [],
+        'out_sequence_depths': [],
+        'out_sequence_ages': [],
+        'out_sequence_pos_errors': [],
+        'out_sequence_neg_errors': [],
+        'core': [],
+        'interpreted_bed': []
+    }
+    
+    # Check if file exists
+    if not os.path.exists(csv_file_path):
+        print(f"Warning: CSV file not found: {csv_file_path}")
+        return result
+    
+    # Load CSV data
+    try:
+        data = pd.read_csv(csv_file_path)
+    except Exception as e:
+        print(f"Error reading CSV file {csv_file_path}: {e}")
+        return result
+    
+    # Check which columns are available and create a working dataset
+    working_data = pd.DataFrame()
+    available_mappings = {}
+    
+    for standard_col, csv_col in data_columns.items():
+        if csv_col in data.columns:
+            # Only keep rows where this column has data
+            valid_mask = data[csv_col].notna()
+            if working_data.empty:
+                working_data = data[valid_mask].copy()
+            else:
+                working_data = working_data[working_data[csv_col].notna()]
+            available_mappings[standard_col] = csv_col
+        else:
+            print(f"Warning: Column '{csv_col}' not found in {csv_file_path}")
+    
+    if working_data.empty:
+        print(f"Warning: No valid data found in {csv_file_path}")
+        return result
+    
+    print(f"Loaded {len(working_data)} age constraints from {os.path.basename(csv_file_path)}")
+    
+    # Extract data with NA handling
+    if 'min_depth' in available_mappings and 'max_depth' in available_mappings:
+        result['depths'] = (working_data[available_mappings['min_depth']] + working_data[available_mappings['max_depth']]) / 2
+    elif 'min_depth' in available_mappings:
+        result['depths'] = working_data[available_mappings['min_depth']]
+    else:
+        result['depths'] = pd.Series([np.nan] * len(working_data))
+    
+    result['ages'] = working_data[available_mappings['age']].tolist() if 'age' in available_mappings else [np.nan] * len(working_data)
+    result['pos_errors'] = working_data[available_mappings['pos_error']].tolist() if 'pos_error' in available_mappings else [np.nan] * len(working_data)
+    result['neg_errors'] = working_data[available_mappings['neg_error']].tolist() if 'neg_error' in available_mappings else [np.nan] * len(working_data)
+    result['in_sequence_flags'] = working_data[available_mappings['in_sequence']].tolist() if 'in_sequence' in available_mappings else [np.nan] * len(working_data)
+    result['core'] = working_data[available_mappings['core']].tolist() if 'core' in available_mappings else ['Unknown'] * len(working_data)
+    result['interpreted_bed'] = working_data[available_mappings['interpreted_bed']].tolist() if 'interpreted_bed' in available_mappings else ['Unknown'] * len(working_data)
+    
+    # Separate in-sequence and out-of-sequence constraints
+    for i in range(len(result['in_sequence_flags'])):
+        if not pd.isna(result['in_sequence_flags'][i]) and result['in_sequence_flags'][i] == 1:
+            result['in_sequence_depths'].append(result['depths'].iloc[i] if isinstance(result['depths'], pd.Series) else result['depths'][i])
+            result['in_sequence_ages'].append(result['ages'][i])
+            result['in_sequence_pos_errors'].append(result['pos_errors'][i])
+            result['in_sequence_neg_errors'].append(result['neg_errors'][i])
+        else:
+            result['out_sequence_depths'].append(result['depths'].iloc[i] if isinstance(result['depths'], pd.Series) else result['depths'][i])
+            result['out_sequence_ages'].append(result['ages'][i])
+            result['out_sequence_pos_errors'].append(result['pos_errors'][i])
+            result['out_sequence_neg_errors'].append(result['neg_errors'][i])
+    
+    return result
+
+
+def combine_age_constraints(age_constraint_list):
+    """
+    Combine multiple age constraint dictionaries into a single one.
+    
+    Parameters
+    ----------
+    age_constraint_list : list of dict
+        List of age constraint dictionaries from load_age_constraints_from_csv
+        
+    Returns
+    -------
+    dict
+        Combined age constraint dictionary
+        
+    Example
+    -------
+    >>> age_data1 = load_age_constraints_from_csv('core1_ages.csv', data_columns)
+    >>> age_data2 = load_age_constraints_from_csv('core2_ages.csv', data_columns)
+    >>> combined = combine_age_constraints([age_data1, age_data2])
+    """
+    if not age_constraint_list:
+        return {
+            'depths': [],
+            'ages': [],
+            'pos_errors': [],
+            'neg_errors': [],
+            'in_sequence_flags': [],
+            'in_sequence_depths': [],
+            'in_sequence_ages': [],
+            'in_sequence_pos_errors': [],
+            'in_sequence_neg_errors': [],
+            'out_sequence_depths': [],
+            'out_sequence_ages': [],
+            'out_sequence_pos_errors': [],
+            'out_sequence_neg_errors': [],
+            'core': [],
+            'interpreted_bed': []
+        }
+    
+    # Initialize combined result with first dataset structure
+    combined = {key: [] for key in age_constraint_list[0].keys()}
+    
+    # Combine all datasets
+    all_data_rows = []
+    for age_data in age_constraint_list:
+        if len(age_data['depths']) > 0:
+            # Convert depths to list if it's a pandas Series
+            depths = age_data['depths'].tolist() if isinstance(age_data['depths'], pd.Series) else age_data['depths']
+            
+            for i in range(len(depths)):
+                all_data_rows.append({
+                    'depth': depths[i],
+                    'age': age_data['ages'][i],
+                    'pos_error': age_data['pos_errors'][i],
+                    'neg_error': age_data['neg_errors'][i],
+                    'in_sequence_flag': age_data['in_sequence_flags'][i],
+                    'core': age_data['core'][i],
+                    'interpreted_bed': age_data['interpreted_bed'][i]
+                })
+    
+    # Sort combined data by depth
+    all_data_rows.sort(key=lambda x: x['depth'] if not pd.isna(x['depth']) else float('inf'))
+    
+    # Extract combined data
+    if all_data_rows:
+        combined['depths'] = [row['depth'] for row in all_data_rows]
+        combined['ages'] = [row['age'] for row in all_data_rows]
+        combined['pos_errors'] = [row['pos_error'] for row in all_data_rows]
+        combined['neg_errors'] = [row['neg_error'] for row in all_data_rows]
+        combined['in_sequence_flags'] = [row['in_sequence_flag'] for row in all_data_rows]
+        combined['core'] = [row['core'] for row in all_data_rows]
+        combined['interpreted_bed'] = [row['interpreted_bed'] for row in all_data_rows]
+        
+        # Separate in-sequence and out-of-sequence constraints
+        for i, in_seq_flag in enumerate(combined['in_sequence_flags']):
+            if not pd.isna(in_seq_flag) and in_seq_flag == 1:
+                combined['in_sequence_depths'].append(combined['depths'][i])
+                combined['in_sequence_ages'].append(combined['ages'][i])
+                combined['in_sequence_pos_errors'].append(combined['pos_errors'][i])
+                combined['in_sequence_neg_errors'].append(combined['neg_errors'][i])
+            else:
+                combined['out_sequence_depths'].append(combined['depths'][i])
+                combined['out_sequence_ages'].append(combined['ages'][i])
+                combined['out_sequence_pos_errors'].append(combined['pos_errors'][i])
+                combined['out_sequence_neg_errors'].append(combined['neg_errors'][i])
+    
+    return combined
+
+
+def load_core_age_constraints(core_name, age_base_path, consider_adjacent_core=False, data_columns=None):
+    """
+    Helper function to load age constraints for a single core.
+    
+    Parameters
+    ----------
+    core_name : str
+        Name of the core to load age constraints for
+    age_base_path : str
+        Base directory path containing age constraint CSV files
+    consider_adjacent_core : bool, default=False
+        Whether to also load age constraints from similar core names (e.g., adjacent cores)
+    data_columns : dict
+        Dictionary mapping standard column names to actual CSV column names.
+        Expected keys: 'age', 'pos_error', 'neg_error', 'min_depth', 'max_depth', 
+                      'in_sequence', 'core', 'interpreted_bed'
+        
+    Returns
+    -------
+    dict
+        Age constraint dictionary for the specified core
+        
+    Example
+    -------
+    >>> data_columns = {
+    ...     'age': 'calib502_agebp',
+    ...     'pos_error': 'calib502_2sigma_pos',
+    ...     'neg_error': 'calib502_2sigma_neg',
+    ...     'min_depth': 'mindepth_cm',
+    ...     'max_depth': 'maxdepth_cm',
+    ...     'in_sequence': 'in_sequence',
+    ...     'core': 'core',
+    ...     'interpreted_bed': 'interpreted_bed'
+    ... }
+    >>> age_data = load_core_age_constraints('M9907-23PC', '/path/to/age/data', 
+    ...                                      consider_adjacent_core=True, 
+    ...                                      data_columns=data_columns)
+    """
+    csv_files = []
+    
+    if not os.path.exists(age_base_path):
+        print(f"Warning: Directory not found: {age_base_path}")
+        return combine_age_constraints([])
+    
+    # First, find CSV files that contain the whole core name
+    for file in os.listdir(age_base_path):
+        if file.endswith('.csv') and core_name in file:
+            csv_files.append(f'{age_base_path}/{file}')
+    
+    # If consider_adjacent_core is True, also search for similar core names
+    if consider_adjacent_core:
+        core_base = core_name[:-2]  # Remove last two characters
+        for file in os.listdir(age_base_path):
+            if file.endswith('.csv') and file.startswith(f'{core_base}') and core_name not in file:
+                csv_files.append(f'{age_base_path}/{file}')
+    
+    # Load all CSV files
+    age_constraints = []
+    for csv_file in csv_files:
+        age_data = load_age_constraints_from_csv(csv_file, data_columns)
+        if len(age_data['depths']) > 0:
+            age_constraints.append(age_data)
+    
+    # Return single dataset or combine multiple datasets
+    if len(age_constraints) == 1:
+        return age_constraints[0]
+    elif len(age_constraints) > 1:
+        return combine_age_constraints(age_constraints)
+    else:
+        # Return empty structure if no data found
+        return combine_age_constraints([])
 
 
 # The plot_core_data function has been moved to pyCoreRelator.visualization.core_plots

@@ -1108,7 +1108,7 @@ def run_comprehensive_dtw_analysis(log_a, log_b, md_a, md_b, picked_depths_a=Non
         
         # Find gap-filling candidates with flexible criteria
         gap_candidates = []
-        
+
         for a_idx in range(len(segments_a)):
             for b_idx in range(len(segments_b)):
                 if (a_idx, b_idx) in valid_dtw_pairs:
@@ -1118,6 +1118,14 @@ def run_comprehensive_dtw_analysis(log_a, log_b, md_a, md_b, picked_depths_a=Non
                 a_end = depth_boundaries_a[segments_a[a_idx][1]]
                 b_start = depth_boundaries_b[segments_b[b_idx][0]]
                 b_end = depth_boundaries_b[segments_b[b_idx][1]]
+                
+                # Check if both segments are single-point segments
+                a_is_single_point = (segments_a[a_idx][0] == segments_a[a_idx][1])
+                b_is_single_point = (segments_b[b_idx][0] == segments_b[b_idx][1])
+                
+                # Skip pairs where BOTH segments are single-point segments
+                if a_is_single_point and b_is_single_point:
+                    continue
                 
                 # Check overlap with gaps - use OR for different core depths
                 a_in_gap = any(not (a_end < gap_start or a_start > gap_end) for gap_start, gap_end in gaps_a)
@@ -1151,38 +1159,53 @@ def run_comprehensive_dtw_analysis(log_a, log_b, md_a, md_b, picked_depths_a=Non
         
         # Find lowest depth of existing valid pairs
         if valid_dtw_pairs:
-            lowest_a_depth = max(depth_boundaries_a[segments_a[a_idx][1]] for a_idx, b_idx in valid_dtw_pairs)
-            lowest_b_depth = max(depth_boundaries_b[segments_b[b_idx][1]] for a_idx, b_idx in valid_dtw_pairs)
+            lowest_a_depth = max(depth_boundaries_a[segments_a[pair_a_idx][1]] for pair_a_idx, pair_b_idx in valid_dtw_pairs)
+            lowest_b_depth = max(depth_boundaries_b[segments_b[pair_b_idx][1]] for pair_a_idx, pair_b_idx in valid_dtw_pairs)
         else:
             lowest_a_depth = 0
             lowest_b_depth = 0
-        
-        # Add gap-filling pairs
+
+        # Add gap-filling pairs 
         added_pairs = 0
         for pair in gap_candidates:
             a_idx, b_idx = pair
             
-            # Check if pair is below lowest existing pairs
+            # Extract segments
             a_start = depth_boundaries_a[segments_a[a_idx][0]]
+            a_end = depth_boundaries_a[segments_a[a_idx][1]]
             b_start = depth_boundaries_b[segments_b[b_idx][0]]
-            below_existing = a_start > lowest_a_depth or b_start > lowest_b_depth
+            b_end = depth_boundaries_b[segments_b[b_idx][1]]
             
-            # If below existing pairs, only add single-point segments
-            if below_existing:
-                is_single_point = (segments_a[a_idx][0] == segments_a[a_idx][1] and 
-                                segments_b[b_idx][0] == segments_b[b_idx][1])
-                if not is_single_point:
-                    continue
-            
-            log_a_segment = log_a[segments_a[a_idx][0]:segments_a[a_idx][1]+1]
-            log_b_segment = log_b[segments_b[b_idx][0]:segments_b[b_idx][1]+1]
+            log_a_segment = log_a[a_start:a_end+1]
+            log_b_segment = log_b[b_start:b_end+1]
             
             try:
-                D, wp = custom_dtw(log_a_segment, log_b_segment, QualityIndex=False)
+                # Calculate full DTW with quality indicators (same as regular pairs)
+                D_sub, wp, QIdx = custom_dtw(log_a_segment, log_b_segment, subseq=False, exponent=1, 
+                                        QualityIndex=True, independent_dtw=independent_dtw)
+                
+                # Adjust warping path coordinates to match full log coordinates
+                adjusted_wp = wp.copy()
+                adjusted_wp[:, 0] += a_start
+                adjusted_wp[:, 1] += b_start
+                
+                # Add age overlap percentage if available
+                if (a_idx, b_idx) in all_pairs_with_dtw:
+                    pair_info = all_pairs_with_dtw[(a_idx, b_idx)]
+                    if 'perc_age_overlap' in pair_info:
+                        QIdx['perc_age_overlap'] = pair_info['perc_age_overlap']
+                else:
+                    # Default value for gap-filling pairs not in age analysis
+                    QIdx['perc_age_overlap'] = 0.0
+                
+                # Store complete DTW results (same format as regular pairs)
                 valid_dtw_pairs.add(pair)
-                final_dtw_results[pair] = ([wp], [], [])
-                added_pairs += 1
-            except:
+                final_dtw_results[pair] = ([adjusted_wp], [], [QIdx])
+                added_pairs += 1  # ← ADD THIS LINE!
+                
+            except Exception as e:
+                if debug and not mute_mode:
+                    print(f"Error calculating DTW for gap-filling pair ({a_idx}, {b_idx}): {e}")
                 continue
         
         if not mute_mode:
