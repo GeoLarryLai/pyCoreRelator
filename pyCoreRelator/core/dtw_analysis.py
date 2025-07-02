@@ -50,6 +50,117 @@ from ..visualization.animation import create_segment_dtw_animation
 from .diagnostics import diagnose_chain_breaks
 from .segment_operations import build_connectivity_graph, identify_special_segments
 
+def force_bottom_segment_pairing(valid_dtw_pairs, segments_a, segments_b, depth_boundaries_a, depth_boundaries_b, 
+                                log_a, log_b, final_dtw_results, independent_dtw=False, mute_mode=False):
+    """Force pairing of unpaired segments below the deepest valid pairs to ensure bottom completion."""
+    
+    # Find deepest valid pair depths
+    max_valid_a = 0
+    max_valid_b = 0
+    for a_idx, b_idx in valid_dtw_pairs:
+        a_end = depth_boundaries_a[segments_a[a_idx][1]]
+        b_end = depth_boundaries_b[segments_b[b_idx][1]]
+        max_valid_a = max(max_valid_a, a_end)
+        max_valid_b = max(max_valid_b, b_end)
+    
+    max_depth_a = max(depth_boundaries_a)
+    max_depth_b = max(depth_boundaries_b)
+    
+    # Find unpaired segments below deepest valid pairs
+    unpaired_a = []
+    unpaired_b = []
+    
+    for a_idx, (a_start, a_end) in enumerate(segments_a):
+        a_start_depth = depth_boundaries_a[a_start]
+        if a_start_depth > max_valid_a and (a_idx, None) not in [(pair[0], None) for pair in valid_dtw_pairs]:
+            # Check if this segment is actually unpaired
+            is_paired = any(pair[0] == a_idx for pair in valid_dtw_pairs)
+            if not is_paired:
+                unpaired_a.append(a_idx)
+    
+    for b_idx, (b_start, b_end) in enumerate(segments_b):
+        b_start_depth = depth_boundaries_b[b_start]
+        if b_start_depth > max_valid_b and (None, b_idx) not in [(None, pair[1]) for pair in valid_dtw_pairs]:
+            # Check if this segment is actually unpaired
+            is_paired = any(pair[1] == b_idx for pair in valid_dtw_pairs)
+            if not is_paired:
+                unpaired_b.append(b_idx)
+    
+    # Create force pairs (avoid single-point to single-point)
+    force_candidates = []
+    
+    for a_idx in unpaired_a:
+        a_start, a_end = segments_a[a_idx]
+        is_single_a = (a_start == a_end)
+        
+        for b_idx in unpaired_b:
+            b_start, b_end = segments_b[b_idx]
+            is_single_b = (b_start == b_end)
+            
+            # Skip single-point to single-point pairs
+            if is_single_a and is_single_b:
+                continue
+                
+            force_candidates.append((a_idx, b_idx))
+    
+    # Also pair deepest A segments with bottom B single-point
+    bottom_single_b = [i for i, (start, end) in enumerate(segments_b) 
+                      if start == end and depth_boundaries_b[start] == max_depth_b]
+    
+    for a_idx in unpaired_a:
+        a_start, a_end = segments_a[a_idx]
+        if a_start != a_end:  # Not single-point
+            for b_idx in bottom_single_b:
+                if (a_idx, b_idx) not in force_candidates:
+                    force_candidates.append((a_idx, b_idx))
+    
+    # Also pair deepest B segments with bottom A single-point
+    bottom_single_a = [i for i, (start, end) in enumerate(segments_a) 
+                      if start == end and depth_boundaries_a[start] == max_depth_a]
+    
+    for b_idx in unpaired_b:
+        b_start, b_end = segments_b[b_idx]
+        if b_start != b_end:  # Not single-point
+            for a_idx in bottom_single_a:
+                if (a_idx, b_idx) not in force_candidates:
+                    force_candidates.append((a_idx, b_idx))
+    
+    # Add force pairs
+    added = 0
+    for a_idx, b_idx in force_candidates:
+        if (a_idx, b_idx) in valid_dtw_pairs:
+            continue
+            
+        try:
+            a_start = depth_boundaries_a[segments_a[a_idx][0]]
+            a_end = depth_boundaries_a[segments_a[a_idx][1]]
+            b_start = depth_boundaries_b[segments_b[b_idx][0]]
+            b_end = depth_boundaries_b[segments_b[b_idx][1]]
+            
+            log_a_segment = log_a[a_start:a_end+1]
+            log_b_segment = log_b[b_start:b_end+1]
+            
+            from .dtw_analysis import custom_dtw
+            D_sub, wp, QIdx = custom_dtw(log_a_segment, log_b_segment, subseq=False, 
+                                       exponent=1, QualityIndex=True, independent_dtw=independent_dtw)
+            
+            adjusted_wp = wp.copy()
+            adjusted_wp[:, 0] += a_start
+            adjusted_wp[:, 1] += b_start
+            QIdx['perc_age_overlap'] = 0.0
+            
+            valid_dtw_pairs.add((a_idx, b_idx))
+            final_dtw_results[(a_idx, b_idx)] = ([adjusted_wp], [], [QIdx])
+            added += 1
+            
+        except Exception:
+            continue
+    
+    if not mute_mode and added > 0:
+        print(f"Force-paired {added} unpaired bottom segments")
+    
+    return added
+
 def has_complete_paths(valid_pairs, segments_a, segments_b, depth_boundaries_a, depth_boundaries_b):
     """
     Proper connectivity check using the same approach as diagnose_chain_breaks.
@@ -1205,6 +1316,12 @@ def run_comprehensive_dtw_analysis(log_a, log_b, md_a, md_b, picked_depths_a=Non
             lowest_a_depth = 0
             lowest_b_depth = 0
 
+        # Add bottom-reaching pairs
+        bottom_added = force_bottom_segment_pairing(
+            valid_dtw_pairs, segments_a, segments_b, depth_boundaries_a, depth_boundaries_b,
+            log_a, log_b, final_dtw_results, independent_dtw=independent_dtw, mute_mode=mute_mode
+        )
+
         # Add gap-filling pairs 
         added_pairs = 0
         for pair in gap_candidates:
@@ -1248,10 +1365,13 @@ def run_comprehensive_dtw_analysis(log_a, log_b, md_a, md_b, picked_depths_a=Non
                     print(f"Error calculating DTW for gap-filling pair ({a_idx}, {b_idx}): {e}")
                 continue
         
+        # Update total count
+        total_added = added_pairs + bottom_added
+        
         if not mute_mode:
-            print(f"WARNING: {added_pairs} gap-filling pairs are added to ensure complete path exists, making all segments being correlated in relative stratigraphic order).")
-            print(f"These gap-filling pairs may not comply with given age constraints and introduce bias in correlation).")
-
+            print(f"WARNING: {total_added} gap-filling pairs are added...")
+            print(f"These gap-filling pairs may not comply with given age constraints...")
+        
     elif not mute_mode:
         print("Complete paths exist")
 
