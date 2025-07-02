@@ -50,31 +50,74 @@ from ..visualization.animation import create_segment_dtw_animation
 from .diagnostics import diagnose_chain_breaks
 
 def has_complete_paths(valid_pairs, segments_a, segments_b, depth_boundaries_a, depth_boundaries_b):
-    """Quick check if complete paths exist without verbose diagnostics."""
+    """
+    Proper connectivity check using the same approach as diagnose_chain_breaks.
+    
+    Uses existing functions to identify special segments and check for complete paths.
+    """
     if not valid_pairs:
         return False
     
     max_depth_a = max(depth_boundaries_a)
     max_depth_b = max(depth_boundaries_b)
     
-    # Find top segments (start at 0,0)
-    top_segments = []
+    # Create detailed pairs using same format as diagnose_chain_breaks
+    detailed_pairs = {}
     for a_idx, b_idx in valid_pairs:
         a_start = depth_boundaries_a[segments_a[a_idx][0]]
-        b_start = depth_boundaries_b[segments_b[b_idx][0]]
-        if a_start == 0 and b_start == 0:
-            top_segments.append((a_idx, b_idx))
-    
-    # Find bottom segments (end at max depths)
-    bottom_segments = []
-    for a_idx, b_idx in valid_pairs:
         a_end = depth_boundaries_a[segments_a[a_idx][1]]
+        b_start = depth_boundaries_b[segments_b[b_idx][0]]
         b_end = depth_boundaries_b[segments_b[b_idx][1]]
-        if a_end == max_depth_a and b_end == max_depth_b:
-            bottom_segments.append((a_idx, b_idx))
+        
+        detailed_pairs[(a_idx, b_idx)] = {
+            'a_start': a_start, 'a_end': a_end,
+            'b_start': b_start, 'b_end': b_end,
+            'a_len': a_end - a_start + 1,
+            'b_len': b_end - b_start + 1
+        }
     
-    # Quick connectivity check: if we have both tops and bottoms, likely connected
-    return len(top_segments) > 0 and len(bottom_segments) > 0
+    # Import the existing function to reuse the same logic
+    from .segment_operations import identify_special_segments
+    
+    # Use the same identification logic as diagnose_chain_breaks
+    top_segments, bottom_segments, dead_ends, orphans, successors, predecessors = identify_special_segments(
+        valid_pairs, detailed_pairs, max_depth_a, max_depth_b
+    )
+    
+    # If no tops or bottoms, no complete paths possible
+    if not top_segments or not bottom_segments:
+        return False
+    
+    # Check if any top segment can reach any bottom segment using BFS
+    def find_reachable_from_top(start_segment):
+        """Find all segments reachable from a top segment using BFS."""
+        visited = set()
+        queue = [start_segment]
+        reachable = set()
+        
+        while queue:
+            current = queue.pop(0)
+            if current in visited:
+                continue
+                
+            visited.add(current)
+            reachable.add(current)
+            
+            # Add all successors to queue
+            for successor in successors.get(current, []):
+                if successor not in visited:
+                    queue.append(successor)
+        
+        return reachable
+    
+    # Check if any top can reach any bottom
+    for top_segment in top_segments:
+        reachable = find_reachable_from_top(top_segment)
+        # Check if any bottom segment is reachable
+        if any(bottom in reachable for bottom in bottom_segments):
+            return True
+    
+    return False
 
 
 def find_depth_gaps(valid_pairs, segments_a, segments_b, depth_boundaries_a, depth_boundaries_b):
@@ -1127,12 +1170,24 @@ def run_comprehensive_dtw_analysis(log_a, log_b, md_a, md_b, picked_depths_a=Non
                 if a_is_single_point and b_is_single_point:
                     continue
                 
-                # Check overlap with gaps - use OR for different core depths
-                a_in_gap = any(not (a_end < gap_start or a_start > gap_end) for gap_start, gap_end in gaps_a)
-                b_in_gap = any(not (b_end < gap_start or b_start > gap_end) for gap_start, gap_end in gaps_b)
+                # RELAXED CRITERIA: Check overlap OR adjacency with gaps
+                def is_near_gap(seg_start, seg_end, gaps, tolerance=1e-6):
+                    """Check if segment overlaps with OR is adjacent to any gap."""
+                    for gap_start, gap_end in gaps:
+                        # Original overlap check
+                        if not (seg_end < gap_start or seg_start > gap_end):
+                            return True
+                        # NEW: Adjacency check - segment touches gap boundary
+                        if (abs(seg_end - gap_start) < tolerance or  # segment ends where gap starts
+                            abs(seg_start - gap_end) < tolerance):   # segment starts where gap ends
+                            return True
+                    return False
                 
-                # Use OR logic for gap-filling
-                if a_in_gap or b_in_gap:
+                a_near_gap = is_near_gap(a_start, a_end, gaps_a)
+                b_near_gap = is_near_gap(b_start, b_end, gaps_b)
+                
+                # Accept if segment is near gap in EITHER core (OR logic)
+                if a_near_gap or b_near_gap:
                     # Process candidate as before...
                     if (a_idx, b_idx) in all_pairs_with_dtw:
                         pair_info = all_pairs_with_dtw[(a_idx, b_idx)]
