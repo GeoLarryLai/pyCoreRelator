@@ -6,11 +6,14 @@ Included Functions:
 - find_depth_gaps: Identify gaps in depth coverage from valid segment pairs
 - custom_dtw: Core DTW implementation with edge case handling
 - handle_single_point: Handle DTW for single-point segments
-- handle_identical_segments: Handle DTW for identical log segments  gap-filling pairs
+- handle_identical_segments: Handle DTW for identical log segments
 - handle_dtw_edge_cases: Wrapper for all DTW edge case scenarios
 - process_segment_pair: Process a single segment pair for DTW analysis
 - run_comprehensive_dtw_analysis: Complete workflow for segment-based DTW analysis
-- Various helper functions for single-point and edge case scenarios
+- force_bottom_segment_pairing: Force pairing of unpaired bottom segments
+- handle_single_point_dtw: Handle DTW for single-point first log
+- handle_single_point_log2_dtw: Handle DTW for single-point second log
+- handle_two_single_points: Handle DTW for two single-point logs
 
 This module provides comprehensive Dynamic Time Warping (DTW) analysis functionality
 for geological well log correlation. It includes custom DTW implementation with
@@ -166,6 +169,24 @@ def has_complete_paths(valid_pairs, segments_a, segments_b, depth_boundaries_a, 
     Proper connectivity check using the same approach as diagnose_chain_breaks.
     
     Uses existing functions to identify special segments and check for complete paths.
+    
+    Parameters
+    ----------
+    valid_pairs : set
+        Set of valid segment pair indices (a_idx, b_idx)
+    segments_a : list
+        List of segment definitions for log_a
+    segments_b : list
+        List of segment definitions for log_b
+    depth_boundaries_a : list
+        Depth boundaries for log_a segments
+    depth_boundaries_b : list
+        Depth boundaries for log_b segments
+        
+    Returns
+    -------
+    bool
+        True if complete paths exist, False otherwise
     """
     if not valid_pairs:
         return False
@@ -233,7 +254,27 @@ def has_complete_paths(valid_pairs, segments_a, segments_b, depth_boundaries_a, 
 
 
 def find_depth_gaps(valid_pairs, segments_a, segments_b, depth_boundaries_a, depth_boundaries_b):
-    """Find uncovered depth ranges needing gap-filling."""
+    """
+    Find uncovered depth ranges needing gap-filling.
+    
+    Parameters
+    ----------
+    valid_pairs : set
+        Set of valid segment pair indices (a_idx, b_idx)
+    segments_a : list
+        List of segment definitions for log_a
+    segments_b : list
+        List of segment definitions for log_b
+    depth_boundaries_a : list
+        Depth boundaries for log_a segments
+    depth_boundaries_b : list
+        Depth boundaries for log_b segments
+        
+    Returns
+    -------
+    tuple
+        (gaps_a, gaps_b) where each is a list of (start, end) depth ranges
+    """
     if not valid_pairs:
         max_depth_a = max(depth_boundaries_a)
         max_depth_b = max(depth_boundaries_b)

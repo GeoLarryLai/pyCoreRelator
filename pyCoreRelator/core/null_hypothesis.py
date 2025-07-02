@@ -147,14 +147,39 @@ def plot_segment_pool(segment_logs, segment_depths, log_column_names, n_cols=8, 
     fig, axes = plt.subplots(n_rows, n_cols, figsize=(20, figsize_per_row * n_rows))
     axes = axes.flatten() if n_segments > 1 else [axes]
     
+    # Define colors for different log types
+    colors = ['blue', 'green', 'orange', 'purple', 'brown', 'pink', 'gray', 'olive', 'cyan']
+    line_styles = ['-', '-', '-', '-.', '-.', '-.', ':', ':', ':']
+    
     for i, (segment, depth) in enumerate(zip(segment_logs, segment_depths)):
         ax = axes[i]
         
         # Plot segment
         if segment.ndim > 1:
-            # Multi-dimensional data - plot first column
-            ax.plot(segment[:, 0], depth, 'b-', linewidth=1)
-            ax.set_xlabel(f'{log_column_names[0]} (normalized)')
+            # Multi-dimensional data - plot all columns
+            n_log_types = segment.shape[1]
+            
+            for col_idx in range(n_log_types):
+                color = colors[col_idx % len(colors)]
+                line_style = line_styles[col_idx % len(line_styles)]
+                
+                # Get column name for label
+                col_name = log_column_names[col_idx] if col_idx < len(log_column_names) else f'Log_{col_idx}'
+                
+                ax.plot(segment[:, col_idx], depth, 
+                       color=color, linestyle=line_style, linewidth=1, 
+                       label=col_name, alpha=0.8)
+            
+            # Set xlabel to show all log types
+            if len(log_column_names) > 1:
+                ax.set_xlabel(f'Multiple Logs: {", ".join(log_column_names[:n_log_types])} (normalized)')
+            else:
+                ax.set_xlabel(f'{log_column_names[0]} (normalized)')
+                
+            # Add legend if multiple log types
+            if n_log_types > 1:
+                ax.legend(fontsize=8, loc='best')
+                
         else:
             # 1D data
             ax.plot(segment, depth, 'b-', linewidth=1)
@@ -170,7 +195,13 @@ def plot_segment_pool(segment_logs, segment_depths, log_column_names, n_cols=8, 
         axes[i].set_visible(False)
     
     plt.tight_layout()
-    plt.suptitle(f'Turbidite Segment Pool ({len(segment_logs)} segments)', y=1.02, fontsize=16)
+    
+    # Update title to reflect multiple log types if present
+    if len(log_column_names) > 1:
+        plt.suptitle(f'Turbidite Segment Pool ({len(segment_logs)} segments, {len(log_column_names)} log types)', 
+                     y=1.02, fontsize=16)
+    else:
+        plt.suptitle(f'Turbidite Segment Pool ({len(segment_logs)} segments)', y=1.02, fontsize=16)
     
     if save_plot and plot_filename:
         plt.savefig(plot_filename, dpi=300, bbox_inches='tight')
@@ -316,19 +347,44 @@ def create_and_plot_synthetic_core_pair(core_a_length, core_b_length, turb_logs,
 
     # Plot synthetic core pair if requested
     if plot_results:
-        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(4, 8))
+        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(4, 9))
+        
+        # Define colors for different log types
+        colors = ['blue', 'green', 'orange', 'purple', 'brown', 'pink', 'gray', 'olive', 'cyan']
+        line_styles = ['-', '-', '-', '-.', '-.', '-.', ':', ':', ':']
 
         # Plot synthetic core A
         if synthetic_log_a.ndim > 1:
-            ax1.plot(synthetic_log_a[:, 0], synthetic_md_a, 'b-', linewidth=1)
+            n_log_types = synthetic_log_a.shape[1]
+            
+            for col_idx in range(n_log_types):
+                color = colors[col_idx % len(colors)]
+                line_style = line_styles[col_idx % len(line_styles)]
+                
+                # Get column name for label
+                col_name = log_columns[col_idx] if col_idx < len(log_columns) else f'Log_{col_idx}'
+                
+                ax1.plot(synthetic_log_a[:, col_idx], synthetic_md_a, 
+                        color=color, linestyle=line_style, linewidth=1, 
+                        label=col_name, alpha=0.8)
+            
+            # Add legend if multiple log types
+            if n_log_types > 1:
+                ax1.legend(fontsize=8, loc='upper right')
+                
+            # Set xlabel to show all log types
+            if len(log_columns) > 1:
+                ax1.set_xlabel(f'Multiple Logs (normalized)')
+            else:
+                ax1.set_xlabel(f'{log_columns[0]} (normalized)')
         else:
             ax1.plot(synthetic_log_a, synthetic_md_a, 'b-', linewidth=1)
+            ax1.set_xlabel(f'{log_columns[0]} (normalized)')
 
         # Add picked depths as horizontal lines
         for depth in synthetic_picked_a:
-            ax1.axhline(y=depth, color='red', linestyle='--', alpha=0.7, linewidth=1)
+            ax1.axhline(y=depth, color='black', linestyle='--', alpha=0.7, linewidth=1)
 
-        ax1.set_xlabel(f'{log_columns[0]}\n(normalized)')
         ax1.set_ylabel('Depth (cm)')
         ax1.set_title(f'Synthetic Core A\n({len(inds_a)} turbidites)')
         ax1.grid(True, alpha=0.3)
@@ -336,21 +392,42 @@ def create_and_plot_synthetic_core_pair(core_a_length, core_b_length, turb_logs,
 
         # Plot synthetic core B
         if synthetic_log_b.ndim > 1:
-            ax2.plot(synthetic_log_b[:, 0], synthetic_md_b, 'g-', linewidth=1)
+            n_log_types = synthetic_log_b.shape[1]
+            
+            for col_idx in range(n_log_types):
+                color = colors[col_idx % len(colors)]
+                line_style = line_styles[col_idx % len(line_styles)]
+                
+                # Get column name for label
+                col_name = log_columns[col_idx] if col_idx < len(log_columns) else f'Log_{col_idx}'
+                
+                ax2.plot(synthetic_log_b[:, col_idx], synthetic_md_b, 
+                        color=color, linestyle=line_style, linewidth=1, 
+                        label=col_name, alpha=0.8)
+            
+            # Add legend if multiple log types
+            if n_log_types > 1:
+                ax2.legend(fontsize=8, loc='upper right')
+                
+            # Set xlabel to show all log types
+            if len(log_columns) > 1:
+                ax2.set_xlabel(f'Multiple Logs (normalized)')
+            else:
+                ax2.set_xlabel(f'{log_columns[0]} (normalized)')
         else:
             ax2.plot(synthetic_log_b, synthetic_md_b, 'g-', linewidth=1)
+            ax2.set_xlabel(f'{log_columns[0]} (normalized)')
 
         # Add picked depths as horizontal lines
         for depth in synthetic_picked_b:
-            ax2.axhline(y=depth, color='red', linestyle='--', alpha=0.7, linewidth=1)
+            ax2.axhline(y=depth, color='black', linestyle='--', alpha=0.7, linewidth=1)
 
-        ax2.set_xlabel(f'{log_columns[0]}\n(normalized)')
         ax2.set_ylabel('Depth (cm)')
         ax2.set_title(f'Synthetic Core B\n({len(inds_b)} turbidites)')
         ax2.grid(True, alpha=0.3)
         ax2.invert_yaxis()
 
-        plt.tight_layout()
+        plt.tight_layout(rect=[0, 0, 1, 0.96])
         
         if save_plot and plot_filename:
             plt.savefig(plot_filename, dpi=300, bbox_inches='tight')
