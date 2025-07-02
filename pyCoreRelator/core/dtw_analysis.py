@@ -48,6 +48,7 @@ from ..visualization.plotting import plot_segment_pair_correlation
 from ..visualization.matrix_plots import plot_dtw_matrix_with_paths
 from ..visualization.animation import create_segment_dtw_animation
 from .diagnostics import diagnose_chain_breaks
+from .segment_operations import build_connectivity_graph, identify_special_segments
 
 def has_complete_paths(valid_pairs, segments_a, segments_b, depth_boundaries_a, depth_boundaries_b):
     """
@@ -1150,67 +1151,51 @@ def run_comprehensive_dtw_analysis(log_a, log_b, md_a, md_b, picked_depths_a=Non
                 print(f"Core B gaps: {len(gaps_b)} ranges")
         
         # Find gap-filling candidates with flexible criteria
+        detailed_pairs = {}
+        for a_idx, b_idx in valid_dtw_pairs:
+            a_start = depth_boundaries_a[segments_a[a_idx][0]]
+            a_end = depth_boundaries_a[segments_a[a_idx][1]]
+            b_start = depth_boundaries_b[segments_b[b_idx][0]]
+            b_end = depth_boundaries_b[segments_b[b_idx][1]]
+            
+            detailed_pairs[(a_idx, b_idx)] = {
+                'a_start': a_start, 'a_end': a_end,
+                'b_start': b_start, 'b_end': b_end,
+                'a_len': a_end - a_start + 1,
+                'b_len': b_end - b_start + 1
+            }
+
+        max_depth_a = max(depth_boundaries_a)
+        max_depth_b = max(depth_boundaries_b)
+
+        successors, predecessors = build_connectivity_graph(valid_dtw_pairs, detailed_pairs)
+        top_segments, bottom_segments, dead_ends, orphans, _, _ = identify_special_segments(
+            valid_dtw_pairs, detailed_pairs, max_depth_a, max_depth_b
+        )
+
+        # Find pairs that could connect dead ends to existing segments
         gap_candidates = []
 
-        for a_idx in range(len(segments_a)):
-            for b_idx in range(len(segments_b)):
-                if (a_idx, b_idx) in valid_dtw_pairs:
-                    continue
-                
-                a_start = depth_boundaries_a[segments_a[a_idx][0]]
-                a_end = depth_boundaries_a[segments_a[a_idx][1]]
-                b_start = depth_boundaries_b[segments_b[b_idx][0]]
-                b_end = depth_boundaries_b[segments_b[b_idx][1]]
-                
-                # Check if both segments are single-point segments
-                a_is_single_point = (segments_a[a_idx][0] == segments_a[a_idx][1])
-                b_is_single_point = (segments_b[b_idx][0] == segments_b[b_idx][1])
-                
-                # Skip pairs where BOTH segments are single-point segments
-                if a_is_single_point and b_is_single_point:
-                    continue
-                
-                # RELAXED CRITERIA: Check overlap OR adjacency with gaps
-                def is_near_gap(seg_start, seg_end, gaps, tolerance=1e-6):
-                    """Check if segment overlaps with OR is adjacent to any gap."""
-                    for gap_start, gap_end in gaps:
-                        # Original overlap check
-                        if not (seg_end < gap_start or seg_start > gap_end):
-                            return True
-                        # NEW: Adjacency check - segment touches gap boundary
-                        if (abs(seg_end - gap_start) < tolerance or  # segment ends where gap starts
-                            abs(seg_start - gap_end) < tolerance):   # segment starts where gap ends
-                            return True
-                    return False
-                
-                a_near_gap = is_near_gap(a_start, a_end, gaps_a)
-                b_near_gap = is_near_gap(b_start, b_end, gaps_b)
-                
-                # Accept if segment is near gap in EITHER core (OR logic)
-                if a_near_gap or b_near_gap:
-                    # Process candidate as before...
-                    if (a_idx, b_idx) in all_pairs_with_dtw:
-                        pair_info = all_pairs_with_dtw[(a_idx, b_idx)]
-                        if pair_info.get('passes_distance', False):
-                            gap_candidates.append((a_idx, b_idx))
-                    else:
-                        # Calculate DTW for new candidate
-                        log_a_segment = log_a[segments_a[a_idx][0]:segments_a[a_idx][1]+1]
-                        log_b_segment = log_b[segments_b[b_idx][0]:segments_b[b_idx][1]+1]
+        for dead_end in dead_ends:
+            dead_a_end = detailed_pairs[dead_end]['a_end'] 
+            dead_b_end = detailed_pairs[dead_end]['b_end']
+            
+            # Only check segments that could be immediate successors
+            for a_idx in range(len(segments_a)):
+                for b_idx in range(len(segments_b)):
+                    if (a_idx, b_idx) in valid_dtw_pairs:
+                        continue
                         
-                        try:
-                            D, wp = custom_dtw(log_a_segment, log_b_segment, QualityIndex=False)
-                            dtw_dist = D[-1, -1] / len(wp)
-                            
-                            if dtw_distance_threshold is None:
-                                passes = True
-                            else:
-                                passes = dtw_dist < dtw_distance_threshold or len(log_a_segment) == 1 or len(log_b_segment) == 1
-                            
-                            if passes:
-                                gap_candidates.append((a_idx, b_idx))
-                        except:
-                            continue
+                    candidate_a_start = depth_boundaries_a[segments_a[a_idx][0]]
+                    candidate_b_start = depth_boundaries_b[segments_b[b_idx][0]]
+                    
+                    # Only add if it could directly follow the dead end
+                    if (abs(candidate_a_start - dead_a_end) < 1e-6 and 
+                        abs(candidate_b_start - dead_b_end) < 1e-6):
+                        gap_candidates.append((a_idx, b_idx))
+
+        # Remove duplicates
+        gap_candidates = list(set(gap_candidates))
         
         # Find lowest depth of existing valid pairs
         if valid_dtw_pairs:
