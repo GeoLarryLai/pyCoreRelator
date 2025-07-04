@@ -92,7 +92,7 @@ def compute_quality_indicators(log1, log2, p, q, D):
     # Main quality indicator computation
     try:
         # Normalized DTW distance
-        norm_dtw = D[-1, -1] / float(len(p))
+        norm_dtw = D[-1, -1] / (len(log1) + len(log2))
         
         # Extract aligned sequences using warping path indices
         aligned_log1 = np.array(log1)[np.array(p)]
