@@ -26,7 +26,8 @@ def calculate_interpolated_ages(picked_depths, age_constraints_depths, age_const
                                 age_constraints_in_sequence_flags=None, top_bottom=True, top_age=0, top_age_pos_error=0, 
                                 top_age_neg_error=0, top_depth=0.0, bottom_depth=None, 
                                 uncertainty_method='MonteCarlo', n_monte_carlo=10000,
-                                show_plot=False, core_name=None, export_csv=True, csv_filename=None):
+                                show_plot=False, core_name=None, export_csv=True, csv_filename=None,
+                                mute_mode=False):
     """
     Calculate interpolated/extrapolated ages for picked depths based on age constraints.
     
@@ -75,6 +76,8 @@ def calculate_interpolated_ages(picked_depths, age_constraints_depths, age_const
         If True, export the results to a CSV file
     csv_filename : str, optional
         Name of the CSV file to export the results to. If None, the default name is '{core_name}_pickeddepth_age_{uncertainty_method}.csv'
+    mute_mode : bool, default=False
+        If True, suppress all print outputs
         
     Returns
     -------
@@ -152,7 +155,8 @@ def calculate_interpolated_ages(picked_depths, age_constraints_depths, age_const
     
     # Handle case with no in-sequence constraints
     if len(constraint_depths) == 0:
-        print("Warning: No in-sequence constraints available. Using top age only.")
+        if not mute_mode:
+            print("Warning: No in-sequence constraints available. Using top age only.")
         if bottom_depth is None:
             bottom_depth = np.max(age_constraints_depths) if len(age_constraints_depths) > 0 else 100.0
     
@@ -371,7 +375,8 @@ def calculate_interpolated_ages(picked_depths, age_constraints_depths, age_const
     
     elif uncertainty_method == 'MonteCarlo':
         # Monte Carlo simulation with parallel processing
-        print(f"Running Monte Carlo simulation with {n_monte_carlo} iterations...")
+        if not mute_mode:
+            print(f"Running Monte Carlo simulation with {n_monte_carlo} iterations...")
         
         results = Parallel(n_jobs=-1)(
             delayed(monte_carlo_iteration)(
@@ -513,7 +518,8 @@ def calculate_interpolated_ages(picked_depths, age_constraints_depths, age_const
         os.makedirs('outputs', exist_ok=True)
         full_filename = os.path.join('outputs', filename)
         export_df.to_csv(full_filename, index=False)
-        print(f"Exported interpolated/extrapolated ages ({uncertainty_method} method) to {full_filename}")
+        if not mute_mode:
+            print(f"Exported interpolated/extrapolated ages ({uncertainty_method} method) to {full_filename}")
 
     # Generate plot if requested
     if show_plot:
