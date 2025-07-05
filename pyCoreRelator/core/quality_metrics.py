@@ -158,12 +158,115 @@ def compute_quality_indicators(log1, log2, p, q, D):
                 corr_coef = 0.0
             else:
                 try:
-                    slope, intercept, r_value, p_value, slope_std_error = stats.linregress(
-                        aligned_log1, aligned_log2
-                    )
-                    corr_coef = r_value
-                    if np.isnan(corr_coef):
-                        corr_coef = 0.0
+                    # Handle both multidimensional and single dimension cases
+                    if aligned_log1.ndim > 1 and aligned_log2.ndim > 1:
+                        # MULTIDIMENSIONAL CASE - Use PCA approach
+                        # Check if both logs have the same number of dimensions
+                        if aligned_log1.shape[1] != aligned_log2.shape[1]:
+                            corr_coef = 0.0
+                        else:
+                            # Trim to same length if necessary
+                            min_length = min(len(aligned_log1), len(aligned_log2))
+                            if len(aligned_log1) != len(aligned_log2):
+                                aligned_log1 = aligned_log1[:min_length]
+                                aligned_log2 = aligned_log2[:min_length]
+                            
+                            # Check minimum length requirement
+                            if min_length < 2:
+                                corr_coef = 0.0
+                            else:
+                                # Use PCA to find the main trend direction
+                                try:
+                                    # Combine both sequences for consistent PCA transformation
+                                    combined_data = np.vstack([aligned_log1, aligned_log2])
+                                    
+                                    # Check if combined data has enough variation for PCA
+                                    if np.var(combined_data, axis=0).sum() < 1e-10:
+                                        corr_coef = 0.0
+                                    else:
+                                        # Simple PCA implementation (avoiding sklearn dependency)
+                                        # Center the data
+                                        mean_combined = np.mean(combined_data, axis=0)
+                                        centered_combined = combined_data - mean_combined
+                                        
+                                        # Calculate covariance matrix
+                                        cov_matrix = np.cov(centered_combined.T)
+                                        
+                                        # Get first principal component (eigenvector with largest eigenvalue)
+                                        eigenvalues, eigenvectors = np.linalg.eigh(cov_matrix)
+                                        pc1_direction = eigenvectors[:, -1]  # Last column = largest eigenvalue
+                                        
+                                        # Project aligned sequences onto first principal component
+                                        centered_log1 = aligned_log1 - mean_combined
+                                        centered_log2 = aligned_log2 - mean_combined
+                                        
+                                        pc1_log1 = np.dot(centered_log1, pc1_direction)
+                                        pc1_log2 = np.dot(centered_log2, pc1_direction)
+                                        
+                                        # Check for constant values in PC1 projections
+                                        if (np.all(pc1_log1 == pc1_log1[0]) or 
+                                            np.all(pc1_log2 == pc1_log2[0])):
+                                            corr_coef = 0.0
+                                        else:
+                                            # Calculate Pearson correlation on PC1 scores
+                                            slope, intercept, r_value, p_value, slope_std_error = stats.linregress(
+                                                pc1_log1, pc1_log2
+                                            )
+                                            corr_coef = r_value
+                                            if np.isnan(corr_coef):
+                                                corr_coef = 0.0
+                                except Exception:
+                                    # Fallback to mean if PCA fails
+                                    mean_log1 = np.mean(aligned_log1, axis=1)
+                                    mean_log2 = np.mean(aligned_log2, axis=1)
+                                    
+                                    if (np.all(mean_log1 == mean_log1[0]) or 
+                                        np.all(mean_log2 == mean_log2[0])):
+                                        corr_coef = 0.0
+                                    else:
+                                        slope, intercept, r_value, p_value, slope_std_error = stats.linregress(
+                                            mean_log1, mean_log2
+                                        )
+                                        corr_coef = r_value
+                                        if np.isnan(corr_coef):
+                                            corr_coef = 0.0
+                                
+                    else:
+                        # SINGLE DIMENSION CASE
+                        # Handle mixed dimensionality or pure 1D case
+                        if aligned_log1.ndim > 1:
+                            flat_aligned_log1 = aligned_log1.flatten()
+                        else:
+                            flat_aligned_log1 = aligned_log1
+                            
+                        if aligned_log2.ndim > 1:
+                            flat_aligned_log2 = aligned_log2.flatten()
+                        else:
+                            flat_aligned_log2 = aligned_log2
+                        
+                        # Trim to same length if necessary
+                        min_length = min(len(flat_aligned_log1), len(flat_aligned_log2))
+                        if len(flat_aligned_log1) != len(flat_aligned_log2):
+                            flat_aligned_log1 = flat_aligned_log1[:min_length]
+                            flat_aligned_log2 = flat_aligned_log2[:min_length]
+                        
+                        # Check minimum length requirement
+                        if min_length < 2:
+                            corr_coef = 0.0
+                        else:
+                            # Check for constant values
+                            if (np.all(flat_aligned_log1 == flat_aligned_log1[0]) or 
+                                np.all(flat_aligned_log2 == flat_aligned_log2[0])):
+                                corr_coef = 0.0
+                            else:
+                                # Calculate Pearson correlation
+                                slope, intercept, r_value, p_value, slope_std_error = stats.linregress(
+                                    flat_aligned_log1, flat_aligned_log2
+                                )
+                                corr_coef = r_value
+                                if np.isnan(corr_coef):
+                                    corr_coef = 0.0
+                                    
                 except Exception:
                     corr_coef = 0.0
         

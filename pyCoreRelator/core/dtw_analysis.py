@@ -682,12 +682,66 @@ def custom_dtw(log1, log2, subseq=False, exponent=1, QualityIndex=False, indepen
     
     # Normal case - standard dependent DTW
     sm = np.zeros((r, c))
-    
+
     # Check if data are multidimensional
     log1_is_multidim = (log1.ndim > 1 and log1.shape[1] > 1)
     log2_is_multidim = (log2.ndim > 1 and log2.shape[1] > 1)
-    
-    if log1_is_multidim or log2_is_multidim:
+
+    if log1_is_multidim and log2_is_multidim:
+        # MULTIDIMENSIONAL DEPENDENT DTW - Use PCA-based distance
+        try:
+            # Check if both logs have the same number of dimensions
+            if log1.shape[1] != log2.shape[1]:
+                # Fallback to Euclidean norm if dimension mismatch
+                log1_array = np.atleast_2d(log1)
+                log2_array = np.atleast_2d(log2)
+                for i in range(r):
+                    diffs = np.array([np.linalg.norm(log1_array[i] - log2_array[j]) for j in range(c)])
+                    sm[i, :] = diffs ** exponent
+            else:
+                # Use PCA-based distance calculation
+                # Combine both logs for consistent PCA transformation
+                combined_logs = np.vstack([log1, log2])
+                
+                # Check if combined data has enough variation for PCA
+                if np.var(combined_logs, axis=0).sum() < 1e-10:
+                    # Fallback to mean if no variation
+                    mean_log1 = np.mean(log1, axis=1)
+                    mean_log2 = np.mean(log2, axis=1)
+                    for i in range(r):
+                        sm[i, :] = (np.abs(mean_log2 - mean_log1[i])) ** exponent
+                else:
+                    # Perform PCA to find main trend direction
+                    # Center the data
+                    mean_combined = np.mean(combined_logs, axis=0)
+                    centered_combined = combined_logs - mean_combined
+                    
+                    # Calculate covariance matrix and eigenvectors
+                    cov_matrix = np.cov(centered_combined.T)
+                    eigenvalues, eigenvectors = np.linalg.eigh(cov_matrix)
+                    pc1_direction = eigenvectors[:, -1]  # Largest eigenvalue = main trend
+                    
+                    # Transform both logs to PC1 space
+                    centered_log1 = log1 - mean_combined
+                    centered_log2 = log2 - mean_combined
+                    
+                    pc1_log1 = np.dot(centered_log1, pc1_direction)  # Shape: (r,)
+                    pc1_log2 = np.dot(centered_log2, pc1_direction)  # Shape: (c,)
+                    
+                    # Calculate DTW distance matrix in PC1 space (now 1D)
+                    for i in range(r):
+                        sm[i, :] = (np.abs(pc1_log2 - pc1_log1[i])) ** exponent
+                        
+        except Exception:
+            # Fallback to Euclidean norm if PCA fails
+            log1_array = np.atleast_2d(log1)
+            log2_array = np.atleast_2d(log2)
+            for i in range(r):
+                diffs = np.array([np.linalg.norm(log1_array[i] - log2_array[j]) for j in range(c)])
+                sm[i, :] = diffs ** exponent
+
+    elif log1_is_multidim or log2_is_multidim:
+        # Mixed dimensionality - use Euclidean norm
         log1_array = np.atleast_2d(log1)
         log2_array = np.atleast_2d(log2)
         for i in range(r):
@@ -699,13 +753,13 @@ def custom_dtw(log1, log2, subseq=False, exponent=1, QualityIndex=False, indepen
                 diffs = np.array([np.linalg.norm(log1_array[i, 0] - log2_array[j]) for j in range(c)])
             sm[i, :] = diffs ** exponent
     else:
-        # For 1D data
+        # For 1D data - use original approach
         for i in range(r):
             sm[i, :] = (np.abs(log2 - log1[i])) ** exponent
 
     # Compute the accumulated cost matrix D and the warping path wp
     D, wp = dtw(C=sm, subseq=subseq)
-    
+
     # Adjust warping path indices to be within valid ranges
     if wp is not None:
         wp[:, 0] = np.clip(wp[:, 0], 0, r - 1)
