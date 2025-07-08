@@ -3,7 +3,7 @@
 !/pyCoreRelator/
 !/.gitignore
 !/pyCoreRelator_test.ipynb
-!/pyCoreRelator_test_comparedtoN0.ipynb
+!/pyCoreRelator_test_comparedtoNull.ipynb
 !/pyCoreRelator_null_hypothesis.ipynb
 !/pyCoreRelator_depthboundary_picker.ipynb
 !/LICENSE
