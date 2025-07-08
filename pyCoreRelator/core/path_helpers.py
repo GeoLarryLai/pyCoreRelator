@@ -116,7 +116,7 @@ def filter_shortest_paths(paths_data, shortest_path_level, debug=False, mute_mod
     return filtered_paths
 
 
-def compute_path_metrics_lazy(compressed_path, log_a, log_b, dtw_results):
+def compute_path_metrics_lazy(compressed_path, log_a, log_b, dtw_results, dtw_distance_matrix_full):
     """Compute quality metrics lazily only when needed for final output."""
     path_segment_pairs = decompress_path(compressed_path)
     
@@ -151,7 +151,7 @@ def compute_path_metrics_lazy(compressed_path, log_a, log_b, dtw_results):
     
     # Compute combined metrics
     from ..utils.path_processing import compute_combined_path_metrics
-    metrics = compute_combined_path_metrics(combined_wp, log_a, log_b, all_quality_indicators, age_overlap_values)
+    metrics = compute_combined_path_metrics(combined_wp, log_a, log_b, all_quality_indicators, dtw_distance_matrix_full, age_overlap_values)
     
     return combined_wp, metrics
 

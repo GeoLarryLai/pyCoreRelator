@@ -697,10 +697,9 @@ def plot_segment_pair_correlation(log_a, log_b, md_a, md_b,
                 "DTW Quality Indicators: \n"
                 f"Normalized DTW Distance: {qi.get('norm_dtw', 0):.3f} (lower is better)\n "
                 f"DTW Warping Ratio: {qi.get('dtw_ratio', 0):.3f} (lower is better)\n"
-                f"Warping Deviation: variance {qi.get('variance_deviation', 0):.2f} (lower is better)\n"
                 f"Diagonality: {qi.get('perc_diag', 0):.1f}% (higher is better)\n"
+                f"DTW Warping Efficiency: {qi.get('dtw_warp_eff', 0):.1f}% (higher is better)\n"
                 f"Post-warping Corr Coeff (Pearson's r): {qi.get('corr_coef', 0):.3f} (higher is better)\n"
-                f"Matching Function: {qi.get('match_min', 0):.3f}; mean {qi.get('match_mean', 0):.3f} (lower is better)\n"
                 f"Age Overlap: {qi.get('perc_age_overlap', 0):.1f}% (higher is better)"
             )
             plt.figtext(0.97, 0.97, quality_text, 
@@ -1146,7 +1145,7 @@ def visualize_combined_segments(log_a, log_b, md_a, md_b, dtw_results, valid_dtw
     # Combine segment pairs
     combined_wp, combined_quality = combine_segment_dtw_results(
         dtw_results, segment_pairs_to_combine, segments_a, segments_b,
-        depth_boundaries_a, depth_boundaries_b, log_a, log_b
+        depth_boundaries_a, depth_boundaries_b, log_a, log_b, dtw_distance_matrix_full
     )
     
     if combined_wp is None:
@@ -1270,7 +1269,7 @@ def plot_correlation_distribution(csv_file, target_mapping_id=None, quality_inde
     Plot distribution of a specified quality index.
     
     Parameters:
-    - csv_file: path to the CSV file containing mapping results
+    - csv_file: path to the CSV/Parquet file containing mapping results
     - quality_index: required parameter specifying which quality index to plot
     - target_mapping_id: optional mapping ID to highlight in the plot
     - save_png: whether to save the plot as PNG (default: True)
@@ -1300,18 +1299,25 @@ def plot_correlation_distribution(csv_file, target_mapping_id=None, quality_inde
             print("Available quality indices: perc_diag, norm_dtw, dtw_ratio, corr_coef, wrapping_deviation, mean_matching_function, perc_age_overlap")
         return
     
-    # Load the CSV file
+    # Load the file - auto-detect format
     try:
-        df = pd.read_csv(csv_file)
+        if csv_file.lower().endswith('.pkl'):
+            df = pd.read_pickle(csv_file)
+        else:
+            df = pd.read_csv(csv_file)
     except FileNotFoundError:
         if not mute_mode:
             print(f"File not found: {csv_file}")
+        return
+    except Exception as e:
+        if not mute_mode:
+            print(f"Error reading file {csv_file}: {e}")
         return
     
     # Check if quality_index column exists
     if quality_index not in df.columns:
         if not mute_mode:
-            print(f"Error: '{quality_index}' column not found in the CSV file")
+            print(f"Error: '{quality_index}' column not found in the file")
             print(f"Available columns: {list(df.columns)}")
         return
     

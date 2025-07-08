@@ -1256,12 +1256,10 @@ def find_complete_core_paths(
             writer = csv.writer(f)
             if output_metric_only:
                 writer.writerow(['mapping_id', 'length', 
-                            'norm_dtw', 'dtw_ratio', 'variance_deviation', 
-                            'perc_diag', 'corr_coef', 'match_min', 'match_mean', 'perc_age_overlap'])
+                            'norm_dtw', 'dtw_ratio', 'perc_diag', 'dtw_warp_eff', 'corr_coef', 'perc_age_overlap'])
             else:
                 writer.writerow(['mapping_id', 'path', 'length', 'combined_wp', 
-                            'norm_dtw', 'dtw_ratio', 'variance_deviation', 
-                            'perc_diag', 'corr_coef', 'match_min', 'match_mean', 'perc_age_overlap'])
+                            'norm_dtw', 'dtw_ratio', 'perc_diag', 'dtw_warp_eff', 'corr_coef', 'perc_age_overlap'])
         
         # Get total number of complete paths for progress reporting
         cursor = shared_read_conn.execute("""
@@ -1316,11 +1314,8 @@ def find_complete_core_paths(
                         length,
                         round(metrics['norm_dtw'], 6),
                         round(metrics['dtw_ratio'], 6),
-                        round(metrics['variance_deviation'], 6),
                         round(metrics['perc_diag'], 2),
                         round(metrics['corr_coef'], 6),
-                        round(metrics['match_min'], 6),
-                        round(metrics['match_mean'], 6),
                         round(metrics['perc_age_overlap'], 2)
                     ])
                 else:
@@ -1331,11 +1326,9 @@ def find_complete_core_paths(
                         combined_wp_compact,
                         round(metrics['norm_dtw'], 6),
                         round(metrics['dtw_ratio'], 6),
-                        round(metrics['variance_deviation'], 6),
                         round(metrics['perc_diag'], 2),
+                        round(metrics['dtw_warp_eff'], 6),
                         round(metrics['corr_coef'], 6),
-                        round(metrics['match_min'], 6),
-                        round(metrics['match_mean'], 6),
                         round(metrics['perc_age_overlap'], 2)
                     ])
                 

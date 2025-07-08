@@ -45,16 +45,12 @@ def compute_quality_indicators(log1, log2, p, q, D):
             Normalized DTW distance (total cost divided by path length)
         - dtw_ratio : float
             Ratio of DTW distance to Euclidean distance of linear alignment
-        - variance_deviation : float
-            Variance of index differences in warping path (measures path deviation)
         - perc_diag : float
-            Percentage indicating diagonality of the warping path (higher = more diagonal)
+            Geometric diagonality percentage (45-degree straightness, higher = more diagonal)
+        - dtw_warp_eff : float
+            Warping efficiency percentage (path efficiency vs theoretical minimum)
         - corr_coef : float
             Correlation coefficient between aligned sequences
-        - match_min : float
-            Minimum value of the matching function
-        - match_mean : float
-            Mean value of the matching function
     
     Examples
     --------
@@ -82,11 +78,9 @@ def compute_quality_indicators(log1, log2, p, q, D):
         return {
             'norm_dtw': norm_dtw,
             'dtw_ratio': dtw_ratio,
-            'variance_deviation': 0.0,
-            'perc_diag': 0.0,
-            'corr_coef': 0.0,
-            'match_min': norm_dtw,
-            'match_mean': norm_dtw
+            'perc_diag': 0.0,  
+            'dtw_warp_eff': 0.0, 
+            'corr_coef': 0.0
         }
     
     # Main quality indicator computation
@@ -98,7 +92,7 @@ def compute_quality_indicators(log1, log2, p, q, D):
         aligned_log1 = np.array(log1)[np.array(p)]
         aligned_log2 = np.array(log2)[np.array(q)]
         
-        # NEW: Calculate DTW ratio using linear alignment as baseline
+        # Calculate DTW ratio using linear alignment as baseline
         # Create a linear (diagonal) alignment between the original sequences
         len1, len2 = len(log1), len(log2)
         
@@ -131,22 +125,25 @@ def compute_quality_indicators(log1, log2, p, q, D):
         # Calculate DTW ratio: DTW distance vs linear alignment distance
         dtw_ratio = D[-1, -1] / (linear_euclidean_dist + 1e-10)
         
-        # Calculate warping path deviation from diagonal
-        diff_indices = np.abs(np.array(p) - np.array(q))
-        variance_deviation = np.var(diff_indices)
-        
-        # Calculate diagonality measure
-        unique_p = len(np.unique(p))
-        unique_q = len(np.unique(q))
-        
-        if unique_p <= 1 or unique_q <= 1:
-            perc_diag = 0.0
+        # Calculate geometric diagonality (45-degree straightness)
+        if len1 > 1 and len2 > 1:
+            # Normalize path positions to 0-1 range
+            a_positions = np.array(p) / (len1 - 1)
+            b_positions = np.array(q) / (len2 - 1)
+            
+            # Calculate deviations from perfect diagonal
+            diagonal_deviations = np.abs(a_positions - b_positions)
+            avg_deviation = np.mean(diagonal_deviations)
+            perc_diag = (1 - avg_deviation) * 100
         else:
-            # Compute actual path length vs ideal diagonal length
-            path_length = len(p) - 1
-            ideal_length = max(unique_p - 1, unique_q - 1)
-            diagonality_ratio = ideal_length / path_length
-            perc_diag = diagonality_ratio * 100
+            # Single point cases are perfectly diagonal
+            perc_diag = 0.0
+            dtw_warp_eff = 0.0
+        
+        # Calculate warping efficiency (path efficiency vs theoretical minimum)
+        theoretical_min_path = max(len1, len2) - 1
+        actual_path = len(p) - 1
+        dtw_warp_eff = (theoretical_min_path / actual_path) * 100 if actual_path > 0 else 100.0
         
         # Calculate correlation coefficient between aligned sequences
         if len(aligned_log1) < 2 or len(aligned_log2) < 2:
@@ -210,94 +207,41 @@ def compute_quality_indicators(log1, log2, p, q, D):
                                         else:
                                             # Calculate Pearson correlation on PC1 scores
                                             slope, intercept, r_value, p_value, slope_std_error = stats.linregress(
-                                                pc1_log1, pc1_log2
-                                            )
+                                                pc1_log1, pc1_log2)
                                             corr_coef = r_value
-                                            if np.isnan(corr_coef):
-                                                corr_coef = 0.0
                                 except Exception:
-                                    # Fallback to mean if PCA fails
-                                    mean_log1 = np.mean(aligned_log1, axis=1)
-                                    mean_log2 = np.mean(aligned_log2, axis=1)
-                                    
-                                    if (np.all(mean_log1 == mean_log1[0]) or 
-                                        np.all(mean_log2 == mean_log2[0])):
-                                        corr_coef = 0.0
-                                    else:
-                                        slope, intercept, r_value, p_value, slope_std_error = stats.linregress(
-                                            mean_log1, mean_log2
-                                        )
-                                        corr_coef = r_value
-                                        if np.isnan(corr_coef):
-                                            corr_coef = 0.0
-                                
-                    else:
-                        # SINGLE DIMENSION CASE
-                        # Handle mixed dimensionality or pure 1D case
-                        if aligned_log1.ndim > 1:
-                            flat_aligned_log1 = aligned_log1.flatten()
-                        else:
-                            flat_aligned_log1 = aligned_log1
-                            
-                        if aligned_log2.ndim > 1:
-                            flat_aligned_log2 = aligned_log2.flatten()
-                        else:
-                            flat_aligned_log2 = aligned_log2
-                        
-                        # Trim to same length if necessary
-                        min_length = min(len(flat_aligned_log1), len(flat_aligned_log2))
-                        if len(flat_aligned_log1) != len(flat_aligned_log2):
-                            flat_aligned_log1 = flat_aligned_log1[:min_length]
-                            flat_aligned_log2 = flat_aligned_log2[:min_length]
-                        
-                        # Check minimum length requirement
-                        if min_length < 2:
-                            corr_coef = 0.0
-                        else:
-                            # Check for constant values
-                            if (np.all(flat_aligned_log1 == flat_aligned_log1[0]) or 
-                                np.all(flat_aligned_log2 == flat_aligned_log2[0])):
-                                corr_coef = 0.0
-                            else:
-                                # Calculate Pearson correlation
-                                slope, intercept, r_value, p_value, slope_std_error = stats.linregress(
-                                    flat_aligned_log1, flat_aligned_log2
-                                )
-                                corr_coef = r_value
-                                if np.isnan(corr_coef):
                                     corr_coef = 0.0
-                                    
+                    else:
+                        # SINGLE DIMENSIONAL CASE
+                        # Flatten if necessary
+                        if aligned_log1.ndim > 1:
+                            aligned_log1 = aligned_log1.flatten()
+                        if aligned_log2.ndim > 1:
+                            aligned_log2 = aligned_log2.flatten()
+                        
+                        # Calculate Pearson correlation coefficient
+                        slope, intercept, r_value, p_value, slope_std_error = stats.linregress(
+                            aligned_log1, aligned_log2)
+                        corr_coef = r_value
                 except Exception:
                     corr_coef = 0.0
-        
-        # Calculate matching function statistics
-        if D.shape[0] == len(log1):
-            matching_function = D[-1, :] / float(len(log1))
-            match_min = np.min(matching_function)
-            match_mean = np.mean(matching_function)
-        else:
-            match_min = norm_dtw
-            match_mean = norm_dtw
         
         return {
             'norm_dtw': norm_dtw,
             'dtw_ratio': dtw_ratio,
-            'variance_deviation': variance_deviation,
             'perc_diag': perc_diag,
-            'corr_coef': corr_coef,
-            'match_min': match_min,
-            'match_mean': match_mean
+            'dtw_warp_eff': dtw_warp_eff,
+            'corr_coef': corr_coef
         }
+        
     except Exception as e:
-        print(f"Warning: Error calculating quality indicators: {e}")
+        # Fallback values if computation fails
         return {
-            'norm_dtw': D[-1, -1] if D.size > 0 else 0.0,
-            'dtw_ratio': 1.0,
-            'variance_deviation': 0.0,
+            'norm_dtw': 0.0,
+            'dtw_ratio': 0.0,
             'perc_diag': 0.0,
-            'corr_coef': 0.0,
-            'match_min': D[-1, -1] if D.size > 0 else 0.0,
-            'match_mean': D[-1, -1] if D.size > 0 else 0.0
+            'dtw_warp_eff': 0.0,
+            'corr_coef': 0.0
         }
 
 
@@ -416,12 +360,11 @@ def find_best_mappings(csv_file_path,
     
     # Default metrics configuration with fixed higher_is_better values
     default_weights = {
-        'perc_diag': 1.0,
+        'perc_diag': 0.5,
         'norm_dtw': 1.0,
         'dtw_ratio': 0.0,
-        'corr_coef': 3.0,
-        'wrapping_deviation': 0.0,
-        'mean_matching_function': 0.0,
+        'corr_coef': 2.5,
+        'dtw_warp_eff': 1.0,
         'perc_age_overlap': 1.0
     }
     
@@ -431,11 +374,8 @@ def find_best_mappings(csv_file_path,
         'norm_dtw': False,
         'dtw_ratio': False,
         'corr_coef': True,
-        'wrapping_deviation': False,
-        'mean_matching_function': False,
+        'dtw_warp_eff': True,
         'perc_age_overlap': True,
-        'dtw_path_length': False,
-        'post_wrap_corr': True
     }
     
     # Use provided weights or default weights
@@ -543,14 +483,10 @@ def find_best_mappings(csv_file_path,
             metric_outputs.append(f"norm_dtw={row['norm_dtw']:.3f}")
         if 'dtw_ratio' in row:
             metric_outputs.append(f"dtw_ratio={row['dtw_ratio']:.3f}")
+        if 'dtw_warp_eff' in row:
+            metric_outputs.append(f"dtw_warp_eff={row['dtw_warp_eff']:.1f}%")
         if 'perc_age_overlap' in row:
             metric_outputs.append(f"perc_age_overlap={row['perc_age_overlap']:.1f}%")
-        if 'wrapping_deviation' in row:
-            metric_outputs.append(f"wrapping_deviation={row['wrapping_deviation']:.3f}")
-        if 'post_wrap_corr' in row:
-            metric_outputs.append(f"post_wrap_corr={row['post_wrap_corr']:.3f}")
-        if 'mean_matching_function' in row:
-            metric_outputs.append(f"mean_matching_function={row['mean_matching_function']:.3f}")
         
         # Print metrics with proper indentation
         for metric_output in metric_outputs:

@@ -83,8 +83,7 @@ def plot_dtw_matrix_with_paths(dtw_distance_matrix_full,
         Number of parallel jobs for processing (used in 'all_paths_colored' mode)
     color_metric : str, optional
         Metric for coloring paths in 'all_paths_colored' mode. Options: 'corr_coef',
-        'norm_dtw', 'dtw_ratio', 'perc_diag', 'variance_deviation', 'match_min',
-        'match_mean', 'perc_age_overlap'. If None, uses mapping_id
+        'norm_dtw', 'dtw_ratio', 'perc_diag', 'dtw_warp_eff', 'perc_age_overlap'. If None, uses mapping_id
     age_constraint_a_depths : list, optional
         List of constraint depths for core A
     age_constraint_a_ages : list, optional
@@ -438,9 +437,7 @@ def plot_dtw_matrix_with_paths(dtw_distance_matrix_full,
                     'norm_dtw': 'Normalized DTW Distance (lower is better)', 
                     'dtw_ratio': 'DTW Warping Ratio (lower is better)',
                     'perc_diag': 'Diagonality % (higher is better)',
-                    'variance_deviation': 'Warping Deviation variance (lower is better)',
-                    'match_min': 'Matching Function min (lower is better)',
-                    'match_mean': 'Matching Function mean (lower is better)',
+                    'dtw_warp_eff': 'DTW Warping Efficiency (higher is better)',
                     'perc_age_overlap': 'Age Overlap % (higher is better)'
                 }
                 
@@ -457,7 +454,7 @@ def plot_dtw_matrix_with_paths(dtw_distance_matrix_full,
         valid_color_values = [color_values[i] for i in valid_indices]
         
         # Sort paths by metric values for better visualization layering
-        if color_metric in ['norm_dtw', 'dtw_ratio', 'variance_deviation', 'match_min', 'match_mean']:
+        if color_metric in ['norm_dtw', 'dtw_ratio', 'dtw_warp_eff']:
             sorted_indices = sorted(range(len(valid_color_values)), key=lambda i: valid_color_values[i])
         else:
             sorted_indices = sorted(range(len(valid_color_values)), key=lambda i: valid_color_values[i])

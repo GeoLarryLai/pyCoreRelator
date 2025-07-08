@@ -149,7 +149,8 @@ def find_complete_core_paths(
     log_b,
     depth_boundaries_a,
     depth_boundaries_b,
-    dtw_results,  
+    dtw_results, 
+    dtw_distance_matrix_full,
     output_csv="complete_core_paths.csv",
     debug=False,
     start_from_top_only=True,
@@ -759,19 +760,30 @@ def find_complete_core_paths(
     
     # Create output CSV with batch processing for memory efficiency
     def generate_output_csv():
-        """Generate final CSV output directly from deduplicated database using parallel processing."""
+        """Generate final output directly from deduplicated database using parallel processing."""
         
-        # Create output CSV with header
-        with open(output_csv, 'w', newline='') as f:
-            writer = csv.writer(f)
+        # Auto-detect file format based on extension
+        use_pickle = output_csv.lower().endswith('.pkl')
+        
+        if use_pickle:
+            # For Pickle: collect all data first, then save as DataFrame
+            all_results = []
+            
+            # Define column names
             if output_metric_only:
-                writer.writerow(['mapping_id', 'length', 
-                            'norm_dtw', 'dtw_ratio', 'variance_deviation', 
-                            'perc_diag', 'corr_coef', 'match_min', 'match_mean', 'perc_age_overlap'])
+                columns = ['mapping_id', 'length', 'norm_dtw', 'dtw_ratio', 'perc_diag', 'dtw_warp_eff', 'corr_coef', 'perc_age_overlap']
             else:
-                writer.writerow(['mapping_id', 'path', 'length', 'combined_wp', 
-                            'norm_dtw', 'dtw_ratio', 'variance_deviation', 
-                            'perc_diag', 'corr_coef', 'match_min', 'match_mean', 'perc_age_overlap'])
+                columns = ['mapping_id', 'path', 'length', 'combined_wp', 'norm_dtw', 'dtw_ratio', 'perc_diag', 'dtw_warp_eff', 'corr_coef', 'perc_age_overlap']
+        else:
+            # For CSV: create file with header as before
+            with open(output_csv, 'w', newline='') as f:
+                writer = csv.writer(f)
+                if output_metric_only:
+                    writer.writerow(['mapping_id', 'length', 
+                                'norm_dtw', 'dtw_ratio', 'perc_diag', 'dtw_warp_eff', 'corr_coef', 'perc_age_overlap'])
+                else:
+                    writer.writerow(['mapping_id', 'path', 'length', 'combined_wp', 
+                                'norm_dtw', 'dtw_ratio', 'perc_diag', 'dtw_warp_eff', 'corr_coef', 'perc_age_overlap'])
         
         # Get total number of complete paths for progress reporting
         cursor = shared_read_conn.execute("""
@@ -811,7 +823,7 @@ def find_complete_core_paths(
                 formatted_path_compact = ";".join(f"{a+1},{b+1}" for a, b in full_path)
                 
                 # Compute metrics and warping path
-                combined_wp, metrics = compute_path_metrics_lazy(compressed_path, log_a, log_b, dtw_results)
+                combined_wp, metrics = compute_path_metrics_lazy(compressed_path, log_a, log_b, dtw_results, dtw_distance_matrix_full)
                 
                 # Format warping path compactly
                 if combined_wp is not None and len(combined_wp) > 0:
@@ -826,11 +838,9 @@ def find_complete_core_paths(
                         length,
                         round(metrics['norm_dtw'], 6),
                         round(metrics['dtw_ratio'], 6),
-                        round(metrics['variance_deviation'], 6),
                         round(metrics['perc_diag'], 2),
+                        round(metrics['dtw_warp_eff'], 6),
                         round(metrics['corr_coef'], 6),
-                        round(metrics['match_min'], 6),
-                        round(metrics['match_mean'], 6),
                         round(metrics['perc_age_overlap'], 2)
                     ])
                 else:
@@ -841,11 +851,9 @@ def find_complete_core_paths(
                         combined_wp_compact,
                         round(metrics['norm_dtw'], 6),
                         round(metrics['dtw_ratio'], 6),
-                        round(metrics['variance_deviation'], 6),
                         round(metrics['perc_diag'], 2),
+                        round(metrics['dtw_warp_eff'], 6),
                         round(metrics['corr_coef'], 6),
-                        round(metrics['match_min'], 6),
-                        round(metrics['match_mean'], 6),
                         round(metrics['perc_age_overlap'], 2)
                     ])
                 
@@ -867,10 +875,14 @@ def find_complete_core_paths(
             # Process this batch
             batch_results = process_batch(batch, start_id)
             
-            # Write batch results
-            with open(output_csv, 'a', newline='') as f:
-                writer = csv.writer(f)
-                writer.writerows(batch_results)
+            if use_pickle:
+                # For Pickle: collect results
+                all_results.extend(batch_results)
+            else:
+                # For CSV: write batch results immediately
+                with open(output_csv, 'a', newline='') as f:
+                    writer = csv.writer(f)
+                    writer.writerows(batch_results)
             
             if not mute_mode:
                 pbar.update(1)
@@ -881,6 +893,13 @@ def find_complete_core_paths(
         
         if not mute_mode:
             pbar.close()
+        
+        # Save Pickle file if needed
+        if use_pickle:
+            df = pd.DataFrame(all_results, columns=columns)
+            df.to_pickle(output_csv)
+            del df, all_results
+            gc.collect()
         
         return total_paths
     

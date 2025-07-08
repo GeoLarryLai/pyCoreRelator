@@ -20,7 +20,7 @@ import csv
 
 
 def combine_segment_dtw_results(dtw_results, segment_pairs, segments_a, segments_b, 
-                               depth_boundaries_a, depth_boundaries_b, log_a, log_b):
+                               depth_boundaries_a, depth_boundaries_b, log_a, log_b, dtw_distance_matrix_full):
     """
     Combine DTW results from multiple segment pairs into a unified result.
     
@@ -110,7 +110,7 @@ def combine_segment_dtw_results(dtw_results, segment_pairs, segments_a, segments
                 age_overlap_values.append(float(qi['perc_age_overlap']))
         
         combined_quality = compute_combined_path_metrics(
-            combined_wp, log_a, log_b, all_quality_indicators, age_overlap_values
+            combined_wp, log_a, log_b, all_quality_indicators, dtw_distance_matrix_full, age_overlap_values
         )
     else:
         combined_quality = None
@@ -118,13 +118,13 @@ def combine_segment_dtw_results(dtw_results, segment_pairs, segments_a, segments
     return combined_wp, combined_quality
 
 
-def compute_combined_path_metrics(combined_wp, log_a, log_b, segment_quality_indicators, age_overlap_values=None):
+def compute_combined_path_metrics(combined_wp, log_a, log_b, segment_quality_indicators, dtw_distance_matrix_full, age_overlap_values=None):
     """
     Compute quality metrics from combined warping path and log data.
     
     This function calculates comprehensive quality metrics for a combined warping path
-    using the original continuous log data to maintain geological coherence. It combines
-    distance metrics through summation and recalculates correlation and path metrics.
+    using the original continuous log data to maintain geological coherence. All metrics
+    are computed from the complete combined path for consistency.
     
     Parameters
     ----------
@@ -135,7 +135,7 @@ def compute_combined_path_metrics(combined_wp, log_a, log_b, segment_quality_ind
     log_b : numpy.ndarray
         Original continuous log data array for core B
     segment_quality_indicators : list
-        Quality indicators from individual segments
+        Quality indicators from individual segments (used only for age overlap)
     age_overlap_values : list, optional
         Age overlap values for averaging
     
@@ -144,14 +144,6 @@ def compute_combined_path_metrics(combined_wp, log_a, log_b, segment_quality_ind
     dict
         Combined quality metrics including normalized DTW distance, correlation
         coefficient, path characteristics, and age overlap percentage
-    
-    Example
-    -------
-    >>> combined_wp = np.array([[0, 0], [1, 1], [2, 3]])
-    >>> quality_indicators = [{'norm_dtw': 0.5, 'corr_coef': 0.8}]
-    >>> metrics = compute_combined_path_metrics(
-    ...     combined_wp, log_a, log_b, quality_indicators
-    ... )
     """
     from ..core.quality_metrics import compute_quality_indicators
     
@@ -159,27 +151,13 @@ def compute_combined_path_metrics(combined_wp, log_a, log_b, segment_quality_ind
     metrics = {
         'norm_dtw': 0.0,
         'dtw_ratio': 0.0,
-        'variance_deviation': 0.0,
         'perc_diag': 0.0,
+        'dtw_warp_eff': 0.0,
         'corr_coef': 0.0,
-        'match_min': 0.0,
-        'match_mean': 0.0,
         'perc_age_overlap': 0.0
     }
     
-    # Collect and sum distance-based metrics across segments
-    metric_values = {metric: [] for metric in metrics}
-    for qi in segment_quality_indicators:
-        for metric in ['norm_dtw', 'match_min', 'match_mean']:
-            if metric in qi:
-                metric_values[metric].append(float(qi[metric]))
-    
-    for metric in ['norm_dtw', 'match_min', 'match_mean']:
-        values = metric_values[metric]
-        if values:
-            metrics[metric] = float(sum(values))
-    
-    # Compute path-based metrics using original continuous log data
+    # Compute all metrics using the combined warping path
     if combined_wp is not None and len(combined_wp) > 1:
         # Extract and validate indices from combined warping path
         p_indices = combined_wp[:, 0].astype(int)
@@ -188,26 +166,47 @@ def compute_combined_path_metrics(combined_wp, log_a, log_b, segment_quality_ind
         p_indices = np.clip(p_indices, 0, len(log_a) - 1)
         q_indices = np.clip(q_indices, 0, len(log_b) - 1)
         
-        # Extract aligned log values maintaining geological coherence
-        if log_a.ndim > 1:
-            aligned_log_a = log_a[p_indices].mean(axis=1)
-        else:
-            aligned_log_a = log_a[p_indices]
+        # Calculate DTW step costs along the specific combined path
+        def get_path_dtw_cost_efficient(combined_wp, dtw_matrix):
+            """Extract step costs only at path coordinates"""
+            if dtw_matrix is None:
+                return 0.0
+                
+            total_cost = 0.0
             
-        if log_b.ndim > 1:
-            aligned_log_b = log_b[q_indices].mean(axis=1)
-        else:
-            aligned_log_b = log_b[q_indices]
+            for i in range(len(combined_wp)):
+                a_idx = int(combined_wp[i, 0])
+                b_idx = int(combined_wp[i, 1])
+                
+                # Calculate step cost for this specific point
+                if a_idx == 0 and b_idx == 0:
+                    step_cost = dtw_matrix[0, 0]
+                elif a_idx == 0:
+                    step_cost = dtw_matrix[0, b_idx] - dtw_matrix[0, b_idx-1]
+                elif b_idx == 0:
+                    step_cost = dtw_matrix[a_idx, 0] - dtw_matrix[a_idx-1, 0]
+                else:
+                    min_pred = min(dtw_matrix[a_idx-1, b_idx], 
+                                  dtw_matrix[a_idx, b_idx-1], 
+                                  dtw_matrix[a_idx-1, b_idx-1])
+                    step_cost = dtw_matrix[a_idx, b_idx] - min_pred
+                
+                total_cost += step_cost
+            
+            return total_cost
         
-        # Create dummy cost matrix for quality metrics computation
-        dummy_D = np.array([[np.linalg.norm(aligned_log_a - aligned_log_b)]])
+        path_cost = get_path_dtw_cost_efficient(combined_wp, dtw_distance_matrix_full)
         
-        # Compute combined metrics using actual warping path indices
+        # Calculate norm_dtw directly
+        metrics['norm_dtw'] = path_cost / (dtw_distance_matrix_full.shape[0] + dtw_distance_matrix_full.shape[1])
+        
+        # Create dummy cost matrix for other metrics computation
+        dummy_D = np.array([[path_cost]])
         combined_metrics = compute_quality_indicators(log_a, log_b, p_indices, q_indices, dummy_D)
         
-        # Update path-based metrics
+        # Update other metrics from compute_quality_indicators (excluding norm_dtw)
         metrics['dtw_ratio'] = float(combined_metrics.get('dtw_ratio', 0.0))
-        metrics['variance_deviation'] = float(combined_metrics.get('variance_deviation', 0.0))
+        metrics['dtw_warp_eff'] = float(combined_metrics.get('dtw_warp_eff', 0.0))
         metrics['corr_coef'] = float(combined_metrics.get('corr_coef', 0.0))
         metrics['perc_diag'] = float(combined_metrics.get('perc_diag', 0.0))
     

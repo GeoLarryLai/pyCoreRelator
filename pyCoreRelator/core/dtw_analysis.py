@@ -605,13 +605,13 @@ def custom_dtw(log1, log2, subseq=False, exponent=1, QualityIndex=False, indepen
     if log1 is None or len(log1) == 0:
         print("Error: log1 is empty or None. Cannot perform valid DTW.")
         if QualityIndex:
-            return np.array([[0]]), np.array([[0, 0]]), {'norm_dtw': 0, 'dtw_ratio': 0, 'variance_deviation': 0, 'perc_diag': 0, 'corr_coef': 0}
+            return np.array([[0]]), np.array([[0, 0]]), {'norm_dtw': 0, 'dtw_ratio': 0, 'perc_diag': 0, 'dtw_warp_eff': 0, 'corr_coef': 0}
         return np.array([[0]]), np.array([[0, 0]])
     
     if log2 is None or len(log2) == 0:
         print("Error: log2 is empty or None. Cannot perform valid DTW.")
         if QualityIndex:
-            return np.array([[0]]), np.array([[0, 0]]), {'norm_dtw': 0, 'dtw_ratio': 0, 'variance_deviation': 0, 'perc_diag': 0, 'corr_coef': 0}
+            return np.array([[0]]), np.array([[0, 0]]), {'norm_dtw': 0, 'dtw_ratio': 0, 'perc_diag': 0, 'dtw_warp_eff': 0, 'corr_coef': 0}
         return np.array([[0]]), np.array([[0, 0]])
 
     # Convert logs to numpy arrays
