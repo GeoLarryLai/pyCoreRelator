@@ -107,40 +107,12 @@ Detailed function documentation is available in [FUNCTION_DOCUMENTATION.md](FUNC
 The package computes comprehensive quality indicators for each correlation with enhanced statistical analysis:
 
 ### Core Quality Metrics
-- **Normalized DTW Distance**: Cost per alignment step normalized by path length (lower = better alignment)
-- **DTW Warping Ratio**: DTW distance relative to Euclidean distance (<1.0 indicates DTW improves alignment)
-- **DTW Warping Efficiency**: Efficiency measure combining path length and alignment quality (higher = better)
-- **Correlation Coefficient**: Pearson's r between aligned sequences (-1 to 1, higher = better)
-- **Diagonality Percentage**: Path straightness measure (100% = perfect diagonal alignment)
-- **Variance Deviation**: Warping path deviation from diagonal (lower = more consistent alignment)
-- **Age Overlap Percentage**: Chronostratigraphic compatibility when age constraints applied (higher = better)
-
-### Advanced Quality Analysis
-- **Statistical Distribution Fitting**: Normal, skew-normal, and KDE fitting of quality metric distributions
-- **Null Hypothesis Testing**: Comparison against synthetic data with t-statistics and effect sizes
-- **Multi-Parameter Analysis**: Systematic evaluation across age constraint combinations
-- **Quality Metric Weighting**: Customizable weighted scoring for optimal correlation identification
-- **Percentile Ranking**: Statistical ranking of correlations within distribution context
-
-### Quality Metric Interpretation
-- **Normalized DTW Distance**: Values < 0.1 indicate excellent alignment, > 0.5 suggest poor correlation
-- **Correlation Coefficient**: Values > 0.7 indicate strong correlation, < 0.3 suggest weak relationships
-- **Diagonality**: Values > 80% indicate good stratigraphic consistency, < 60% suggest complex warping
-- **Age Overlap**: Values > 70% indicate good chronostratigraphic compatibility
-
-## Output Files and Results
-
-### Analysis Results
-- **Complete Paths CSV**: `complete_core_paths.csv` - Detailed results of end-to-end correlations with quality metrics
-- **DTW Results Database**: Temporary SQLite databases for memory-efficient path storage during analysis
-- **Quality Distribution Data**: Statistical parameters and histogram data for null hypothesis testing
-
-### Visualization Outputs
-- **DTW Matrix Plots**: `SegmentPair_DTW_matrix.png` - Heatmap of segment-to-segment distances with color-coded paths
-- **Correlation Animations**: `SegmentPair_DTW_animation.gif` - Step-by-step correlation sequences
-- **Combined Correlation Plots**: Static visualization of optimal correlation mappings
-- **Statistical Distribution Plots**: Quality metric distributions with fitted curves and significance tests
-- **Diagnostic Plots**: Various PNG files for quality assessment and troubleshooting
+- **Normalized DTW Distance**: Normalized DTW cost per alignment
+- **DTW Warping Ratio**: DTW distance relative to Euclidean distance
+- **DTW Warping Efficiency**: Efficiency measure combining path length and alignment quality
+- **Correlation Coefficient**: Pearson's r between DTW aligned sequences
+- **Diagonality Percentage**: 100% = perfect diagonal alignment in the DTW matrix
+- **Age Overlap Percentage**: Chronostratigraphic compatibility when age constraints applied
 
 ## Example Applications
 
@@ -150,16 +122,6 @@ The package includes several Jupyter notebooks demonstrating real-world applicat
 - **`pyCoreRelator_test_comparedtoNull.ipynb`**: Advanced comparison against null hypothesis with multi-parameter analysis
 - **`pyCoreRelator_null_hypothesis.ipynb`**: Synthetic data generation and significance testing examples
 - **`pyCoreRelator_depthboundary_picker.ipynb`**: Interactive depth boundary selection tool
-
-## Performance and Optimization
-
-The package includes several performance enhancements for large-scale analysis:
-
-- **Memory Management**: SQLite-based path storage with automatic cleanup and garbage collection
-- **Path Pruning**: Intelligent pruning of intermediate paths to prevent memory overflow
-- **Parallel Processing**: Multi-core support for batch processing and quality metric computation
-- **Shortest Path Search**: Optimized algorithms that focus on most promising correlation paths
-- **Database Optimization**: Indexed database operations with WAL mode for efficient read/write operations
 
 ## License
 
