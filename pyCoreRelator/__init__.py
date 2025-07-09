@@ -13,9 +13,11 @@ from .utils.data_loader import (
     resample_datasets,
     load_age_constraints_from_csv,
     combine_age_constraints,
-    load_core_age_constraints
+    load_core_age_constraints,
+    load_and_prepare_quality_data,
+    reconstruct_raw_data_from_histogram
 )
-from .utils.helpers import find_nearest_index
+from .utils.helpers import find_nearest_index, cohens_d
 from .utils.path_processing import combine_segment_dtw_results
 
 # Core analysis functions - Segment operations
@@ -41,7 +43,9 @@ from .core.null_hypothesis import (
     plot_segment_pool, 
     print_segment_pool_summary,
     create_synthetic_log_with_depths,
-    create_and_plot_synthetic_core_pair
+    create_and_plot_synthetic_core_pair,
+    generate_constraint_subsets,
+    run_multi_parameter_analysis
 )
 
 # DTW and quality analysis
@@ -61,7 +65,10 @@ from .visualization.plotting import (
     plot_segment_pair_correlation,
     plot_multilog_segment_pair_correlation,
     visualize_combined_segments,
-    plot_correlation_distribution
+    plot_correlation_distribution,
+    plot_quality_comparison,
+    plot_t_statistics_vs_constraints,
+    plot_quality_distributions
 )
 
 # Visualization functions - Matrix and advanced plots
@@ -78,6 +85,8 @@ __all__ = [
     'load_age_constraints_from_csv',
     'combine_age_constraints',
     'load_core_age_constraints',
+    'load_and_prepare_quality_data',
+    'reconstruct_raw_data_from_histogram',
     'plot_core_data',
     
     # Main analysis functions  
@@ -92,12 +101,17 @@ __all__ = [
     'print_segment_pool_summary',
     'create_synthetic_log_with_depths',
     'create_and_plot_synthetic_core_pair',
+    'generate_constraint_subsets',
+    'run_multi_parameter_analysis',
     
     # Visualization functions
     'visualize_combined_segments',
     'visualize_dtw_results_from_csv',
     'plot_dtw_matrix_with_paths',
     'plot_correlation_distribution',
+    'plot_quality_comparison',
+    'plot_t_statistics_vs_constraints',
+    'plot_quality_distributions',
     'find_best_mappings',
     
     # Segment operations
@@ -110,5 +124,6 @@ __all__ = [
     
     # Utilities
     'find_nearest_index',
-    'combine_segment_dtw_results'
+    'combine_segment_dtw_results',
+    'cohens_d'
 ]

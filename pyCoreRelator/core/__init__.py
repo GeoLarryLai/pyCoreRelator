@@ -41,7 +41,9 @@ from .null_hypothesis import (
     plot_segment_pool,
     print_segment_pool_summary,
     create_synthetic_log_with_depths,
-    create_and_plot_synthetic_core_pair
+    create_and_plot_synthetic_core_pair,
+    generate_constraint_subsets,
+    run_multi_parameter_analysis
 )
 
 __all__ = [
@@ -74,5 +76,7 @@ __all__ = [
     'plot_segment_pool',
     'print_segment_pool_summary',
     'create_synthetic_log_with_depths',
-    'create_and_plot_synthetic_core_pair'
+    'create_and_plot_synthetic_core_pair',
+    'generate_constraint_subsets',
+    'run_multi_parameter_analysis'
 ]

@@ -16,6 +16,7 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import os
+from scipy import stats
 
 
 def load_log_data(log_paths, img_paths=None, log_columns=None, depth_column='SB_DEPTH_cm', normalize=True, column_alternatives=None):
@@ -226,7 +227,7 @@ def resample_datasets(datasets, target_resolution_factor=2):
     return resampled_data
 
 
-def load_age_constraints_from_csv(csv_file_path, data_columns):
+def load_age_constraints_from_csv(csv_file_path, data_columns, mute_mode=False):
     """
     Load age constraints from a single CSV file with configurable column mapping.
     
@@ -317,7 +318,8 @@ def load_age_constraints_from_csv(csv_file_path, data_columns):
         print(f"Warning: No valid data found in {csv_file_path}")
         return result
     
-    print(f"Loaded {len(working_data)} age constraints from {os.path.basename(csv_file_path)}")
+    if not mute_mode:
+        print(f"Loaded {len(working_data)} age constraints from {os.path.basename(csv_file_path)}")
     
     # Extract data with NA handling
     if 'min_depth' in available_mappings and 'max_depth' in available_mappings:
@@ -439,7 +441,7 @@ def combine_age_constraints(age_constraint_list):
     return combined
 
 
-def load_core_age_constraints(core_name, age_base_path, consider_adjacent_core=False, data_columns=None):
+def load_core_age_constraints(core_name, age_base_path, consider_adjacent_core=False, data_columns=None, mute_mode=False):
     """
     Helper function to load age constraints for a single core.
     
@@ -455,6 +457,8 @@ def load_core_age_constraints(core_name, age_base_path, consider_adjacent_core=F
         Dictionary mapping standard column names to actual CSV column names.
         Expected keys: 'age', 'pos_error', 'neg_error', 'min_depth', 'max_depth', 
                       'in_sequence', 'core', 'interpreted_bed'
+    mute_mode : bool, default=False
+        If True, suppress all print statements
         
     Returns
     -------
@@ -480,7 +484,8 @@ def load_core_age_constraints(core_name, age_base_path, consider_adjacent_core=F
     csv_files = []
     
     if not os.path.exists(age_base_path):
-        print(f"Warning: Directory not found: {age_base_path}")
+        if not mute_mode:
+            print(f"Warning: Directory not found: {age_base_path}")
         return combine_age_constraints([])
     
     # First, find CSV files that contain the whole core name
@@ -498,7 +503,7 @@ def load_core_age_constraints(core_name, age_base_path, consider_adjacent_core=F
     # Load all CSV files
     age_constraints = []
     for csv_file in csv_files:
-        age_data = load_age_constraints_from_csv(csv_file, data_columns)
+        age_data = load_age_constraints_from_csv(csv_file, data_columns, mute_mode=mute_mode)
         if len(age_data['depths']) > 0:
             age_constraints.append(age_data)
     
@@ -513,3 +518,201 @@ def load_core_age_constraints(core_name, age_base_path, consider_adjacent_core=F
 
 
 # The plot_core_data function has been moved to pyCoreRelator.visualization.core_plots
+
+
+def reconstruct_raw_data_from_histogram(bins, hist_percentages, n_points):
+    """Reconstruct raw data points from histogram bins and percentages"""
+    raw_data = []
+    
+    # Convert percentages to raw counts
+    raw_counts = (hist_percentages * n_points) / 100
+    
+    # Generate data points for each bin
+    for i, count in enumerate(raw_counts):
+        if count > 0:
+            n_samples = int(round(count))
+            if n_samples > 0:
+                # Sample uniformly within the bin
+                bin_samples = np.random.uniform(bins[i], bins[i+1], n_samples)
+                raw_data.extend(bin_samples)
+    
+    return np.array(raw_data)
+
+
+def load_and_prepare_quality_data(target_quality_indices, master_csv_filenames, synthetic_csv_filenames, 
+                                  CORE_A, CORE_B, debug=True):
+    """
+    Load and prepare quality data from master and synthetic CSV files for plotting.
+    
+    Brief summary: This function loads quality index data from CSV files, applies filters,
+    and prepares the data for visualization by reconstructing raw data from histograms
+    and fitting distributions.
+    
+    Parameters:
+    -----------
+    target_quality_indices : list
+        List of quality indices to process (e.g., ['corr_coef', 'norm_dtw', 'perc_diag'])
+    master_csv_filenames : dict
+        Dictionary mapping quality_index to master CSV filename paths
+    synthetic_csv_filenames : dict  
+        Dictionary mapping quality_index to synthetic CSV filename paths
+    CORE_A : str
+        Name of core A
+    CORE_B : str
+        Name of core B
+    debug : bool, default True
+        If True, only print essential messages. If False, print all detailed messages.
+    
+    Returns:
+    --------
+    dict
+        Dictionary with quality_index as keys and data dictionaries as values.
+        Each data dictionary contains:
+        - 'df_all_params': filtered master data DataFrame
+        - 'combined_data': reconstructed synthetic data array
+        - 'fitted_mean': fitted normal distribution mean
+        - 'fitted_std': fitted normal distribution standard deviation
+        - 'max_core_a_constraints': maximum core A constraints count
+        - 'max_core_b_constraints': maximum core B constraints count
+        - 'unique_combinations': unique parameter combinations
+    """
+    
+    # Define which categories to load - you can customize these filters
+    load_filters = {
+        'age_consideration': [True, False],
+        'restricted_age_correlation': [True, False],
+        'shortest_path_search': [True]
+    }
+    
+    quality_data = {}
+    
+    # Loop through all quality indices
+    for quality_index in target_quality_indices:
+        
+        # Load all fit_params from master CSV
+        master_csv_filename = master_csv_filenames[quality_index]
+        
+        # Check if master CSV exists
+        if not os.path.exists(master_csv_filename):
+            if debug:
+                print(f"✗ Error: Master CSV file not found: {master_csv_filename}")
+            else:
+                print(f"✗ Error: Master CSV file not found: {master_csv_filename}")
+                print(f"   Skipping {quality_index} and moving to next index...")
+            continue
+        
+        try:
+            df_all_params = pd.read_csv(master_csv_filename)
+            if not debug:
+                print(f"✓ Loaded master CSV: {master_csv_filename}")
+        except Exception as e:
+            if debug:
+                print(f"✗ Error loading master CSV {master_csv_filename}: {str(e)}")
+            else:
+                print(f"✗ Error loading master CSV {master_csv_filename}: {str(e)}")
+                print(f"   Skipping {quality_index} and moving to next index...")
+            continue
+
+        # Apply filters with NaN handling
+        mask = pd.Series([True] * len(df_all_params))
+        for column, values in load_filters.items():
+            if values is not None:
+                if None in values:
+                    mask &= (df_all_params[column].isin([v for v in values if v is not None]) | 
+                            df_all_params[column].isna())
+                else:
+                    mask &= df_all_params[column].isin(values)
+
+        df_all_params = df_all_params[mask]
+        if not debug:
+            print(f"Loaded {len(df_all_params)} rows after filtering")
+
+        # Load synthetic fit params from CSV for background
+        synthetic_csv_filename = synthetic_csv_filenames[quality_index]
+        
+        # Check if synthetic CSV exists
+        if not os.path.exists(synthetic_csv_filename):
+            if debug:
+                print(f"✗ Error: Synthetic CSV file not found: {synthetic_csv_filename}")
+            else:
+                print(f"✗ Error: Synthetic CSV file not found: {synthetic_csv_filename}")
+                print(f"   Skipping {quality_index} and moving to next index...")
+            continue
+        
+        try:
+            df_synthetic_params = pd.read_csv(synthetic_csv_filename)
+            if not debug:
+                print(f"✓ Loaded synthetic CSV: {synthetic_csv_filename}")
+        except Exception as e:
+            if debug:
+                print(f"✗ Error loading synthetic CSV {synthetic_csv_filename}: {str(e)}")
+            else:
+                print(f"✗ Error loading synthetic CSV {synthetic_csv_filename}: {str(e)}")
+                print(f"   Skipping {quality_index} and moving to next index...")
+            continue
+
+        # Reconstruct combined data from binned data
+        all_raw_data = []
+
+        # Process each iteration to reconstruct raw data from binned data
+        for _, row in df_synthetic_params.iterrows():
+            # Extract binned data
+            bins = np.fromstring(row['bins'].strip('[]'), sep=' ') if 'bins' in row and pd.notna(row['bins']) else None
+            hist_percentages = np.fromstring(row['hist'].strip('[]'), sep=' ') if 'hist' in row and pd.notna(row['hist']) else None
+            n_points = row['n_points'] if 'n_points' in row and pd.notna(row['n_points']) else None
+            
+            if bins is not None and hist_percentages is not None and n_points is not None:
+                # Convert percentages back to raw counts
+                raw_counts = (hist_percentages * n_points) / 100
+                
+                # Reconstruct data points by sampling from each bin
+                bin_centers = (bins[:-1] + bins[1:]) / 2
+                bin_width = bins[1] - bins[0]
+                
+                for i, count in enumerate(raw_counts):
+                    if count > 0:
+                        # Generate random points within each bin
+                        n_samples = int(round(count))
+                        if n_samples > 0:
+                            # Sample uniformly within the bin
+                            bin_samples = np.random.uniform(
+                                bins[i], bins[i+1], n_samples
+                            )
+                            all_raw_data.extend(bin_samples)
+
+        # Convert to numpy array
+        combined_data = np.array(all_raw_data)
+
+        # Fit normal distribution to combined data
+        fitted_mean, fitted_std = stats.norm.fit(combined_data)
+
+        # Get unique combinations available in the CSV
+        unique_combinations = df_all_params.drop_duplicates(
+            subset=['age_consideration', 'restricted_age_correlation', 'shortest_path_search']
+        )[['age_consideration', 'restricted_age_correlation', 'shortest_path_search']].to_dict('records')
+
+        if not debug:
+            print(f"Found {len(unique_combinations)} unique parameter combinations in CSV:")
+            for combo in unique_combinations:
+                print(f"  {combo}")
+
+        # Find max constraint counts for determining which curves to highlight
+        max_core_a_constraints = df_all_params['core_a_constraints_count'].max()
+        max_core_b_constraints = df_all_params['core_b_constraints_count'].max()
+        
+        if not debug:
+            print(f"Number of the age constraints available in {CORE_A}: {max_core_a_constraints}")
+            print(f"Number of the age constraints available in {CORE_B}: {max_core_b_constraints}")
+        
+        # Store processed data for this quality index
+        quality_data[quality_index] = {
+            'df_all_params': df_all_params,
+            'combined_data': combined_data,
+            'fitted_mean': fitted_mean,
+            'fitted_std': fitted_std,
+            'max_core_a_constraints': max_core_a_constraints,
+            'max_core_b_constraints': max_core_b_constraints,
+            'unique_combinations': unique_combinations
+        }
+    
+    return quality_data

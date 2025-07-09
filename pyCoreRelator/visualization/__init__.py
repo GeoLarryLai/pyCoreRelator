@@ -13,7 +13,10 @@ from .plotting import (
     plot_segment_pair_correlation,
     plot_multilog_segment_pair_correlation,
     visualize_combined_segments,
-    plot_correlation_distribution
+    plot_correlation_distribution,
+    plot_quality_comparison,
+    plot_t_statistics_vs_constraints,
+    plot_quality_distributions
 )
 
 # Matrix plots
@@ -37,6 +40,9 @@ __all__ = [
     'plot_multilog_segment_pair_correlation',
     'visualize_combined_segments',
     'plot_correlation_distribution',
+    'plot_quality_comparison',
+    'plot_t_statistics_vs_constraints',
+    'plot_quality_distributions',
     
     # Matrix plots
     'plot_dtw_matrix_with_paths',

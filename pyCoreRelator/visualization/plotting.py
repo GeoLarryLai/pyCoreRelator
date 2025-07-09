@@ -22,8 +22,12 @@ from matplotlib.lines import Line2D
 from scipy import stats
 from IPython.display import display
 import os
+import matplotlib.cm as cm
+import matplotlib.colors as colors
 from ..utils.path_processing import combine_segment_dtw_results
 from ..visualization.matrix_plots import plot_dtw_matrix_with_paths
+from ..utils.helpers import cohens_d
+from ..utils.data_loader import reconstruct_raw_data_from_histogram
 
 
 def plot_segment_pair_correlation(log_a, log_b, md_a, md_b, 
@@ -1557,3 +1561,778 @@ def plot_correlation_distribution(csv_file, target_mapping_id=None, quality_inde
     else:
         # In mute mode, just return fit_params
         return None, None, fit_params
+
+
+def plot_quality_distributions(quality_data, target_quality_indices, output_figure_filenames, 
+                               CORE_A, CORE_B, debug=True):
+    """
+    Plot quality index distributions comparing real data vs synthetic null hypothesis.
+    
+    Brief summary: This function creates distribution plots showing PDF curves for different
+    parameter combinations overlaid with synthetic null hypothesis data and mean value indicators.
+    
+    Parameters:
+    -----------
+    quality_data : dict
+        Preprocessed quality data from load_and_prepare_quality_data function
+    target_quality_indices : list
+        List of quality indices to process (e.g., ['corr_coef', 'norm_dtw', 'perc_diag'])
+    output_figure_filenames : dict
+        Dictionary mapping quality_index to output figure filename paths
+    CORE_A : str
+        Name of core A
+    CORE_B : str
+        Name of core B
+    debug : bool, default True
+        If True, only print essential messages. If False, print all detailed messages.
+    
+    Returns:
+    --------
+    None
+        Plots are displayed and saved to specified output files
+    """
+    
+    # Loop through all quality indices
+    for quality_index in target_quality_indices:
+        if quality_index not in quality_data:
+            print(f"Skipping {quality_index} - no data available")
+            continue
+            
+        data = quality_data[quality_index]
+        df_all_params = data['df_all_params']
+        combined_data = data['combined_data']
+        fitted_mean = data['fitted_mean']
+        fitted_std = data['fitted_std']
+        max_core_a_constraints = data['max_core_a_constraints']
+        max_core_b_constraints = data['max_core_b_constraints']
+        unique_combinations = data['unique_combinations']
+
+        # Generate fitted curve
+        x_fitted = np.linspace(combined_data.min(), combined_data.max(), 1000)
+        y_fitted = stats.norm.pdf(x_fitted, fitted_mean, fitted_std)
+
+        # Create combined plot
+        fig, ax = plt.subplots(figsize=(10, 4.5))
+
+        # Plot combined histogram in gray bars
+        n_bins = 30
+        ax.hist(combined_data, bins=n_bins, alpha=0.3, color='gray', density=True, label='Synthetic Data')
+
+        # Plot fitted normal curve as gray dotted line
+        ax.plot(x_fitted, y_fitted, color='gray', linestyle=':', linewidth=2, alpha=0.8,
+                label='Null Hypothesis PDFs')
+
+        # Set up colormap based on core_b_constraints_count
+        min_core_b = df_all_params['core_b_constraints_count'].min()
+        max_core_b = df_all_params['core_b_constraints_count'].max()
+        
+        # Create colormap
+        cmap = cm.get_cmap('Spectral_r')
+        norm = colors.Normalize(vmin=min_core_b, vmax=max_core_b)
+
+        # Separate combinations by search method and collect mean values for max constraint cases only
+        optimal_combinations = []
+        random_combinations = []
+
+        solid_mean_values = []
+        dash_mean_values = []
+
+        for combo in unique_combinations:
+            combo_data = df_all_params[
+                (df_all_params['age_consideration'] == combo['age_consideration']) &
+                (df_all_params['restricted_age_correlation'] == combo['restricted_age_correlation']) &
+                (df_all_params['shortest_path_search'] == combo['shortest_path_search'])
+            ]
+            
+            combo_mean_values = []
+            for idx, row in combo_data.iterrows():
+                if 'mean' in row and pd.notna(row['mean']):
+                    # Only collect means for max constraint cases
+                    if (row['core_a_constraints_count'] == max_core_a_constraints and 
+                        row['core_b_constraints_count'] == max_core_b_constraints):
+                        combo_mean_values.append(row['mean'])
+            
+            # Determine which search method group this combination belongs to
+            if combo['shortest_path_search']:
+                optimal_combinations.append(combo)
+                solid_mean_values.extend(combo_mean_values)
+            else:
+                random_combinations.append(combo)
+                dash_mean_values.extend(combo_mean_values)
+
+        # Plot vertical lines for each search method group with text labels (max constraints only)
+        solid_mean_plotted = False
+        dash_mean_plotted = False
+
+        if solid_mean_values:
+            for mean_val in solid_mean_values:
+                label = 'Optimal-Search PDF Means' if not solid_mean_plotted else ""
+                ax.axvline(x=mean_val, color='brown', alpha=0.5, linewidth=4, label=label)
+                # Add text label for mean value
+                ax.text(mean_val, ax.get_ylim()[1] * 0.95, f'{mean_val:.3f}', 
+                        rotation=90, ha='right', va='top', color='brown', fontweight='bold')
+                solid_mean_plotted = True
+
+        if dash_mean_values:
+            for mean_val in dash_mean_values:
+                label = 'Random-Search PDF Means' if not dash_mean_plotted else ""
+                ax.axvline(x=mean_val, color='green', alpha=0.5, linewidth=4, label=label)
+                # Add text label for mean value
+                ax.text(mean_val, ax.get_ylim()[1] * 0.95, f'{mean_val:.3f}', 
+                        rotation=90, ha='right', va='top', color='green', fontweight='bold')
+                dash_mean_plotted = True
+
+        # Collect real data for statistical tests - separate by individual distributions
+        solid_real_data_by_combo = {}
+        dash_real_data_by_combo = {}
+
+        # Track which constraint levels have been plotted for legend
+        plotted_constraint_levels = set()
+
+        # Sort dataframe by core_b_constraints_count to plot in ascending order
+        df_all_params_sorted = df_all_params.sort_values('core_b_constraints_count', ascending=True)
+
+        for idx, row in df_all_params_sorted.iterrows():
+            # Extract parameter values directly from CSV columns
+            age_consideration = row['age_consideration']
+            restricted_age_correlation = row['restricted_age_correlation']
+            shortest_path_search = row['shortest_path_search']
+            core_a_constraints = row['core_a_constraints_count']
+            core_b_constraints = row['core_b_constraints_count']
+            
+            # Parse x_range and y_values from stored strings
+            if 'x_range' in row and 'y_values' in row and pd.notna(row['x_range']) and pd.notna(row['y_values']):
+                try:
+                    x_range = np.fromstring(row['x_range'].strip('[]'), sep=' ')
+                    y_values = np.fromstring(row['y_values'].strip('[]'), sep=' ')
+                    
+                    # Create unique key for this parameter combination
+                    combo_key = f"age_{age_consideration}_restricted_{restricted_age_correlation}_shortest_{shortest_path_search}"
+                    
+                    # Reconstruct raw data from histogram for statistical tests
+                    if 'bins' in row and 'hist' in row and 'n_points' in row and \
+                       pd.notna(row['bins']) and pd.notna(row['hist']) and pd.notna(row['n_points']):
+                        
+                        bins = np.fromstring(row['bins'].strip('[]'), sep=' ')
+                        hist_percentages = np.fromstring(row['hist'].strip('[]'), sep=' ')
+                        n_points = row['n_points']
+                        
+                        # Reconstruct raw data points
+                        raw_data_points = reconstruct_raw_data_from_histogram(bins, hist_percentages, n_points)
+                        
+                        # Group by search method based on shortest_path_search column
+                        if shortest_path_search:
+                            if combo_key not in solid_real_data_by_combo:
+                                solid_real_data_by_combo[combo_key] = []
+                            solid_real_data_by_combo[combo_key].extend(raw_data_points)
+                        else:
+                            if combo_key not in dash_real_data_by_combo:
+                                dash_real_data_by_combo[combo_key] = []
+                            dash_real_data_by_combo[combo_key].extend(raw_data_points)
+                    
+                    if len(x_range) > 0 and len(y_values) > 0:
+                        # Determine if this is a max constraint case
+                        is_max_constraints = (core_a_constraints == max_core_a_constraints and 
+                                            core_b_constraints == max_core_b_constraints)
+                        
+                        # Get color from colormap based on core_b_constraints_count
+                        base_color = cmap(norm(core_b_constraints))
+                        
+                        # Darken the color by reducing brightness
+                        # Convert to HSV, reduce the V (value/brightness) component, then back to RGB
+                        base_color_rgb = base_color[:3]  # Remove alpha if present
+                        base_color_hsv = colors.rgb_to_hsv(base_color_rgb)
+                        darkened_hsv = (base_color_hsv[0], base_color_hsv[1], base_color_hsv[2] * 0.9)  # Reduce brightness by 10%
+                        color = colors.hsv_to_rgb(darkened_hsv)
+                        
+                        # Determine line style and transparency based on constraint levels
+                        if is_max_constraints or core_b_constraints == 0:
+                            line_style = '-'
+                            linewidth = 1.5
+                            alpha = 0.9
+                            constraint_label = f'{CORE_B} age constraints: {core_b_constraints}'
+                            if core_b_constraints not in plotted_constraint_levels:
+                                label = constraint_label
+                                plotted_constraint_levels.add(core_b_constraints)
+                            else:
+                                label = None
+                        else:
+                            line_style = '--'
+                            linewidth = 1
+                            alpha = 0.8
+                            constraint_label = f'{CORE_B} age constraints: {core_b_constraints}'
+                            if core_b_constraints not in plotted_constraint_levels:
+                                label = constraint_label
+                                plotted_constraint_levels.add(core_b_constraints)
+                            else:
+                                label = None
+                        
+                        # Plot distribution curve
+                        ax.plot(x_range, y_values, 
+                               color=color, 
+                               linestyle=line_style,
+                               linewidth=linewidth, alpha=alpha, 
+                               label=label)
+                
+                except Exception as e:
+                    if not debug:
+                        print(f"Warning: Could not plot curve for row {idx}: {str(e)}")
+
+        # Perform statistical tests for max constraint cases only
+        solid_stats_by_combo = {}
+        dash_stats_by_combo = {}
+
+        # Filter data to only include max constraint cases for statistical analysis
+        max_constraint_data = df_all_params[
+            (df_all_params['core_a_constraints_count'] == max_core_a_constraints) &
+            (df_all_params['core_b_constraints_count'] == max_core_b_constraints) 
+        ]
+
+        # Recalculate real data collections for max constraints only
+        solid_real_data_by_combo_max = {}
+        dash_real_data_by_combo_max = {}
+
+        for idx, row in max_constraint_data.iterrows():
+            age_consideration = row['age_consideration']
+            restricted_age_correlation = row['restricted_age_correlation']
+            shortest_path_search = row['shortest_path_search']
+            
+            combo_key = f"age_{age_consideration}_restricted_{restricted_age_correlation}_shortest_{shortest_path_search}"
+            
+            if 'bins' in row and 'hist' in row and 'n_points' in row and \
+               pd.notna(row['bins']) and pd.notna(row['hist']) and pd.notna(row['n_points']):
+                
+                bins = np.fromstring(row['bins'].strip('[]'), sep=' ')
+                hist_percentages = np.fromstring(row['hist'].strip('[]'), sep=' ')
+                n_points = row['n_points']
+                
+                raw_data_points = reconstruct_raw_data_from_histogram(bins, hist_percentages, n_points)
+                
+                if shortest_path_search:
+                    if combo_key not in solid_real_data_by_combo_max:
+                        solid_real_data_by_combo_max[combo_key] = []
+                    solid_real_data_by_combo_max[combo_key].extend(raw_data_points)
+                else:
+                    if combo_key not in dash_real_data_by_combo_max:
+                        dash_real_data_by_combo_max[combo_key] = []
+                    dash_real_data_by_combo_max[combo_key].extend(raw_data_points)
+
+        # Calculate statistics for optimal search combinations - max constraints only
+        for combo_key, data in solid_real_data_by_combo_max.items():
+            if len(data) > 1:
+                data_array = np.array(data)
+                t_stat, p_value = stats.ttest_ind(data_array, combined_data)
+                
+                cohens_d_val = cohens_d(data_array, combined_data)
+                
+                solid_stats_by_combo[combo_key] = {
+                    't_stat': t_stat,
+                    'p_value': p_value,
+                    'cohens_d': cohens_d_val,
+                    'n_samples': len(data_array),
+                    'mean': np.mean(data_array),
+                    'std': np.std(data_array)
+                }
+
+        # Calculate statistics for random search combinations - max constraints only
+        for combo_key, data in dash_real_data_by_combo_max.items():
+            if len(data) > 1:
+                data_array = np.array(data)
+                t_stat, p_value = stats.ttest_ind(data_array, combined_data)
+                
+                cohens_d_val = cohens_d(data_array, combined_data)
+                
+                dash_stats_by_combo[combo_key] = {
+                    't_stat': t_stat,
+                    'p_value': p_value,
+                    'cohens_d': cohens_d_val,
+                    'n_samples': len(data_array),
+                    'mean': np.mean(data_array),
+                    'std': np.std(data_array)
+                }
+
+        # Print detailed statistical results BEFORE creating the plot
+        print(f"\n=== DETAILED STATISTICAL ANALYSIS FOR {quality_index} ===")
+        if not debug:
+            print(f"Null Hypothesis Distribution:")
+            print(f"  Mean: {fitted_mean:.1f}, SD: {fitted_std:.1f}")
+            print(f"  Sample size: {len(combined_data)}")
+            print(f"  Interpretation: Baseline distribution from synthetic data representing no true correlation")
+            print()
+
+        if debug:
+            print(f"--- Optimal Search Results (Max Constraints Only) ---")
+        else:
+            print(f"--- Optimal Search Results (Max Constraints Only) ---")
+        
+        for combo_key, stats_dict in solid_stats_by_combo.items():
+            # Parse combo_key to get descriptive name
+            if "age_True_restricted_True" in combo_key:
+                desc = "Consider age strictly"
+            elif "age_True_restricted_False" in combo_key:
+                desc = "Consider age loosely"
+            elif "age_False" in combo_key:
+                desc = "Neglect age"
+            else:
+                desc = combo_key
+            
+            if debug:
+                print(f"{desc}: Mean={stats_dict['mean']:.1f}, p-value={stats_dict['p_value']:.2g}, Cohen's d={stats_dict['cohens_d']:.1f}")
+            else:
+                print(f"{desc}:")
+                print(f"  Mean: {stats_dict['mean']:.1f}, SD: {stats_dict['std']:.1f}")
+                print(f"  t-statistic: {stats_dict['t_stat']:.1f} (measures difference between means relative to variation)")
+                print(f"  p-value: {stats_dict['p_value']:.2g}")
+                print(f"  Cohen's d: {stats_dict['cohens_d']:.1f}")
+                print(f"  Sample size: {stats_dict['n_samples']}")
+                
+                # Interpret effect size
+                if abs(stats_dict['cohens_d']) < 0.2:
+                    effect_size = "negligible"
+                elif abs(stats_dict['cohens_d']) < 0.5:
+                    effect_size = "small"
+                elif abs(stats_dict['cohens_d']) < 0.8:
+                    effect_size = "medium"
+                else:
+                    effect_size = "large"
+                
+                # Statistical interpretation
+                if stats_dict['t_stat'] > 0:
+                    direction = "higher than"
+                else:
+                    direction = "lower than"
+                
+                print(f"  Effect size: {effect_size} difference between distributions")
+                
+                # Only use "significantly" if p-value indicates statistical significance
+                if stats_dict['p_value'] < 0.05:
+                    print(f"  Interpretation: Significantly {direction} null hypothesis with {effect_size} effect size")
+                else:
+                    print(f"  Interpretation: no statistical significance (p-value = {stats_dict['p_value']:.2e})")
+                print()
+
+        if not debug and dash_stats_by_combo:
+            print(f"--- Random Search Results (Max Constraints Only) ---")
+            for combo_key, stats_dict in dash_stats_by_combo.items():
+                # Parse combo_key to get descriptive name
+                if "age_True_restricted_True" in combo_key:
+                    desc = "Consider age strictly"
+                elif "age_True_restricted_False" in combo_key:
+                    desc = "Consider age loosely"
+                elif "age_False" in combo_key:
+                    desc = "Neglect age"
+                else:
+                    desc = combo_key
+                
+                print(f"{desc}:")
+                print(f"  Mean: {stats_dict['mean']:.1f}, SD: {stats_dict['std']:.1f}")
+                print(f"  t-statistic: {stats_dict['t_stat']:.1f} (measures difference between means relative to variation)")
+                print(f"  p-value: {stats_dict['p_value']:.2g}")
+                print(f"  Cohen's d: {stats_dict['cohens_d']:.1f}")
+                print(f"  Sample size: {stats_dict['n_samples']}")
+                
+                # Interpret effect size
+                if abs(stats_dict['cohens_d']) < 0.2:
+                    effect_size = "negligible"
+                elif abs(stats_dict['cohens_d']) < 0.5:
+                    effect_size = "small"
+                elif abs(stats_dict['cohens_d']) < 0.8:
+                    effect_size = "medium"
+                else:
+                    effect_size = "large"
+                
+                # Statistical interpretation
+                if stats_dict['t_stat'] > 0:
+                    direction = "higher than"
+                else:
+                    direction = "lower than"
+                
+                print(f"  Effect size: {effect_size} difference between distributions")
+                
+                # Only use "significantly" if p-value indicates statistical significance
+                if stats_dict['p_value'] < 0.05:
+                    print(f"  Interpretation: Significantly {direction} null hypothesis with {effect_size} effect size")
+                else:
+                    print(f"  Interpretation: no statistical significance (p-value = {stats_dict['p_value']:.2e})")
+                print()
+
+        # Save figure
+        output_filename = output_figure_filenames[quality_index]
+        print(f"✓ Combined plot saved as: {output_filename}")
+        if not debug:
+            print(f"✓ Analysis complete for {quality_index}!")
+
+        # Formatting
+        ax.set_xlabel(f"{quality_index}")
+        ax.set_ylabel('Probability Density (%)')
+        ax.set_title(f'{quality_index} Distribution Comparison\n{CORE_A} vs {CORE_B}')
+
+        # Create grouped legend
+        handles, labels = ax.get_legend_handles_labels()
+
+        # Separate handles and labels by groups
+        synthetic_handles = []
+        synthetic_labels = []
+        constraint_handles = []
+        constraint_labels = []
+        mean_handles = []
+        mean_labels = []
+
+        for handle, label in zip(handles, labels):
+            if 'Null' in label or 'Synthetic' in label:
+                synthetic_handles.append(handle)
+                synthetic_labels.append(label)
+            elif 'age constraints' in label:
+                constraint_handles.append(handle)
+                constraint_labels.append(label)
+            elif 'PDF Means' in label:
+                mean_handles.append(handle)
+                mean_labels.append(label)
+
+        # Create grouped legend with titles
+        legend_elements = []
+        legend_labels = []
+
+        # Add synthetic group
+        if synthetic_handles:
+            legend_elements.append(Line2D([0], [0], color='white', linewidth=0, alpha=0))
+            legend_labels.append('Null Hypotheses (Synthetic Data)')
+            legend_elements.extend(synthetic_handles)
+            legend_labels.extend(synthetic_labels)
+            legend_elements.append(Line2D([0], [0], color='white', linewidth=0, alpha=0))
+            legend_labels.append('')
+
+        # Add constraint level group
+        if constraint_handles:
+            legend_elements.append(Line2D([0], [0], color='white', linewidth=0, alpha=0))
+            legend_labels.append('Real Data by Age Constraints')
+            
+            # Sort constraint handles and labels by constraint count
+            constraint_pairs = list(zip(constraint_handles, constraint_labels))
+            constraint_pairs.sort(key=lambda x: int(x[1].split(': ')[-1]))
+            
+            for handle, label in constraint_pairs:
+                legend_elements.append(handle)
+                legend_labels.append(label)
+            
+            legend_elements.append(Line2D([0], [0], color='white', linewidth=0, alpha=0))
+            legend_labels.append('')
+
+        # Add mean lines group
+        if mean_handles:
+            legend_elements.append(Line2D([0], [0], color='white', linewidth=0, alpha=0))
+            legend_labels.append('PDF Mean Values')
+            legend_elements.extend(mean_handles)
+            legend_labels.extend(mean_labels)
+
+        # Apply legend with grouping
+        legend = ax.legend(legend_elements, legend_labels, bbox_to_anchor=(1.02, 1), loc='upper left')
+
+        # Style the group title labels
+        for i, label in enumerate(legend_labels):
+            if (label.startswith('Null Hypotheses') or 
+                label.startswith('Real Data by Age Constraints') or 
+                label.startswith('PDF Mean Values')):
+                legend.get_texts()[i].set_weight('bold')
+                legend.get_texts()[i].set_fontsize(10)
+                legend.get_texts()[i].set_ha('left')
+
+        ax.grid(True, alpha=0.3)
+        if quality_index == 'corr_coef':
+            ax.set_xlim(0, 1.0)
+
+        plt.tight_layout()
+        
+        plt.savefig(output_filename, dpi=150, bbox_inches='tight')
+        
+        # Show plot AFTER all printed texts
+        plt.show()
+
+    if not debug:
+        print(f"\n{'='*80}")
+        print(f"ALL QUALITY INDICES PROCESSING COMPLETED")
+        print(f"{'='*80}")
+
+
+def plot_t_statistics_vs_constraints(quality_data, target_quality_indices, output_figure_filenames,
+                                     CORE_A, CORE_B, debug=True):
+    """
+    Plot t-statistics vs number of age constraints for each quality index.
+    
+    Parameters:
+    -----------
+    quality_data : dict
+        Preprocessed quality data from load_and_prepare_quality_data function
+    target_quality_indices : list
+        List of quality indices to process (e.g., ['corr_coef', 'norm_dtw', 'perc_diag'])
+    output_figure_filenames : dict
+        Dictionary mapping quality_index to output figure filename paths
+    CORE_A : str
+        Name of core A
+    CORE_B : str
+        Name of core B
+    debug : bool, default True
+        If True, only print essential messages. If False, print all detailed messages.
+    
+    Returns:
+    --------
+    None
+        Plots are displayed and saved to specified output files
+    """
+    
+    for quality_index in target_quality_indices:
+        if quality_index not in quality_data:
+            print(f"Skipping {quality_index} - no data available")
+            continue
+            
+        data = quality_data[quality_index]
+        df_all_params = data['df_all_params']
+        combined_data = data['combined_data']
+        
+        # Create plot
+        fig, ax = plt.subplots(figsize=(9, 5))
+        
+        # Store all plotting points organized by constraint count
+        constraint_points = {}
+        
+        # Store all improvement scores for colormap normalization
+        all_improvement_scores = []
+        
+        # Process all data points and organize by constraint count
+        for idx, row in df_all_params.iterrows():
+            
+            # Determine constraint mapping for x-axis
+            if row['age_consideration']:
+                # Use actual constraint counts
+                x_value = row['core_b_constraints_count']
+            else:
+                # All age_consideration=False cases plot at x=0
+                x_value = 0
+            
+            # Calculate t-statistic for this row
+            has_histogram = ('bins' in row and 'hist' in row and 'n_points' in row and 
+                           pd.notna(row['bins']) and pd.notna(row['hist']) and pd.notna(row['n_points']))
+            
+            if has_histogram:
+                try:
+                    # Reconstruct raw data from histogram
+                    bins = np.fromstring(row['bins'].strip('[]'), sep=' ')
+                    hist_percentages = np.fromstring(row['hist'].strip('[]'), sep=' ')
+                    n_points = row['n_points']
+                    
+                    raw_data_points = reconstruct_raw_data_from_histogram(bins, hist_percentages, n_points)
+                    
+                    # Calculate t-statistic
+                    if len(raw_data_points) > 1:
+                        t_stat, _ = stats.ttest_ind(raw_data_points, combined_data)
+                    elif len(raw_data_points) == 1:
+                        # Single point: use z-score as approximation
+                        t_stat = (raw_data_points[0] - np.mean(combined_data)) / np.std(combined_data)
+                    else:
+                        t_stat = 0.0  # No data
+                        
+                    # Store in constraint_points dictionary
+                    if x_value not in constraint_points:
+                        constraint_points[x_value] = []
+                    constraint_points[x_value].append(t_stat)
+                    
+                except Exception as e:
+                    if debug:
+                        print(f"Error processing row {idx}: {e}")
+                    if x_value not in constraint_points:
+                        constraint_points[x_value] = []
+                    constraint_points[x_value].append(0.0)
+            else:
+                if x_value not in constraint_points:
+                    constraint_points[x_value] = []
+                constraint_points[x_value].append(0.0)  # No histogram data
+        
+        # First pass: calculate all improvement scores for normalization
+        sorted_constraints = sorted(constraint_points.keys())
+        for i in range(len(sorted_constraints) - 1):
+            current_constraint = sorted_constraints[i]
+            next_constraint = sorted_constraints[i + 1]
+            
+            current_t_stats = constraint_points[current_constraint]
+            next_t_stats = constraint_points[next_constraint]
+            
+            for curr_t in current_t_stats:
+                for next_t in next_t_stats:
+                    t_change = next_t - curr_t
+                    
+                    # Determine improvement/deterioration based on quality index
+                    if quality_index == 'norm_dtw':
+                        improvement_score = -t_change  # Negative change is improvement
+                    else:
+                        improvement_score = t_change   # Positive change is improvement
+                    
+                    all_improvement_scores.append(improvement_score)
+        
+        # Normalize improvement scores
+        if all_improvement_scores:
+            max_abs_score = max(abs(score) for score in all_improvement_scores)
+        else:
+            max_abs_score = 1.0
+        
+        # Create custom colormap: red for improvement, blue for deterioration
+        from matplotlib.colors import LinearSegmentedColormap
+
+        colors_list = ['#0066CC', '#e3e3e3', '#CC0000']  # Blue -> gray -> Red
+        n_bins = 256
+        cmap = LinearSegmentedColormap.from_list('improvement', colors_list, N=n_bins)
+        
+        # Draw all connections first (so they appear behind the dots)
+        for i in range(len(sorted_constraints) - 1):
+            current_constraint = sorted_constraints[i]
+            next_constraint = sorted_constraints[i + 1]
+            
+            current_t_stats = constraint_points[current_constraint]
+            next_t_stats = constraint_points[next_constraint]
+            
+            # Connect every dot in current constraint to every dot in next constraint
+            for curr_t in current_t_stats:
+                for next_t in next_t_stats:
+                    # Calculate change in t-statistic
+                    t_change = next_t - curr_t
+                    
+                    # Determine improvement/deterioration based on quality index
+                    if quality_index == 'norm_dtw':
+                        improvement_score = -t_change  # Negative change is improvement
+                    else:
+                        improvement_score = t_change   # Positive change is improvement
+                    
+                    # Normalize to [-1, 1] range for colormap
+                    if max_abs_score > 0:
+                        normalized_score = np.clip(improvement_score / max_abs_score, -1, 1)
+                    else:
+                        normalized_score = 0
+                    
+                    # Map to colormap (0 = blue/deterioration, 1 = red/improvement)
+                    color_value = (normalized_score + 1) / 2  # Convert [-1,1] to [0,1]
+                    color = cmap(color_value)
+                    
+                    ax.plot([current_constraint, next_constraint], [curr_t, next_t], 
+                           color=color, alpha=0.8, linewidth=1, zorder=1)
+        
+        # Plot all individual points as white dots with black outline (on top of connections)
+        for x_constraint, t_stats in constraint_points.items():
+            for t_stat in t_stats:
+                # Plot individual point as white dot with black outline (smaller size)
+                ax.scatter(x_constraint, t_stat, color='white', edgecolor='black', 
+                          linewidth=1.2, s=60, zorder=3)
+        
+        # Add null hypothesis line
+        ax.axhline(y=0, color='darkgray', linestyle='--', alpha=0.7, linewidth=2, 
+                  label='Null hypothesis (t=0)', zorder=2)
+        
+        # Set x-axis
+        all_constraints = df_all_params['core_b_constraints_count'].unique()
+        x_min, x_max = 0, max(all_constraints)
+        ax.set_xlim(-0.5, x_max + 0.5)
+        ax.set_xticks(range(0, x_max + 1))
+        
+        # Format plot
+        ax.set_xlabel(f'Number of {CORE_B} Age Constraints')
+        ax.set_ylabel('t-statistic')
+        ax.set_title(f't-statistics vs Age Constraints for {quality_index}\n{CORE_A} vs {CORE_B}')
+        ax.grid(True, alpha=0.3, zorder=0)
+        
+        # Create legend for static elements
+        legend_elements = [
+            ax.plot([], [], color='darkgray', linestyle='--', alpha=0.7, linewidth=2)[0],
+            ax.scatter([], [], color='white', edgecolor='black', linewidth=1.2, s=60)
+        ]
+        legend_labels = [
+            'Null hypothesis (t=0)', 
+            'Real data points'
+        ]
+        ax.legend(legend_elements, legend_labels, bbox_to_anchor=(1.02, 0.5), loc='center left')
+        
+        # Add horizontal colorbar for improvement/deterioration
+        sm = plt.cm.ScalarMappable(cmap=cmap, norm=plt.Normalize(vmin=-max_abs_score, vmax=max_abs_score))
+        sm.set_array([])
+        cbar = plt.colorbar(sm, ax=ax, orientation='horizontal', shrink=0.6, aspect=20, pad=0.12)
+        cbar.set_label('Change in Correlation Quality', labelpad=10)
+        
+        # Set colorbar ticks and labels
+        cbar.set_ticks([-max_abs_score, 0, max_abs_score])
+        cbar.set_ticklabels(['Deterioration', 'No Change', 'Improvement'])
+        
+        plt.tight_layout()
+        
+        # Save figure
+        base_filename = output_figure_filenames[quality_index]
+        t_stat_filename = base_filename.replace('.png', '_tstatistics_neural.png').replace('.jpg', '_tstatistics_neural.jpg')
+        plt.savefig(t_stat_filename, dpi=150, bbox_inches='tight')
+        print(f"✓ t-statistics plot saved as: {t_stat_filename}")
+        
+        plt.show()
+
+
+def plot_quality_comparison(target_quality_indices, master_csv_filenames, synthetic_csv_filenames, 
+                          output_figure_filenames, CORE_A, CORE_B, debug=True):
+    """
+    Plot quality index distributions comparing real data vs synthetic null hypothesis
+    AND t-statistics vs age constraints.
+    
+    Brief summary: This function orchestrates the complete analysis by loading data,
+    creating distribution plots, and generating t-statistics plots for quality indices.
+    Each quality index shows its distribution plot followed immediately by its t-statistics plot.
+    
+    Parameters:
+    -----------
+    target_quality_indices : list
+        List of quality indices to process (e.g., ['corr_coef', 'norm_dtw', 'perc_diag'])
+    master_csv_filenames : dict
+        Dictionary mapping quality_index to master CSV filename paths
+    synthetic_csv_filenames : dict  
+        Dictionary mapping quality_index to synthetic CSV filename paths
+    output_figure_filenames : dict
+        Dictionary mapping quality_index to output figure filename paths
+    CORE_A : str
+        Name of core A
+    CORE_B : str
+        Name of core B
+    debug : bool, default True
+        If True, only print essential messages. If False, print all detailed messages.
+    
+    Returns:
+    --------
+    None
+        Plots are displayed and saved to specified output files
+    """
+    
+    # Import the function from data_loader
+    from ..utils.data_loader import load_and_prepare_quality_data
+    
+    # Load and prepare data for all quality indices
+    quality_data = load_and_prepare_quality_data(
+        target_quality_indices, master_csv_filenames, synthetic_csv_filenames, 
+        CORE_A, CORE_B, debug
+    )
+    
+    # Process each quality index: distribution plot followed by t-statistics plot
+    for quality_index in target_quality_indices:
+        if quality_index not in quality_data:
+            print(f"Skipping {quality_index} - no data available")
+            continue
+        
+        print(f"\n{'='*60}")
+        print(f"PLOTTING RESULTS FOR {quality_index}")
+        print(f"{'='*60}")
+        
+        # Create distribution plot for this quality index
+        plot_quality_distributions(
+            quality_data, [quality_index], output_figure_filenames, 
+            CORE_A, CORE_B, debug
+        )
+        
+        # Immediately follow with t-statistics plot for the same quality index
+        plot_t_statistics_vs_constraints(
+            quality_data, [quality_index], output_figure_filenames,
+            CORE_A, CORE_B, debug
+        )
+    
+    print(f"\n{'='*80}")
+    print(f"ALL QUALITY INDICES PROCESSING COMPLETED")
+    print(f"{'='*80}")

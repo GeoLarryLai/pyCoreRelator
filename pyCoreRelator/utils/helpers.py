@@ -40,3 +40,14 @@ def find_nearest_index(depth_array, depth_value):
     Nearest index: 2, depth: 12.1
     """
     return np.abs(np.array(depth_array) - depth_value).argmin()
+
+
+def cohens_d(x, y):
+    """Calculate Cohen's d for effect size between two samples"""
+    n1, n2 = len(x), len(y)
+    s1, s2 = np.std(x, ddof=1), np.std(y, ddof=1)
+    # Pooled standard deviation
+    s_pooled = np.sqrt(((n1 - 1) * s1**2 + (n2 - 1) * s2**2) / (n1 + n2 - 2))
+    # Cohen's d
+    d = (np.mean(x) - np.mean(y)) / s_pooled
+    return d
