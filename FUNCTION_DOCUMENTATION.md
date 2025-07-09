@@ -1,10 +1,42 @@
 # pyCoreRelator Function Documentation
 
-This document provides detailed documentation for all functions in the pyCoreRelator package.
+This document provides detailed documentation for all functions in the pyCoreRelator package, focusing on recent enhancements and new capabilities for geological core correlation analysis.
 
 ## Core Module (`pyCoreRelator.core`)
 
 ### DTW Analysis (`dtw_analysis.py`)
+
+#### `run_comprehensive_dtw_analysis(log_a, log_b, md_a, md_b, **kwargs)`
+
+**ENHANCED** - Main function for segment-based DTW analysis with comprehensive age constraint integration, visualization capabilities, and performance optimizations.
+
+**Parameters:**
+- `log_a, log_b` (array-like): Well log data for cores A and B (1D or multidimensional)
+- `md_a, md_b` (array-like): Measured depth arrays corresponding to the logs
+- `picked_depths_a, picked_depths_b` (list, optional): User-picked depth boundaries for segmentation
+- `core_a_name, core_b_name` (str, optional): Core identifiers for output files
+- `top_bottom` (bool, default=True): Whether to include top and bottom boundaries automatically
+- `top_depth` (float, default=0.0): Depth value for top boundary
+- `independent_dtw` (bool, default=False): Whether to process multidimensional logs independently
+- `exclude_deadend` (bool, default=True): Whether to filter out dead-end segment pairs
+- `age_consideration` (bool, default=False): Whether to apply age-based filtering
+- `ages_a, ages_b` (dict, optional): Age constraint dictionaries with interpolated ages
+- `restricted_age_correlation` (bool, default=True): Whether to use strict age correlation filtering
+- `all_constraint_ages_a, all_constraint_ages_b` (list, optional): All age constraints for filtering
+- `all_constraint_depths_a, all_constraint_depths_b` (list, optional): Corresponding depth constraints
+- `all_constraint_pos_errors_a, all_constraint_pos_errors_b` (list, optional): Positive age uncertainties
+- `all_constraint_neg_errors_a, all_constraint_neg_errors_b` (list, optional): Negative age uncertainties
+- `visualize_pairs` (bool, default=True): Whether to create segment pair visualizations
+- `create_dtw_matrix` (bool, default=True): Whether to generate DTW matrix visualization
+- `creategif` (bool, default=False): Whether to create animated GIF sequences
+- `mute_mode` (bool, default=False): Whether to suppress print output for batch processing
+
+**Returns:**
+- `dtw_results` (dict): Comprehensive DTW results for each valid segment pair
+- `valid_dtw_pairs` (set): Set of valid segment pair indices after all filtering
+- `segments_a, segments_b` (list): Lists of segment boundaries for each core
+- `depth_boundaries_a, depth_boundaries_b` (list): Depth boundary indices
+- `dtw_distance_matrix_full` (np.ndarray): Full DTW distance matrix for visualization
 
 #### `handle_single_point_dtw(log1, log2, exponent=1, QualityIndex=False)`
 
@@ -67,31 +99,6 @@ Custom implementation of Dynamic Time Warping for well log correlation that hand
 - `wp` (np.ndarray): Optimal warping path as sequence of index pairs
 - `QIdx` (dict, optional): Quality indicators including correlation coefficient, diagonality, and DTW metrics if QualityIndex=True
 
-#### `run_comprehensive_dtw_analysis(log_a, log_b, md_a, md_b, **kwargs)`
-
-Runs comprehensive DTW analysis with integrated age correlation functionality, processing all possible segment pairs and optionally filtering based on age constraints.
-
-**Parameters:**
-- `log_a, log_b` (array-like): Well log data for cores A and B
-- `md_a, md_b` (array-like): Measured depth arrays corresponding to the logs
-- `picked_depths_a, picked_depths_b` (list, optional): User-picked depth boundaries
-- `top_bottom` (bool, default=True): Whether to include top and bottom boundaries
-- `top_depth` (float, default=0.0): Depth value for top boundary
-- `independent_dtw` (bool, default=False): Whether to process multidimensional logs independently
-- `create_dtw_matrix` (bool, default=True): Whether to generate DTW matrix visualization
-- `visualize_pairs` (bool, default=True): Whether to create segment pair visualizations
-- `age_consideration` (bool, default=False): Whether to apply age-based filtering
-- `ages_a, ages_b` (dict, optional): Age constraint dictionaries with keys: depths, ages, pos_uncertainties, neg_uncertainties
-- `restricted_age_correlation` (bool, default=True): Whether to use strict age correlation filtering
-- `exclude_deadend` (bool, default=True): Whether to filter out dead-end segment pairs
-
-**Returns:**
-- `dtw_results` (dict): Dictionary containing DTW results for each valid segment pair
-- `valid_dtw_pairs` (set): Set of valid segment pair indices after all filtering
-- `segments_a, segments_b` (list): Lists of segment boundaries for each core
-- `depth_boundaries_a, depth_boundaries_b` (list): Depth boundary indices
-- `dtw_distance_matrix_full` (np.ndarray): Full DTW distance matrix for reference
-
 ### Quality Metrics (`quality_metrics.py`)
 
 #### `compute_quality_indicators(log1, log2, p, q, D)`
@@ -110,22 +117,12 @@ Computes comprehensive quality indicators for DTW alignment including normalized
   - `variance_deviation`: Variance of index differences along warping path
   - `perc_diag`: Percentage diagonality of warping path
   - `corr_coef`: Correlation coefficient between aligned sequences
+  - `dtw_warp_eff`: DTW warping efficiency measure
   - `match_min, match_mean`: Minimum and mean matching function values
-
-#### `calculate_age_overlap_percentage(a_lower_bound, a_upper_bound, b_lower_bound, b_upper_bound)`
-
-Calculates the percentage of age range overlap between two age intervals relative to their union.
-
-**Parameters:**
-- `a_lower_bound, a_upper_bound` (float): Lower and upper bounds of first age range
-- `b_lower_bound, b_upper_bound` (float): Lower and upper bounds of second age range
-
-**Returns:**
-- `float`: Percentage overlap (0-100) of age ranges relative to their combined span
 
 #### `find_best_mappings(csv_file_path, top_n=5, filter_shortest_dtw=True, metric_weight=None)`
 
-Finds the best correlation mappings from complete path analysis results based on weighted scoring of quality metrics.
+**NEW** - Finds the best correlation mappings from complete path analysis results based on weighted scoring of quality metrics.
 
 **Parameters:**
 - `csv_file_path` (str): Path to the CSV file containing DTW results
@@ -139,11 +136,22 @@ Finds the best correlation mappings from complete path analysis results based on
   - `top_mapping_pairs`: List of valid_pairs_to_combine for each top mapping ID
   - `top_mapping_df`: DataFrame containing the top N mappings sorted by combined score
 
+#### `calculate_age_overlap_percentage(a_lower_bound, a_upper_bound, b_lower_bound, b_upper_bound)`
+
+Calculates the percentage of age range overlap between two age intervals relative to their union.
+
+**Parameters:**
+- `a_lower_bound, a_upper_bound` (float): Lower and upper bounds of first age range
+- `b_lower_bound, b_upper_bound` (float): Lower and upper bounds of second age range
+
+**Returns:**
+- `float`: Percentage overlap (0-100) of age ranges relative to their combined span
+
 ### Age Models (`age_models.py`)
 
 #### `calculate_interpolated_ages(picked_depths, age_constraints_depths, age_constraints_ages, age_constraints_pos_errors, age_constraints_neg_errors, **kwargs)`
 
-Calculates interpolated or extrapolated ages for picked depths based on age constraints using various uncertainty propagation methods.
+**ENHANCED** - Calculates interpolated or extrapolated ages for picked depths based on age constraints using various uncertainty propagation methods.
 
 **Parameters:**
 - `picked_depths` (list): List of picked depths in cm requiring age estimates
@@ -240,7 +248,7 @@ Computes the total number of complete paths connecting top and bottom segments f
 
 #### `find_all_segments(log_a, log_b, md_a, md_b, picked_depths_a=None, picked_depths_b=None, top_bottom=True, top_depth=0.0, mute_mode=False)`
 
-Finds segments in two logs using depth boundaries to create consecutive and single-point segments.
+**ENHANCED** - Finds segments in two logs using depth boundaries to create consecutive and single-point segments with improved connectivity handling.
 
 **Parameters:**
 - `log_a, log_b` (array): Log data for cores A and B
@@ -255,7 +263,7 @@ Finds segments in two logs using depth boundaries to create consecutive and sing
 
 #### `build_connectivity_graph(valid_dtw_pairs, detailed_pairs)`
 
-Builds predecessor and successor relationships between valid segment pairs.
+**NEW** - Builds predecessor and successor relationships between valid segment pairs for advanced path finding algorithms.
 
 **Parameters:**
 - `valid_dtw_pairs` (set): Valid segment pairs from DTW analysis
@@ -266,7 +274,7 @@ Builds predecessor and successor relationships between valid segment pairs.
 
 #### `identify_special_segments(valid_dtw_pairs, detailed_pairs, max_depth_a, max_depth_b)`
 
-Identifies special types of segments: tops, bottoms, dead ends, and orphans.
+**NEW** - Identifies special types of segments: tops, bottoms, dead ends, and orphans for path analysis.
 
 **Parameters:**
 - `valid_dtw_pairs` (set): Valid segment pairs
@@ -278,7 +286,7 @@ Identifies special types of segments: tops, bottoms, dead ends, and orphans.
 
 #### `filter_dead_end_pairs(valid_dtw_pairs, detailed_pairs, max_depth_a, max_depth_b, debug=False)`
 
-Removes dead end and orphan segment pairs from the valid set.
+**NEW** - Removes dead end and orphan segment pairs from the valid set to improve path connectivity.
 
 **Parameters:**
 - `valid_dtw_pairs` (set): Valid segment pairs
@@ -293,7 +301,7 @@ Removes dead end and orphan segment pairs from the valid set.
 
 #### `compute_total_complete_paths(valid_dtw_pairs, detailed_pairs, max_depth_a, max_depth_b, mute_mode=False)`
 
-Computes the total number of complete paths using dynamic programming.
+**NEW** - Computes the total number of complete paths using dynamic programming for complexity assessment.
 
 **Parameters:**
 - `valid_dtw_pairs` (set): Valid segment pairs
@@ -304,9 +312,9 @@ Computes the total number of complete paths using dynamic programming.
 **Returns:**
 - `dict`: Path computation results including total complete paths, viable segments, and path counts
 
-#### `find_complete_core_paths(valid_dtw_pairs, segments_a, segments_b, log_a, log_b, depth_boundaries_a, depth_boundaries_b, dtw_results, **kwargs)`
+#### `find_complete_core_paths(valid_dtw_pairs, segments_a, segments_b, log_a, log_b, depth_boundaries_a, depth_boundaries_b, dtw_results, dtw_distance_matrix_full, **kwargs)`
 
-Finds and enumerates all complete core-to-core correlation paths with advanced optimization features.
+**MAJOR ENHANCEMENT** - Finds and enumerates all complete core-to-core correlation paths with advanced optimization features including memory management, path pruning, and parallel processing.
 
 **Parameters:**
 - `valid_dtw_pairs` (set): Valid segment pairs from DTW analysis
@@ -314,13 +322,26 @@ Finds and enumerates all complete core-to-core correlation paths with advanced o
 - `log_a, log_b` (array): Core log data for metric computation
 - `depth_boundaries_a, depth_boundaries_b` (list): Depth boundary indices
 - `dtw_results` (dict): DTW results for quality metrics
+- `dtw_distance_matrix_full` (np.ndarray): Full DTW distance matrix for reference
 - `output_csv` (str, default="complete_core_paths.csv"): Output CSV filename
 - `debug` (bool, default=False): Enable detailed progress reporting
-- `max_search_path` (int, default=5000): Maximum complete paths to find before stopping
+- `start_from_top_only` (bool, default=True): Only start paths from top segments
+- `batch_size` (int, default=1000): Processing batch size for parallel operations
+- `n_jobs` (int, default=-1): Number of parallel jobs (-1 for all cores)
+- `shortest_path_search` (bool, default=True): Keep only shortest path lengths during search
+- `shortest_path_level` (int, default=2): Number of shortest unique lengths to keep
+- `max_search_path` (int, default=5000): Maximum intermediate paths to maintain per segment
+- `output_metric_only` (bool, default=False): Only output quality metrics in CSV, exclude path details
 - `mute_mode` (bool, default=False): If True, suppress all print output
 
 **Returns:**
-- `dict`: Comprehensive results including total paths found, viable segments, and output file path
+- `dict`: Comprehensive results including:
+  - `total_complete_paths_theoretical`: Theoretical path count
+  - `total_complete_paths_found`: Actually enumerated paths
+  - `viable_segments`: Set of viable segments
+  - `output_csv`: Path to generated CSV file
+  - `duplicates_removed`: Number of duplicates removed
+  - `search_limit_reached`: Whether search limit was hit
 
 ### Path Helpers (`path_helpers.py`)
 
@@ -347,17 +368,17 @@ Calculates how diagonal/linear the DTW path is (0-1, higher is better).
 
 #### `compress_path(path_segment_pairs)`
 
-Compresses path to save memory by converting to string format.
+**NEW** - Compresses path to save memory by converting to string format for efficient database storage.
 
 **Parameters:**
 - `path_segment_pairs` (list): List of segment pair tuples
 
 **Returns:**
-- `str`: Compressed path string
+- `str`: Compressed path string in format "a1,b1|a2,b2|..."
 
 #### `decompress_path(compressed_path)`
 
-Decompresses path from string format back to list of tuples.
+**NEW** - Decompresses path from string format back to list of tuples.
 
 **Parameters:**
 - `compressed_path` (str): Compressed path string
@@ -369,7 +390,7 @@ Decompresses path from string format back to list of tuples.
 
 #### `diagnose_chain_breaks(valid_dtw_pairs, segments_a, segments_b, depth_boundaries_a, depth_boundaries_b)`
 
-Comprehensive diagnostic to find exactly where segment chains break.
+Comprehensive diagnostic to find exactly where segment chains break and analyze connectivity issues.
 
 **Parameters:**
 - `valid_dtw_pairs` (set): Valid segment pairs
@@ -377,13 +398,34 @@ Comprehensive diagnostic to find exactly where segment chains break.
 - `depth_boundaries_a, depth_boundaries_b` (list): Depth boundaries for cores
 
 **Returns:**
-- `dict`: Enhanced results including complete path counts and bounding paths
+- `dict`: Enhanced results including complete path counts, missing connections, and bounding paths
 
-### Null Hypothesis (`null_hypothesis.py`)
+### Null Hypothesis Testing (`null_hypothesis.py`)
+
+#### `run_multi_parameter_analysis(log_a, log_b, md_a, md_b, all_depths_a_cat1, all_depths_b_cat1, pickeddepth_ages_a, pickeddepth_ages_b, age_data_a, age_data_b, uncertainty_method, parameter_combinations, target_quality_indices, test_age_constraint_removal, core_a_name, core_b_name, output_csv_filenames, **kwargs)`
+
+**NEW** - Comprehensive multi-parameter analysis framework for systematic evaluation of correlation quality across different age constraint combinations with null hypothesis testing.
+
+**Parameters:**
+- `log_a, log_b` (array-like): Core log data
+- `md_a, md_b` (array-like): Measured depth arrays
+- `all_depths_a_cat1, all_depths_b_cat1` (array-like): Category 1 picked depths for both cores
+- `pickeddepth_ages_a, pickeddepth_ages_b` (dict): Interpolated age data for picked depths
+- `age_data_a, age_data_b` (dict): Complete age constraint datasets
+- `uncertainty_method` (str): Age uncertainty calculation method
+- `parameter_combinations` (list): List of parameter combination dictionaries to test
+- `target_quality_indices` (list): Quality metrics to analyze ('corr_coef', 'norm_dtw', etc.)
+- `test_age_constraint_removal` (bool): Whether to test constraint removal scenarios
+- `core_a_name, core_b_name` (str): Core identifiers
+- `output_csv_filenames` (dict): Output file mapping for each quality index
+- `log_columns` (list, optional): Log column names to use
+
+**Returns:**
+- `None`: Results saved to specified CSV files with comprehensive statistical analysis
 
 #### `load_segment_pool(core_names, core_log_paths, picked_depth_paths, log_columns, depth_column, column_alternatives, boundary_category=1)`
 
-Loads segment pool data from turbidite database.
+Loads segment pool data from turbidite database for synthetic core generation.
 
 **Parameters:**
 - `core_names` (list): List of core names to process
@@ -397,38 +439,9 @@ Loads segment pool data from turbidite database.
 **Returns:**
 - `tuple`: (segment_pool_cores_data, turb_logs, depth_logs, target_dimensions)
 
-#### `plot_segment_pool(segment_logs, segment_depths, log_column_names, n_cols=8, figsize_per_row=4, plot_segments=True, save_plot=False, plot_filename=None)`
-
-Plots all segments from the pool in a grid layout.
-
-**Parameters:**
-- `segment_logs` (list): List of log data arrays (segments)
-- `segment_depths` (list): List of depth arrays corresponding to each segment
-- `log_column_names` (list): List of column names for labeling
-- `n_cols` (int, default=8): Number of columns in subplot grid
-- `figsize_per_row` (float, default=4): Height per row in the figure
-- `plot_segments` (bool, default=True): Whether to plot the segments
-- `save_plot` (bool, default=False): Whether to save the plot to file
-- `plot_filename` (str, optional): Filename for saving plot
-
-**Returns:**
-- `tuple`: (fig, axes) matplotlib figure and axes objects
-
-#### `print_segment_pool_summary(segment_logs, segment_depths, target_dimensions)`
-
-Prints summary statistics for the segment pool.
-
-**Parameters:**
-- `segment_logs` (list): List of log data arrays (segments)
-- `segment_depths` (list): List of depth arrays corresponding to each segment
-- `target_dimensions` (int): Number of dimensions in the data
-
-**Returns:**
-- `None`: Prints summary to console
-
 #### `create_synthetic_log_with_depths(thickness, turb_logs, depth_logs, exclude_inds=None, plot_results=True, save_plot=False, plot_filename=None)`
 
-Creates synthetic log using turbidite database approach.
+Creates synthetic log using turbidite database approach for null hypothesis testing.
 
 **Parameters:**
 - `thickness` (float): Target thickness for synthetic log
@@ -444,7 +457,7 @@ Creates synthetic log using turbidite database approach.
 
 #### `create_and_plot_synthetic_core_pair(core_a_length, core_b_length, turb_logs, depth_logs, log_columns, plot_results=True, save_plot=False, plot_filename=None)`
 
-Generates synthetic core pair and optionally plots the results.
+Generates synthetic core pair and optionally plots the results for correlation testing.
 
 **Parameters:**
 - `core_a_length, core_b_length` (float): Target lengths for synthetic cores
@@ -457,6 +470,63 @@ Generates synthetic core pair and optionally plots the results.
 
 **Returns:**
 - `tuple`: (synthetic_core_a, synthetic_core_b, depths_a, depths_b) containing the generated synthetic cores
+
+### Path Helpers (`path_helpers.py`)
+
+#### `check_memory(threshold_percent=85, mute_mode=False)`
+
+Checks if memory usage is high and forces cleanup if needed.
+
+**Parameters:**
+- `threshold_percent` (float, default=85): Memory usage threshold percentage
+- `mute_mode` (bool, default=False): If True, suppress print output
+
+**Returns:**
+- `bool`: True if memory cleanup was performed
+
+#### `calculate_diagonality(wp)`
+
+Calculates how diagonal/linear the DTW path is (0-1, higher is better).
+
+**Parameters:**
+- `wp` (np.ndarray): Warping path as sequence of index pairs
+
+**Returns:**
+- `float`: Diagonality score between 0 and 1
+
+#### `compress_path(path_segment_pairs)`
+
+**NEW** - Compresses path to save memory by converting to string format for efficient database storage.
+
+**Parameters:**
+- `path_segment_pairs` (list): List of segment pair tuples
+
+**Returns:**
+- `str`: Compressed path string in format "a1,b1|a2,b2|..."
+
+#### `decompress_path(compressed_path)`
+
+**NEW** - Decompresses path from string format back to list of tuples.
+
+**Parameters:**
+- `compressed_path` (str): Compressed path string
+
+**Returns:**
+- `list`: List of segment pair tuples
+
+### Diagnostics (`diagnostics.py`)
+
+#### `diagnose_chain_breaks(valid_dtw_pairs, segments_a, segments_b, depth_boundaries_a, depth_boundaries_b)`
+
+Comprehensive diagnostic to find exactly where segment chains break and analyze connectivity issues.
+
+**Parameters:**
+- `valid_dtw_pairs` (set): Valid segment pairs
+- `segments_a, segments_b` (list): Segments in cores A and B
+- `depth_boundaries_a, depth_boundaries_b` (list): Depth boundaries for cores
+
+**Returns:**
+- `dict`: Enhanced results including complete path counts, missing connections, and bounding paths
 
 ## Utilities Module (`pyCoreRelator.utils`)
 
@@ -479,6 +549,20 @@ Loads and preprocesses well log data and core images from multiple file sources 
 - `md` (np.ndarray): Measured depths corresponding to log data
 - `available_columns` (list): Names of successfully loaded log columns
 - `rgb_img, ct_img` (np.ndarray or None): RGB and CT images if available
+
+#### `load_core_age_constraints(core_name, age_base_path, consider_adjacent_core=False, data_columns=None, mute_mode=False)`
+
+**NEW** - Loads age constraint data from CSV files with support for adjacent cores and flexible column mapping.
+
+**Parameters:**
+- `core_name` (str): Name of the core to load age constraints for
+- `age_base_path` (str): Base directory path containing age constraint CSV files
+- `consider_adjacent_core` (bool, default=False): Whether to also search for similar core names
+- `data_columns` (list, optional): Specific column names to load from CSV files
+- `mute_mode` (bool, default=False): If True, suppress print output
+
+**Returns:**
+- `dict`: Age constraint data with keys: 'depths', 'ages', 'pos_errors', 'neg_errors', 'core', 'in_sequence_flags'
 
 #### `resample_datasets(datasets, target_resolution_factor=2)`
 
@@ -510,7 +594,7 @@ Combines DTW results from multiple segment pairs into a unified correlation resu
 
 #### `compute_combined_path_metrics(combined_wp, log_a, log_b, segment_quality_indicators, age_overlap_values=None)`
 
-Computes quality metrics for combined correlation paths by aggregating segment-level indicators.
+**NEW** - Computes quality metrics for combined correlation paths by aggregating segment-level indicators.
 
 **Parameters:**
 - `combined_wp` (np.ndarray): Combined warping path
@@ -593,11 +677,11 @@ Plots core data with optional RGB and CT images and support for multiple log typ
 **Returns:**
 - `tuple`: (fig, plot_ax) containing the matplotlib figure and main plotting axis
 
-### Plotting (`plotting.py`)
+### Advanced Plotting (`plotting.py`)
 
 #### `plot_segment_pair_correlation(log_a, log_b, md_a, md_b, **kwargs)`
 
-Creates comprehensive visualization of DTW correlation between log segments with support for single and multiple segment pairs, including RGB/CT images and age constraints.
+**ENHANCED** - Creates comprehensive visualization of DTW correlation between log segments with support for single and multiple segment pairs, including RGB/CT images and age constraints.
 
 **Parameters:**
 - `log_a, log_b` (array-like): Full log data arrays (single or multidimensional)
@@ -616,7 +700,7 @@ Creates comprehensive visualization of DTW correlation between log segments with
 
 #### `plot_multilog_segment_pair_correlation(log_a, log_b, md_a, md_b, wp, a_start, a_end, b_start, b_end, **kwargs)`
 
-Plots correlation between two multilogs (multiple log curves) with RGB and CT images.
+**NEW** - Plots correlation between two multilogs (multiple log curves) with RGB and CT images.
 
 **Parameters:**
 - `log_a, log_b` (array-like): Multidimensional log data arrays with shape (n_samples, n_logs)
@@ -637,7 +721,7 @@ Plots correlation between two multilogs (multiple log curves) with RGB and CT im
 
 #### `visualize_combined_segments(log_a, log_b, md_a, md_b, dtw_results, valid_dtw_pairs, segments_a, segments_b, depth_boundaries_a, depth_boundaries_b, dtw_distance_matrix_full, segment_pairs_to_combine, **kwargs)`
 
-Creates combined visualization of multiple segment correlations with both correlation plot and DTW matrix display.
+**ENHANCED** - Creates combined visualization of multiple segment correlations with both correlation plot and DTW matrix display.
 
 **Parameters:**
 - `log_a, log_b` (array-like): Full log data arrays
@@ -647,97 +731,123 @@ Creates combined visualization of multiple segment correlations with both correl
 - `segments_a, segments_b` (list): Segment definitions
 - `depth_boundaries_a, depth_boundaries_b` (list): Depth boundary indices
 - `dtw_distance_matrix_full` (np.ndarray): Full DTW distance matrix
-- `segment_pairs_to_combine` (list): Specific segment pairs to visualize together
-- `correlation_save_path, matrix_save_path` (str): Paths for saving output figures
+- `segment_pairs_to_combine` (list): Specific segment pairs to visualize
+- `color_interval_size` (int, default=5): Color coding interval for depth visualization
+- `visualize_pairs` (bool, default=True): Whether to show individual segment pairs
+- `mark_ages` (bool, default=False): Whether to display age constraints
+- `correlation_save_path, matrix_save_path` (str, optional): Output file paths
 
 **Returns:**
-- `tuple`: (correlation_figure, matrix_figure) matplotlib figure objects
+- `tuple`: (correlation_fig, matrix_fig, combined_wp, combined_quality) containing visualization results and quality metrics
 
-#### `plot_correlation_distribution(csv_file, target_mapping_id=None, quality_index=None, save_png=True, png_filename=None, core_a_name=None, core_b_name=None, no_bins=50)`
+#### `plot_correlation_distribution(csv_file, target_mapping_id=None, quality_index=None, save_png=True, png_filename=None, core_a_name=None, core_b_name=None, no_bins=None, pdf_method='KDE', kde_bandwidth=0.05, mute_mode=False)`
 
-Creates histogram distribution plot of correlation quality metrics from complete path analysis results.
+**NEW** - Analyzes and plots correlation quality distributions with advanced statistical fitting and percentile analysis.
 
 **Parameters:**
-- `csv_file` (str): Path to CSV file containing correlation path results
-- `target_mapping_id` (int, optional): Specific mapping ID to highlight in distribution
-- `quality_index` (str, optional): Specific quality metric to plot ('corr_coef', 'norm_dtw', etc.)
-- `save_png` (bool, default=True): Whether to save plot as PNG file
-- `png_filename` (str, optional): Custom filename for saved plot
-- `core_a_name, core_b_name` (str, optional): Core names for plot labeling
-- `no_bins` (int, default=50): Number of histogram bins
+- `csv_file` (str): Path to CSV/Parquet file containing mapping results
+- `quality_index` (str): Required parameter specifying which quality index to plot ('corr_coef', 'norm_dtw', etc.)
+- `target_mapping_id` (int, optional): Specific mapping ID to highlight in the plot
+- `save_png` (bool, default=True): Whether to save the plot as PNG
+- `png_filename` (str, optional): Custom filename for saving PNG
+- `core_a_name, core_b_name` (str, optional): Core names for plot title
+- `no_bins` (int, optional): Number of histogram bins (auto if None)
+- `pdf_method` (str, default='KDE'): Probability density function method ('KDE', 'skew-normal', or 'normal')
+- `kde_bandwidth` (float, default=0.05): Bandwidth for KDE method
+- `mute_mode` (bool, default=False): If True, suppress all print statements
 
 **Returns:**
-- `matplotlib.figure.Figure`: Distribution plot figure
+- `tuple`: (fig, ax, fit_params) containing plot figure, axes, and statistical parameters
+
+#### `plot_quality_distributions(quality_data, target_quality_indices, output_figure_filenames, CORE_A, CORE_B, debug=True)`
+
+**NEW** - Compares real data distributions against null hypothesis with comprehensive statistical testing.
+
+**Parameters:**
+- `quality_data` (dict): Dictionary containing quality metric data for different parameter combinations
+- `target_quality_indices` (list): List of quality metrics to analyze and plot
+- `output_figure_filenames` (dict): Mapping of quality indices to output filenames
+- `CORE_A, CORE_B` (str): Core identifiers for plot titles
+- `debug` (bool, default=True): Whether to print detailed statistical information
+
+**Returns:**
+- `None`: Plots are saved to specified output files with comprehensive statistical analysis
+
+#### `plot_t_statistics_vs_constraints(quality_data, target_quality_indices, output_figure_filenames, CORE_A, CORE_B, debug=True)`
+
+**NEW** - Plots t-statistics versus age constraints showing correlation quality improvement with additional constraints.
+
+**Parameters:**
+- `quality_data` (dict): Dictionary containing quality metric data across constraint combinations
+- `target_quality_indices` (list): Quality metrics to analyze
+- `output_figure_filenames` (dict): Output filename mapping
+- `CORE_A, CORE_B` (str): Core names for labeling
+- `debug` (bool, default=True): Whether to show detailed analysis
+
+**Returns:**
+- `None`: Creates plots showing statistical significance trends and saves to files
 
 ### Matrix Plots (`matrix_plots.py`)
 
-#### `plot_dtw_matrix_with_paths(dtw_distance_matrix_full, mode=None, **kwargs)`
+#### `plot_dtw_matrix_with_paths(dtw_distance_matrix_full, **kwargs)`
 
-Creates comprehensive DTW distance matrix visualization with various path overlay options and age constraint lines.
+**ENHANCED** - Visualizes DTW distance matrices with correlation paths and advanced color-coding options.
 
 **Parameters:**
-- `dtw_distance_matrix_full` (np.ndarray): Full DTW distance matrix to visualize
-- `mode` (str): Visualization mode - 'segment_paths', 'combined_path', or 'all_paths_colored'
-- `valid_dtw_pairs` (set, optional): Valid segment pairs for 'segment_paths' mode
-- `combined_wp` (np.ndarray, optional): Combined warping path for 'combined_path' mode
-- `sequential_mappings_csv` (str, optional): CSV file for 'all_paths_colored' mode
+- `dtw_distance_matrix_full` (np.ndarray): Full DTW distance matrix
+- `sequential_mappings_csv` (str, optional): CSV file with correlation paths to overlay
+- `core_a_name, core_b_name` (str, optional): Core identifiers
+- `mode` (str, default='all_paths_colored'): Visualization mode for path display
+- `color_metric` (str, optional): Metric used for path coloring ('corr_coef', 'norm_dtw', 'dtw_warp_eff', etc.)
+- `output_filename` (str, optional): Output filename for saving plot
 - `age_constraint_a_depths, age_constraint_b_depths` (list, optional): Age constraint depths
-- `age_constraint_a_source_cores, age_constraint_b_source_cores` (list, optional): Source core names for constraints
-- `color_metric` (str, optional): Quality metric for path coloring
-- `output_filename` (str, optional): Path to save output figure
+- `n_jobs` (int, default=-1): Number of parallel processing jobs
 
 **Returns:**
-- `matplotlib.figure.Figure`: DTW matrix visualization with overlaid paths and constraints
+- `matplotlib.figure.Figure`: DTW matrix visualization with colored correlation paths
 
 ### Animation (`animation.py`)
 
-#### `create_segment_dtw_animation(log_a, log_b, md_a, md_b, dtw_results, valid_dtw_pairs, segments_a, segments_b, depth_boundaries_a, depth_boundaries_b, **kwargs)`
+#### `visualize_dtw_results_from_csv(sequential_mappings_csv, log_a, log_b, md_a, md_b, dtw_results, valid_dtw_pairs, segments_a, segments_b, depth_boundaries_a, depth_boundaries_b, dtw_distance_matrix_full, **kwargs)`
 
-Creates animated GIF showing DTW correlations between segment pairs with optional age information display.
-
-**Parameters:**
-- `log_a, log_b` (array-like): Full log data arrays
-- `md_a, md_b` (array-like): Measured depth arrays
-- `dtw_results` (dict): DTW results for all segment pairs
-- `valid_dtw_pairs` (set): Set of valid segment pairs to animate
-- `segments_a, segments_b` (list): Segment definitions
-- `depth_boundaries_a, depth_boundaries_b` (list): Depth boundary indices
-- `output_filename` (str, default='SegmentPair_DTW_animation.gif'): Output GIF filename
-- `max_frames` (int, default=100): Maximum number of animation frames
-- `age_consideration` (bool, default=False): Whether to include age information
-- `keep_frames` (bool, default=True): Whether to preserve individual frame files
-
-**Returns:**
-- `str`: Message indicating animation creation status and location
-
-#### `visualize_dtw_results_from_csv(csv_path, log_a, log_b, md_a, md_b, dtw_results, valid_dtw_pairs, segments_a, segments_b, depth_boundaries_a, depth_boundaries_b, dtw_distance_matrix_full, **kwargs)`
-
-Creates animated visualizations from CSV file containing complete correlation paths with both correlation and matrix views.
+**ENHANCED** - Generates animated correlation sequences from CSV results with comprehensive visualization options.
 
 **Parameters:**
-- `csv_path` (str): Path to CSV file containing correlation mapping results
-- `log_a, log_b` (array-like): Full log data arrays
+- `sequential_mappings_csv` (str): CSV file containing sequential correlation mappings
+- `log_a, log_b` (array-like): Core log data
 - `md_a, md_b` (array-like): Measured depth arrays
-- `dtw_results` (dict): DTW results for quality assessment
-- `valid_dtw_pairs` (set): Set of valid segment pairs
+- `dtw_results` (dict): DTW analysis results
+- `valid_dtw_pairs` (set): Valid segment pairs
 - `segments_a, segments_b` (list): Segment definitions
-- `depth_boundaries_a, depth_boundaries_b` (list): Depth boundary indices
+- `depth_boundaries_a, depth_boundaries_b` (list): Depth boundaries
 - `dtw_distance_matrix_full` (np.ndarray): Full DTW distance matrix
-- `max_frames` (int, default=150): Maximum number of animation frames
-- `creategif` (bool, default=True): Whether to create GIF animations
-- `correlation_gif_output_filename, matrix_gif_output_filename` (str): Output GIF filenames
+- `core_a_name, core_b_name` (str, optional): Core identifiers
+- `creategif` (bool, default=True): Whether to create animated GIF output
+- `max_frames` (int, default=50): Maximum number of animation frames
+- `mark_ages` (bool, default=False): Whether to include age constraint markers
 
 **Returns:**
-- `tuple`: (correlation_status, matrix_status) indicating animation creation results
+- `None`: Creates animated visualizations and saves to specified output files
 
-#### `create_gif(frame_folder, output_filename, duration=300)`
+## Performance and Optimization Features
 
-Creates GIF animation from a folder of PNG frame images with memory-efficient processing.
+The package includes several performance enhancements documented across the functions:
 
-**Parameters:**
-- `frame_folder` (str): Path to folder containing PNG frame images
-- `output_filename` (str): Path and filename for output GIF
-- `duration` (int, default=300): Duration in milliseconds for each frame
+### Memory Management
+- **SQLite Database Storage**: Temporary database storage for large path collections
+- **Path Compression**: String-based compression for memory-efficient path storage  
+- **Garbage Collection**: Automatic memory cleanup during intensive operations
+- **Memory Monitoring**: Real-time memory usage tracking with cleanup triggers
 
-**Returns:**
-- `str`: Status message indicating GIF creation success and frame count 
+### Parallel Processing
+- **Multi-core Support**: Parallel processing for batch operations and quality metric computation
+- **Configurable Job Count**: User-controllable parallel job allocation
+- **Database Optimization**: WAL mode and indexed operations for efficient concurrent access
+
+### Path Optimization
+- **Shortest Path Search**: Focus on most promising correlation paths
+- **Path Pruning**: Intelligent removal of intermediate paths to prevent memory overflow
+- **Topological Ordering**: Efficient segment processing order for optimal path discovery
+- **Duplicate Removal**: Advanced deduplication algorithms with batch processing
+
+These optimizations enable analysis of large core datasets while maintaining computational efficiency and memory constraints. 

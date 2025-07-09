@@ -17,10 +17,29 @@ joblib>=1.1.0
 # Interactive environment support
 IPython>=7.25.0
 
-# System utilities
+# System utilities and memory management
 psutil>=5.8.0
 
-# Image processing (for core images)
-# Note: Some notebooks may require additional packages:
-# scikit-image>=0.18.0  # For advanced image processing
-# opencv-python>=4.5.0  # For computer vision tasks 
+# Statistical analysis
+# scipy already included above for stats module
+
+# Built-in modules (no installation required):
+# sqlite3 - for database operations
+# tempfile - for temporary file management
+# gc - for garbage collection and memory management
+# os - for file system operations
+# random - for random sampling and pruning
+# collections - for deque and defaultdict
+# itertools - for combinations and advanced iteration
+# threading - for concurrent operations
+# json - for data serialization
+# csv - for CSV file operations
+# hashlib - for hash calculations
+# sys - for system operations
+# math - for mathematical operations
+
+# Optional packages for advanced features:
+# Uncomment the following lines if using advanced image processing features:
+# scikit-image>=0.18.0    # For advanced core image processing
+# opencv-python>=4.5.0    # For computer vision tasks on core images
+# scikit-learn>=1.0.0     # For machine learning-based quality assessment 
