@@ -232,8 +232,22 @@ def print_segment_pool_summary(segment_logs, segment_depths, target_dimensions):
     print(f"  Target dimensions: {target_dimensions}")
 
 
-def create_synthetic_log_with_depths(thickness, turb_logs, depth_logs, exclude_inds=None, plot_results=True, save_plot=False, plot_filename=None):
-    """Create synthetic log using turbidite database approach with picked depths at turbidite bases."""
+def create_synthetic_log_with_depths(thickness, turb_logs, depth_logs, exclude_inds=None, repetition=False):
+    """Create synthetic log using turbidite database approach with picked depths at turbidite bases.
+    
+    Parameters:
+    - thickness: target thickness for the synthetic log
+    - turb_logs: list of turbidite log segments
+    - depth_logs: list of corresponding depth arrays
+    - exclude_inds: indices to exclude from selection (optional)
+    - repetition: if True, allow reusing turbidite segments; if False, each segment can only be used once (default: False)
+    - plot_results: whether to display plots (default: True)
+    - save_plot: whether to save plots (default: False)
+    - plot_filename: filename for saving plots (optional)
+    
+    Returns:
+    - tuple: (log, d, inds, valid_picked_depths)
+    """
     # Determine target dimensions from the first available segment
     target_dimensions = turb_logs[0].shape[1] if len(turb_logs) > 0 and turb_logs[0].ndim > 1 else 1
     
@@ -243,15 +257,36 @@ def create_synthetic_log_with_depths(thickness, turb_logs, depth_logs, exclude_i
     inds = []
     picked_depths = []
     
+    # Initialize available indices for selection
+    if repetition:
+        # If repetition is allowed, always use the full range
+        available_inds = list(range(len(turb_logs)))
+    else:
+        # If no repetition, start with all indices and remove as we use them
+        available_inds = list(range(len(turb_logs)))
+        if exclude_inds is not None:
+            available_inds = [ind for ind in available_inds if ind not in exclude_inds]
+    
     # Add initial boundary
     picked_depths.append((0, 1))
     
     while max_depth <= thickness:
-        ind = random.choices(np.arange(len(turb_logs)), k=1)[0]
-        
-        # Skip if this index should be excluded
-        if exclude_inds is not None and ind in exclude_inds:
-            continue
+        # Check if we have available indices
+        if not repetition and len(available_inds) == 0:
+            print("Warning: No more unique turbidite segments available. Stopping log generation.")
+            break
+            
+        if repetition:
+            # Original behavior: select from full range, excluding only exclude_inds
+            potential_inds = [ind for ind in range(len(turb_logs)) if exclude_inds is None or ind not in exclude_inds]
+            if not potential_inds:
+                print("Warning: No available turbidite segments after exclusions. Stopping log generation.")
+                break
+            ind = random.choices(potential_inds, k=1)[0]
+        else:
+            # New behavior: select from available indices and remove after use
+            ind = random.choices(available_inds, k=1)[0]
+            available_inds.remove(ind)  # Remove from available list to prevent reuse
             
         inds.append(ind)
         
@@ -312,7 +347,7 @@ def create_synthetic_log_with_depths(thickness, turb_logs, depth_logs, exclude_i
 
 
 def create_and_plot_synthetic_core_pair(core_a_length, core_b_length, turb_logs, depth_logs, 
-                                       log_columns, plot_results=True, save_plot=False, plot_filename=None):
+                                       log_columns, repetition=False, plot_results=True, save_plot=False, plot_filename=None):
     """
     Generate synthetic core pair and optionally plot the results.
     
@@ -322,6 +357,7 @@ def create_and_plot_synthetic_core_pair(core_a_length, core_b_length, turb_logs,
     - turb_logs: list of turbidite log segments
     - depth_logs: list of corresponding depth arrays
     - log_columns: list of log column names for labeling
+    - repetition: if True, allow reusing turbidite segments; if False, each segment can only be used once (default: False)
     - plot_results: whether to display the plot
     - save_plot: whether to save the plot to file
     - plot_filename: filename for saving plot (if save_plot=True)
@@ -335,10 +371,10 @@ def create_and_plot_synthetic_core_pair(core_a_length, core_b_length, turb_logs,
     print("Generating synthetic core pair...")
 
     synthetic_log_a, synthetic_md_a, inds_a, synthetic_picked_a_tuples = create_synthetic_log_with_depths(
-        core_a_length, turb_logs, depth_logs, exclude_inds=None
+        core_a_length, turb_logs, depth_logs, exclude_inds=None, repetition=repetition
     )
     synthetic_log_b, synthetic_md_b, inds_b, synthetic_picked_b_tuples = create_synthetic_log_with_depths(
-        core_b_length, turb_logs, depth_logs, exclude_inds=None
+        core_b_length, turb_logs, depth_logs, exclude_inds=None, repetition=repetition
     )
 
     # Extract just the depths from the tuples
