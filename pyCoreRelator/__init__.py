@@ -75,6 +75,14 @@ from .visualization.plotting import (
 from .visualization.matrix_plots import plot_dtw_matrix_with_paths
 from .visualization.animation import visualize_dtw_results_from_csv
 
+# Log processing functions - RGB image analysis
+from .log.rgb_image2log import (
+    trim_image,
+    extract_rgb_profile,
+    plot_rgb_profile,
+    stitch_core_sections
+)
+
 # Make commonly used functions available at package level
 __all__ = [
     # Version
@@ -125,5 +133,11 @@ __all__ = [
     # Utilities
     'find_nearest_index',
     'combine_segment_dtw_results',
-    'cohens_d'
+    'cohens_d',
+    
+    # RGB image processing functions
+    'trim_image',
+    'extract_rgb_profile',
+    'plot_rgb_profile',
+    'stitch_core_sections'
 ]

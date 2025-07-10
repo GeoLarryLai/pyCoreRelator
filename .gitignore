@@ -5,7 +5,10 @@
 !/pyCoreRelator_test.ipynb
 !/pyCoreRelator_test_comparedtoNull.ipynb
 !/pyCoreRelator_null_hypothesis.ipynb
-!/pyCoreRelator_depthboundary_picker.ipynb
+!/pyCoreRelator_RGB_image2log.ipynb
+!/pyCoreRelator_CT_image2log.ipynb
+!/pyCoreRelator_ML_dataimputation.ipynb
+!/pyCoreRelator_boundary_picker.ipynb
 !/LICENSE
 !/FUNCTION_DOCUMENTATION.md
 !/requirements.txt
