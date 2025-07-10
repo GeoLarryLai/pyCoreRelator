@@ -7,8 +7,9 @@
 !/pyCoreRelator_null_hypothesis.ipynb
 !/pyCoreRelator_RGB_image2log.ipynb
 !/pyCoreRelator_CT_image2log.ipynb
-!/pyCoreRelator_ML_dataimputation.ipynb
 !/pyCoreRelator_boundary_picker.ipynb
+!/pyCoreRelator_ML_data_imputation.ipynb
+!/pyCoreRelator_auto_facies_classification.ipynb
 !/LICENSE
 !/FUNCTION_DOCUMENTATION.md
 !/requirements.txt
