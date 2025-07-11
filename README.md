@@ -14,7 +14,7 @@
 - **Complete DTW Path Finding**: Identify correlation DTW paths spanning entire cores from top to bottom
 - **Null Hypothesis Testing**: Generate synthetic cores and test correlation significance with multi-parameter analysis
 - **Log Data Cleaning & Processing**: Convert core images (CT scans, RGB photos) to digital log data with capabilities of automated brightness/color profile extraction, image alignment & stitching, and machine-learning based data imputation for data gaps (future features to be updated)
-- **Multidimensional Log Support**: Handle multiple log types (MS, CT, RGB, density) simultaneously with dependent or independent multidimentiaonl DTW approach
+- **Multi-dimensional Log Support**: Handle multiple log types (MS, CT, RGB, density) simultaneously with dependent or independent multi-dimentiaonl DTW approach
 - **Visualizations**: DTW cost matrix and paths, segment-wise core correlations, animated sequences, and statistical analysis for the correlation solutions
 
 ## Requirements
@@ -32,7 +32,7 @@ Python 3.9+ with the following packages:
 - `joblib>=1.1.0` - Parallel processing
 - `IPython>=7.25.0` - Interactive environment support
 - `psutil>=5.8.0` - System utilities and memory monitoring
-- `pydicom>=2.3.0` - DICOM medical image processing
+- `pydicom>=2.3.0` - Image processing for CT scan DICOM files
 - `opencv-python>=4.5.0` - Computer vision and image processing
 
 **Dependencies for Jupyter Notebooks:**
