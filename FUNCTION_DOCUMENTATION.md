@@ -248,6 +248,214 @@ Computes the total number of complete paths connecting top and bottom segments f
 
 #### `find_all_segments(log_a, log_b, md_a, md_b, picked_depths_a=None, picked_depths_b=None, top_bottom=True, top_depth=0.0, mute_mode=False)`
 
+Identifies segments in two logs using picked depths, creating consecutive boundary segments and single point segments for correlation analysis.
+
+**Parameters:**
+- `log_a, log_b` (array-like): Log data arrays for cores A and B
+- `md_a, md_b` (array-like): Measured depth arrays corresponding to logs
+- `picked_depths_a, picked_depths_b` (list, optional): User-picked depth values (not indices)
+- `top_bottom` (bool, default=True): Whether to include top and bottom boundaries
+- `top_depth` (float, default=0.0): Depth value for top boundary
+- `mute_mode` (bool, default=False): Whether to suppress print output
+
+**Returns:**
+- `segments_a, segments_b` (list): Lists of segment boundary index pairs for each core
+- `depth_boundaries_a, depth_boundaries_b` (list): Lists of depth boundary indices
+- `depth_values_a, depth_values_b` (list): Lists of actual depth values used as boundaries
+
+## Log Module (`pyCoreRelator.log`)
+
+### RGB Image Processing (`rgb_image2log.py`)
+
+#### `extract_rgb_profile(image_path, upper_rgb_threshold=100, lower_rgb_threshold=0, buffer=20, top_trim=0, bottom_trim=0, target_luminance=130, bin_size=10, width_start_pct=0.25, width_end_pct=0.75)`
+
+Extracts RGB color profiles along the y-axis of an image file, analyzing the center strip and calculating statistics for binned data with normalization.
+
+**Parameters:**
+- `image_path` (str): Path to the image file (BMP, JPEG, PNG, TIFF formats supported)
+- `upper_rgb_threshold` (float, default=100): Upper RGB threshold for filtering bright artifacts
+- `lower_rgb_threshold` (float, default=0): Lower RGB threshold for excluding dark regions
+- `buffer` (int, default=20): Buffer pixels above and below filtered regions
+- `top_trim, bottom_trim` (int, default=0): Pixels to trim from image edges
+- `target_luminance` (float, default=130): Target mean luminance for scaling
+- `bin_size` (int, default=10): Bin size in pixels for depth averaging
+- `width_start_pct, width_end_pct` (float, default=0.25, 0.75): Width analysis strip boundaries
+
+**Returns:**
+- `tuple`: (depths_pixels, widths_pixels, r_means, g_means, b_means, r_stds, g_stds, b_stds, lum_means, lum_stds, img_array) containing depth positions, RGB statistics, and processed image
+
+#### `plot_rgb_profile(depths, r, g, b, r_std, g_std, b_std, lum, lum_std, img, core_name=None, save_figs=False, output_dir=None)`
+
+Creates comprehensive three-panel visualization of RGB analysis results with image, color profiles, and standard deviation plots.
+
+**Parameters:**
+- `depths` (array-like): Depth positions in pixels
+- `r, g, b` (array-like): RGB color intensity values
+- `r_std, g_std, b_std` (array-like): RGB standard deviations
+- `lum, lum_std` (array-like): Luminance values and standard deviations
+- `img` (array-like): Core image array for display
+- `core_name` (str, optional): Core identifier for titles and file naming
+- `save_figs` (bool, default=False): Whether to save plots as files
+- `output_dir` (str, optional): Directory for saved files
+
+**Returns:**
+- None (displays plot and optionally saves files)
+
+#### `stitch_core_sections(core_structure, mother_dir, stitchbuffer=10, width_start_pct=0.25, width_end_pct=0.75)`
+
+Stitches multiple core section images by processing RGB profiles with section-specific parameters and combining results into continuous arrays.
+
+**Parameters:**
+- `core_structure` (dict): Dictionary with filenames as keys and processing parameters as values
+- `mother_dir` (str): Base directory path containing image files
+- `stitchbuffer` (int, default=10): Bin rows to remove at stitching edges
+- `width_start_pct, width_end_pct` (float, default=0.25, 0.75): Analysis strip boundaries
+
+**Returns:**
+- `tuple`: (all_depths, all_r, all_g, all_b, all_r_std, all_g_std, all_b_std, all_lum, all_lum_std, stitched_image) containing continuous RGB data and combined image
+
+#### `trim_image(img_array, top_trim=0, bottom_trim=0)`
+
+Removes specified pixels from top and bottom edges of image array to eliminate borders or artifacts.
+
+**Parameters:**
+- `img_array` (array-like): Input image array with shape (height, width, channels)
+- `top_trim, bottom_trim` (int, default=0): Pixels to trim from edges
+
+**Returns:**
+- `array-like`: Trimmed image array with reduced height
+
+### CT Image Processing (`ct_image2log.py`)
+
+#### `load_dicom_files(dir_path, force=True)`
+
+Loads DICOM files from directory and creates 3D volume data with pixel spacing and slice thickness information.
+
+**Parameters:**
+- `dir_path` (str): Directory path containing DICOM files
+- `force` (bool, default=True): Whether to ignore problematic files and continue processing
+
+**Returns:**
+- `tuple`: (volume_data, pixel_spacing_x, pixel_spacing_y, slice_thickness) containing 3D array and spatial metadata
+
+#### `get_slice(volume, index, axis=0)`
+
+Extracts 2D slice from 3D volume along specified axis for viewing different orientations of CT data.
+
+**Parameters:**
+- `volume` (array-like): 3D numpy array with shape (height, width, depth)
+- `index` (int): Slice index along specified axis
+- `axis` (int, default=0): Axis for slice extraction (0=sagittal, 1=coronal, 2=axial)
+
+**Returns:**
+- `array-like`: 2D numpy array of extracted slice
+
+#### `get_brightness_trace(slice_data, axis=0, width_start_pct=0.25, width_end_pct=0.75)`
+
+Calculates brightness trace along specified axis within central strip of slice, excluding edge artifacts.
+
+**Parameters:**
+- `slice_data` (array-like): 2D slice data array
+- `axis` (int, default=0): Direction for trace calculation (0=vertical, 1=horizontal)
+- `width_start_pct, width_end_pct` (float, default=0.25, 0.75): Central strip boundaries
+
+**Returns:**
+- `array-like`: Brightness values along specified axis
+
+#### `get_brightness_stats(slice_data, axis=1, width_start_pct=0.25, width_end_pct=0.75)`
+
+Computes mean and standard deviation of brightness along specified axis within central analysis strip.
+
+**Parameters:**
+- `slice_data` (array-like): 2D slice data array
+- `axis` (int, default=1): Statistical calculation direction
+- `width_start_pct, width_end_pct` (float, default=0.25, 0.75): Analysis strip boundaries
+
+**Returns:**
+- `tuple`: (mean_values, std_values) containing brightness statistics along axis
+
+#### `process_brightness_data(slice_data, px_spacing_y, trim_top, trim_bottom, min_brightness=400, buffer=5, width_start_pct=0.25, width_end_pct=0.75)`
+
+Processes CT slice data with trimming, filtering, and masking operations to extract clean brightness statistics.
+
+**Parameters:**
+- `slice_data` (array-like): 2D CT scan slice data
+- `px_spacing_y` (float): Pixel spacing in y direction (mm/pixel)
+- `trim_top, trim_bottom` (int): Pixels to trim from slice edges
+- `min_brightness` (float, default=400): Minimum threshold for masking
+- `buffer` (float, default=5): Buffer size in mm around masked values
+- `width_start_pct, width_end_pct` (float, default=0.25, 0.75): Analysis strip boundaries
+
+**Returns:**
+- `tuple`: (brightness, stddev, trimmed_slice) containing masked brightness values and processed slice
+
+#### `find_best_overlap(curve1, curve2, min_overlap=20, max_overlap=450)`
+
+Determines optimal overlap between two brightness curves by maximizing correlation and peak matching scores.
+
+**Parameters:**
+- `curve1, curve2` (array-like): Brightness curves to be overlapped
+- `min_overlap, max_overlap` (int, default=20, 450): Overlap length constraints in pixels
+
+**Returns:**
+- `tuple`: (best_overlap, max_score) containing optimal overlap length and correlation score
+
+#### `stitch_curves(bright1, bright2, std1, std2, px_spacing_y1, px_spacing_y2, min_overlap=20, max_overlap=450)`
+
+Stitches two brightness curves by finding optimal overlap and creating continuous depth-aligned profiles.
+
+**Parameters:**
+- `bright1, bright2` (array-like): Brightness curves from two scans
+- `std1, std2` (array-like): Standard deviation curves from two scans
+- `px_spacing_y1, px_spacing_y2` (float): Pixel spacing for each scan
+- `min_overlap, max_overlap` (int, default=20, 450): Overlap constraints
+
+**Returns:**
+- `tuple`: (final_overlap, od1, od2, st_bright, st_std, st_depth, bright2_shifted, std2_shifted) containing stitching parameters and merged data
+
+#### `process_single_scan(data_dir, params, segment, scan_name, width_start_pct=0.25, width_end_pct=0.75, max_value_side_trim=1200)`
+
+Processes complete workflow for single CT scan from DICOM loading through brightness extraction and visualization.
+
+**Parameters:**
+- `data_dir` (str): Directory containing DICOM files
+- `params` (dict): Processing parameters (trim_top, trim_bottom, min_brightness, buffer)
+- `segment, scan_name` (str): Identifiers for core segment and scan
+- `width_start_pct, width_end_pct` (float, default=0.25, 0.75): Analysis strip boundaries
+- `max_value_side_trim` (float, default=1200): Threshold for automatic side trimming
+
+**Returns:**
+- `tuple`: (brightness, stddev, trimmed_slice, px_spacing_x, px_spacing_y) containing processed data and metadata
+
+#### `process_two_scans(segment_data, segment, mother_dir, width_start_pct=0.25, width_end_pct=0.75, max_value_side_trim=1200, min_overlap=20, max_overlap=450)`
+
+Processes and stitches two CT scans for single core segment with complete workflow from processing through visualization.
+
+**Parameters:**
+- `segment_data` (dict): Dictionary containing scan names and processing parameters
+- `segment` (str): Core segment identifier
+- `mother_dir` (str): Base directory containing scan subdirectories
+- `width_start_pct, width_end_pct` (float, default=0.25, 0.75): Analysis boundaries
+- `max_value_side_trim` (float, default=1200): Automatic trimming threshold
+- `min_overlap, max_overlap` (int, default=20, 450): Stitching overlap constraints
+
+**Returns:**
+- `tuple`: (st_bright_re, st_std_re, st_depth_re, st_slice, pixel_spacing) containing stitched data and combined slice
+
+#### `process_and_stitch_segments(core_structure, mother_dir, width_start_pct=0.25, width_end_pct=0.75, max_value_side_trim=1200, min_overlap=20, max_overlap=450)`
+
+Orchestrates complete processing workflow for multi-segment core with rescaling to match RGB dimensions and final stitching.
+
+**Parameters:**
+- `core_structure` (dict): Dictionary defining core structure with segment parameters including RGB target dimensions
+- `mother_dir` (str): Base directory path
+- `width_start_pct, width_end_pct` (float, default=0.25, 0.75): Analysis boundaries
+- `max_value_side_trim` (float, default=1200): Trimming threshold
+- `min_overlap, max_overlap` (int, default=20, 450): Stitching constraints
+
+**Returns:**
+- `tuple`: (final_stitched_slice, final_stitched_brightness, final_stitched_stddev, final_stitched_depth, px_spacing_x, px_spacing_y) containing complete core data
+
 **ENHANCED** - Finds segments in two logs using depth boundaries to create consecutive and single-point segments with improved connectivity handling.
 
 **Parameters:**
