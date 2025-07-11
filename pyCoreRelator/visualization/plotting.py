@@ -18,7 +18,6 @@ import matplotlib.gridspec as gridspec
 import matplotlib.patches as patches
 from matplotlib.collections import LineCollection
 from matplotlib.colors import LinearSegmentedColormap
-from PIL import Image
 import pandas as pd
 from matplotlib.gridspec import GridSpec
 from matplotlib.lines import Line2D
@@ -2279,10 +2278,11 @@ def plot_t_statistics_vs_constraints(quality_data, target_quality_indices, outpu
         df_all_params = data['df_all_params']
         combined_data = data['combined_data']
         
-        print(f"Processing {quality_index} with {len(df_all_params)} scenarios...")
+        print(f"Processing {quality_index} with {len(df_all_params)} data points...")
+        print(f"  Will calculate t-statistics, Cohen's d, and effect sizes for each point...")
         
         # Create plot
-        fig, ax = plt.subplots(figsize=(9.5, 5))
+        fig, ax = plt.subplots(figsize=(9, 5))
         
         # Cache repeated calculations
         combined_mean = np.mean(combined_data)
@@ -2298,11 +2298,7 @@ def plot_t_statistics_vs_constraints(quality_data, target_quality_indices, outpu
             row_data_list.append((idx, row, row['age_consideration'], row['core_b_constraints_count']))
         
         # Process t-statistics in parallel
-        if n_jobs == -1:
-            print(f"  Calculating t-statistics and Cohen's d using all available cores...")
-        else:
-            print(f"  Calculating t-statistics and Cohen's d using {n_jobs} cores...")
-        
+        print(f"  Calculating t-statistics and Cohen's d using {n_jobs} cores...")
         with tqdm(total=len(row_data_list), desc="  Processing t-statistics", disable=debug) as pbar:
             # Process in batches to manage memory
             all_results = []
@@ -2493,71 +2489,6 @@ def plot_t_statistics_vs_constraints(quality_data, target_quality_indices, outpu
         cbar.set_ticks([-max_abs_score, 0, max_abs_score])
         cbar.set_ticklabels(['Deterioration', 'No Change', 'Improvement'])
         
-        # Add "Better Correlation" arrow pointing to the improvement direction
-        # Position arrow vertically (parallel to y-axis) to the left of x=0
-        ax_xlim = ax.get_xlim()
-        ax_ylim = ax.get_ylim()
-        
-        # Position arrow to the left of x=0
-        arrow_x = -0.35  # Left of x=0
-        arrow_y_center = (ax_ylim[0] + ax_ylim[1]) / 2  # Center vertically
-        
-        # Determine arrow direction based on quality index
-        if quality_index == 'norm_dtw':
-            # For norm_dtw, lower values are better (downward arrow)
-            arrow_y_start = arrow_y_center + 0.2 * (ax_ylim[1] - ax_ylim[0])
-            arrow_y_end = arrow_y_center - 0.2 * (ax_ylim[1] - ax_ylim[0])  
-        else:
-            # For other quality indices, higher values are better (upward arrow)
-            arrow_y_start = arrow_y_center - 0.2 * (ax_ylim[1] - ax_ylim[0])
-            arrow_y_end = arrow_y_center + 0.2 * (ax_ylim[1] - ax_ylim[0]) 
-            
-        # Create gradient arrow using LineCollection
-        n_segments = 100
-        y_vals = np.linspace(arrow_y_start, arrow_y_end, n_segments + 1)
-        x_vals = np.full_like(y_vals, arrow_x)
-        
-        # Create line segments for gradient effect - exclude the last segment to leave space for arrowhead
-        points = np.array([x_vals[:-1], y_vals[:-1]]).T.reshape(-1, 1, 2)
-        segments = np.concatenate([points[:-1], points[1:]], axis=1)
-        
-        # Create colors for each segment - full spectrum of colormap
-        colors_gradient = [cmap(i / (n_segments - 1)) for i in range(n_segments - 1)]
-        
-        # Create the gradient line
-        lc = LineCollection(segments, colors=colors_gradient, linewidths=3, zorder=4)
-        ax.add_collection(lc)
-        
-        # Add arrowhead at the end, positioned to start from where the colored bar ends
-        if quality_index == 'norm_dtw':
-            # Downward arrow, use color from end of gradient
-            arrow_color = cmap(1.0)
-            # Position arrowhead to start where the gradient line ends
-            arrowhead_start_y = y_vals[-2]  # Second to last point of the gradient
-            arrowhead_end_y = arrow_y_end
-        else:
-            # Upward arrow, use color from end of gradient
-            arrow_color = cmap(1.0)
-            # Position arrowhead to start where the gradient line ends
-            arrowhead_start_y = y_vals[-2]  # Second to last point of the gradient
-            arrowhead_end_y = arrow_y_end
-        
-        # Add just the arrowhead
-        ax.annotate('', 
-                   xy=(arrow_x, arrowhead_end_y), 
-                   xytext=(arrow_x, arrowhead_start_y),
-                   arrowprops=dict(arrowstyle='->', color=arrow_color, lw=4),
-                   zorder=5)
-        
-        # Add text next to the arrow
-        text_x = arrow_x + 0.1  # Slightly to the right of arrow
-        text_y = arrow_y_center
-        
-        ax.text(text_x, text_y, 'Better Correlation',
-               fontsize=8, ha='left', va='center',
-               rotation=90, color='black',
-               zorder=4)
-        
         plt.tight_layout()
         
         # Save figure
@@ -2566,7 +2497,6 @@ def plot_t_statistics_vs_constraints(quality_data, target_quality_indices, outpu
         plt.savefig(t_stat_filename, dpi=150, bbox_inches='tight')
         print(f"✓ t-statistics plot saved as: {t_stat_filename}")
         
-        # Display the plot
         plt.show()
 
 
