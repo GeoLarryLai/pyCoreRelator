@@ -16,11 +16,15 @@ import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
 import matplotlib.patches as patches
+from matplotlib.collections import LineCollection
+from matplotlib.colors import LinearSegmentedColormap
 import pandas as pd
 from matplotlib.gridspec import GridSpec
 from matplotlib.lines import Line2D
 from scipy import stats
 from IPython.display import display
+from joblib import Parallel, delayed
+from tqdm import tqdm
 import os
 import matplotlib.cm as cm
 import matplotlib.colors as colors
@@ -1750,6 +1754,7 @@ def plot_quality_distributions(quality_data, target_quality_indices, output_figu
                             line_style = '-'
                             linewidth = 1.5
                             alpha = 0.9
+                            zorder = 10  # Higher zorder to bring solid lines to front
                             constraint_label = f'{CORE_B} age constraints: {core_b_constraints}'
                             if core_b_constraints not in plotted_constraint_levels:
                                 label = constraint_label
@@ -1759,7 +1764,8 @@ def plot_quality_distributions(quality_data, target_quality_indices, output_figu
                         else:
                             line_style = '--'
                             linewidth = 1
-                            alpha = 0.8
+                            alpha = 0.6
+                            zorder = 1  # Lower zorder for dashed lines
                             constraint_label = f'{CORE_B} age constraints: {core_b_constraints}'
                             if core_b_constraints not in plotted_constraint_levels:
                                 label = constraint_label
@@ -1771,7 +1777,8 @@ def plot_quality_distributions(quality_data, target_quality_indices, output_figu
                         ax.plot(x_range, y_values, 
                                color=color, 
                                linestyle=line_style,
-                               linewidth=linewidth, alpha=alpha, 
+                               linewidth=linewidth, alpha=alpha,
+                               zorder=zorder,
                                label=label)
                 
                 except Exception as e:
@@ -2053,11 +2060,189 @@ def plot_quality_distributions(quality_data, target_quality_indices, output_figu
         print(f"ALL QUALITY INDICES PROCESSING COMPLETED")
         print(f"{'='*80}")
 
+def process_single_row_parallel(row_data, combined_data, debug=False):
+    """
+    Helper function to process a single row for t-statistic and Cohen's d calculation in parallel.
+    
+    Parameters:
+    -----------
+    row_data : tuple
+        (idx, row, age_consideration, core_b_constraints_count)
+    combined_data : array-like
+        Reference data for t-test calculation
+    debug : bool
+        Whether to print debug information
+    
+    Returns:
+    --------
+    tuple : (x_value, t_stat, cohens_d, effect_size_category, success)
+    """
+    idx, row, age_consideration, core_b_constraints_count = row_data
+    
+    # Determine constraint mapping for x-axis
+    if age_consideration:
+        x_value = core_b_constraints_count
+    else:
+        x_value = 0
+    
+    # Calculate t-statistic and Cohen's d for this row
+    has_histogram = ('bins' in row and 'hist' in row and 'n_points' in row and 
+                   pd.notna(row['bins']) and pd.notna(row['hist']) and pd.notna(row['n_points']))
+    
+    if has_histogram:
+        try:
+            # Reconstruct raw data from histogram
+            bins = np.fromstring(row['bins'].strip('[]'), sep=' ')
+            hist_percentages = np.fromstring(row['hist'].strip('[]'), sep=' ')
+            n_points = row['n_points']
+            
+            raw_data_points = reconstruct_raw_data_from_histogram(bins, hist_percentages, n_points)
+            
+            # Calculate t-statistic and Cohen's d
+            if len(raw_data_points) > 1:
+                t_stat, _ = stats.ttest_ind(raw_data_points, combined_data)
+                # Calculate Cohen's d
+                cohens_d_value = cohens_d(raw_data_points, combined_data)
+            elif len(raw_data_points) == 1:
+                # Single point: use z-score as approximation for t-stat
+                combined_mean = np.mean(combined_data)
+                combined_std = np.std(combined_data)
+                t_stat = (raw_data_points[0] - combined_mean) / combined_std if combined_std > 0 else 0.0
+                # Calculate Cohen's d for single point vs distribution
+                cohens_d_value = cohens_d(raw_data_points, combined_data)
+            else:
+                t_stat = 0.0  # No data
+                cohens_d_value = 0.0
+            
+            # Categorize effect size based on Cohen's d
+            abs_cohens_d = abs(cohens_d_value)
+            if abs_cohens_d < 0.2:
+                effect_size_category = "negligible"
+            elif abs_cohens_d < 0.5:
+                effect_size_category = "small"
+            elif abs_cohens_d < 0.8:
+                effect_size_category = "medium"
+            else:
+                effect_size_category = "large"
+                
+            return x_value, t_stat, cohens_d_value, effect_size_category, True
+            
+        except Exception as e:
+            if debug:
+                print(f"Error processing row {idx}: {e}")
+            return x_value, 0.0, 0.0, "negligible", False
+    else:
+        return x_value, 0.0, 0.0, "negligible", False
+
+
+def calculate_improvement_scores_parallel(constraint_data, quality_index):
+    """
+    Helper function to calculate improvement scores in parallel.
+    
+    Parameters:
+    -----------
+    constraint_data : tuple
+        (current_constraint, next_constraint, current_t_stats, next_t_stats)
+    quality_index : str
+        Quality index name for determining improvement direction
+    
+    Returns:
+    --------
+    list : List of improvement scores
+    """
+    current_constraint, next_constraint, current_t_stats, next_t_stats = constraint_data
+    improvement_scores = []
+    
+    for curr_t in current_t_stats:
+        for next_t in next_t_stats:
+            t_change = next_t - curr_t
+            
+            # Determine improvement/deterioration based on quality index
+            if quality_index == 'norm_dtw':
+                improvement_score = -t_change  # Negative change is improvement
+            else:
+                improvement_score = t_change   # Positive change is improvement
+            
+            improvement_scores.append(improvement_score)
+    
+    return improvement_scores
+
+
+def get_effect_size_color(effect_size_category):
+    """
+    Get color for effect size category using light gray to green scheme.
+    
+    Parameters:
+    -----------
+    effect_size_category : str
+        Effect size category ('negligible', 'small', 'medium', 'large')
+    
+    Returns:
+    --------
+    str : Color code for the category
+    """
+    color_map = {
+        'negligible': '#D3D3D3',  # Light gray
+        'small': '#FFFFFF',       # White
+        'medium': '#cee072',      # Light yellow-green  
+        'large': '#3fd445'        # Green
+    }
+    return color_map.get(effect_size_category, '#D3D3D3')
+def calculate_dynamic_sizes(total_points, total_connections):
+    """
+    Calculate dynamic sizes for plot elements based on data volume.
+    
+    Parameters:
+    -----------
+    total_points : int
+        Total number of data points
+    total_connections : int
+        Total number of connections/lines
+    
+    Returns:
+    --------
+    dict : Dictionary with sizing parameters
+    """
+    # Base sizes
+    base_dot_size = 60
+    base_line_width = 1.0
+    base_alpha = 0.8
+    
+    # Dynamic scaling based on data volume
+    # Reduce sizes as data volume increases
+    if total_points <= 50:
+        dot_size = base_dot_size
+        line_width = base_line_width
+        alpha = base_alpha
+    elif total_points <= 200:
+        dot_size = max(40, base_dot_size * 0.8)
+        line_width = max(0.7, base_line_width * 0.8)
+        alpha = max(0.6, base_alpha * 0.8)
+    elif total_points <= 500:
+        dot_size = max(30, base_dot_size * 0.6)
+        line_width = max(0.5, base_line_width * 0.6)
+        alpha = max(0.4, base_alpha * 0.6)
+    else:
+        dot_size = max(20, base_dot_size * 0.4)
+        line_width = max(0.3, base_line_width * 0.4)
+        alpha = max(0.3, base_alpha * 0.4)
+    
+    # Further adjust based on connection density
+    if total_connections > 1000:
+        alpha *= 0.7
+        line_width *= 0.8
+    
+    return {
+        'dot_size': dot_size,
+        'line_width': line_width,
+        'alpha': alpha
+    }
 
 def plot_t_statistics_vs_constraints(quality_data, target_quality_indices, output_figure_filenames,
-                                     CORE_A, CORE_B, debug=True):
+                                     CORE_A, CORE_B, debug=True, n_jobs=-1, batch_size=None):
     """
     Plot t-statistics vs number of age constraints for each quality index.
+    OPTIMIZED with parallel processing and dynamic sizing.
     
     Parameters:
     -----------
@@ -2073,6 +2258,10 @@ def plot_t_statistics_vs_constraints(quality_data, target_quality_indices, outpu
         Name of core B
     debug : bool, default True
         If True, only print essential messages. If False, print all detailed messages.
+    n_jobs : int, default -1
+        Number of parallel jobs to run. -1 means using all available cores.
+    batch_size : int, optional
+        Batch size for parallel processing. If None, automatically determined.
     
     Returns:
     --------
@@ -2089,84 +2278,81 @@ def plot_t_statistics_vs_constraints(quality_data, target_quality_indices, outpu
         df_all_params = data['df_all_params']
         combined_data = data['combined_data']
         
+        print(f"Processing {quality_index} with {len(df_all_params)} data points...")
+        print(f"  Will calculate t-statistics, Cohen's d, and effect sizes for each point...")
+        
         # Create plot
         fig, ax = plt.subplots(figsize=(9, 5))
         
-        # Store all plotting points organized by constraint count
-        constraint_points = {}
+        # Cache repeated calculations
+        combined_mean = np.mean(combined_data)
+        combined_std = np.std(combined_data)
         
-        # Store all improvement scores for colormap normalization
-        all_improvement_scores = []
+        # Prepare data for parallel processing
+        if batch_size is None:
+            batch_size = max(50, len(df_all_params) // (n_jobs if n_jobs > 0 else 4))
         
-        # Process all data points and organize by constraint count
+        # Prepare row data for parallel processing
+        row_data_list = []
         for idx, row in df_all_params.iterrows():
-            
-            # Determine constraint mapping for x-axis
-            if row['age_consideration']:
-                # Use actual constraint counts
-                x_value = row['core_b_constraints_count']
-            else:
-                # All age_consideration=False cases plot at x=0
-                x_value = 0
-            
-            # Calculate t-statistic for this row
-            has_histogram = ('bins' in row and 'hist' in row and 'n_points' in row and 
-                           pd.notna(row['bins']) and pd.notna(row['hist']) and pd.notna(row['n_points']))
-            
-            if has_histogram:
-                try:
-                    # Reconstruct raw data from histogram
-                    bins = np.fromstring(row['bins'].strip('[]'), sep=' ')
-                    hist_percentages = np.fromstring(row['hist'].strip('[]'), sep=' ')
-                    n_points = row['n_points']
-                    
-                    raw_data_points = reconstruct_raw_data_from_histogram(bins, hist_percentages, n_points)
-                    
-                    # Calculate t-statistic
-                    if len(raw_data_points) > 1:
-                        t_stat, _ = stats.ttest_ind(raw_data_points, combined_data)
-                    elif len(raw_data_points) == 1:
-                        # Single point: use z-score as approximation
-                        t_stat = (raw_data_points[0] - np.mean(combined_data)) / np.std(combined_data)
-                    else:
-                        t_stat = 0.0  # No data
-                        
-                    # Store in constraint_points dictionary
-                    if x_value not in constraint_points:
-                        constraint_points[x_value] = []
-                    constraint_points[x_value].append(t_stat)
-                    
-                except Exception as e:
-                    if debug:
-                        print(f"Error processing row {idx}: {e}")
-                    if x_value not in constraint_points:
-                        constraint_points[x_value] = []
-                    constraint_points[x_value].append(0.0)
-            else:
-                if x_value not in constraint_points:
-                    constraint_points[x_value] = []
-                constraint_points[x_value].append(0.0)  # No histogram data
+            row_data_list.append((idx, row, row['age_consideration'], row['core_b_constraints_count']))
         
-        # First pass: calculate all improvement scores for normalization
+        # Process t-statistics in parallel
+        print(f"  Calculating t-statistics and Cohen's d using {n_jobs} cores...")
+        with tqdm(total=len(row_data_list), desc="  Processing t-statistics", disable=debug) as pbar:
+            # Process in batches to manage memory
+            all_results = []
+            for i in range(0, len(row_data_list), batch_size):
+                batch = row_data_list[i:i+batch_size]
+                
+                batch_results = Parallel(n_jobs=n_jobs, verbose=0)(
+                    delayed(process_single_row_parallel)(row_data, combined_data, debug)
+                    for row_data in batch
+                )
+                all_results.extend(batch_results)
+                pbar.update(len(batch))
+        
+        # Organize results by constraint count
+        constraint_points = {}
+        constraint_effect_sizes = {}
+        constraint_cohens_d = {}
+        for x_value, t_stat, cohens_d_val, effect_size_cat, success in all_results:
+            if x_value not in constraint_points:
+                constraint_points[x_value] = []
+                constraint_effect_sizes[x_value] = []
+                constraint_cohens_d[x_value] = []
+            constraint_points[x_value].append(t_stat)
+            constraint_effect_sizes[x_value].append(effect_size_cat)
+            constraint_cohens_d[x_value].append(cohens_d_val)
+        
+        # Calculate improvement scores in parallel
+        print(f"  Calculating improvement scores...")
         sorted_constraints = sorted(constraint_points.keys())
+        
+        # Prepare data for parallel improvement score calculation
+        constraint_pairs = []
         for i in range(len(sorted_constraints) - 1):
             current_constraint = sorted_constraints[i]
             next_constraint = sorted_constraints[i + 1]
-            
             current_t_stats = constraint_points[current_constraint]
             next_t_stats = constraint_points[next_constraint]
+            constraint_pairs.append((current_constraint, next_constraint, current_t_stats, next_t_stats))
+        
+        # Calculate improvement scores in parallel
+        if constraint_pairs:
+            with tqdm(total=len(constraint_pairs), desc="  Processing improvements", disable=debug) as pbar:
+                improvement_results = Parallel(n_jobs=n_jobs, verbose=0)(
+                    delayed(calculate_improvement_scores_parallel)(pair_data, quality_index)
+                    for pair_data in constraint_pairs
+                )
+                pbar.update(len(constraint_pairs))
             
-            for curr_t in current_t_stats:
-                for next_t in next_t_stats:
-                    t_change = next_t - curr_t
-                    
-                    # Determine improvement/deterioration based on quality index
-                    if quality_index == 'norm_dtw':
-                        improvement_score = -t_change  # Negative change is improvement
-                    else:
-                        improvement_score = t_change   # Positive change is improvement
-                    
-                    all_improvement_scores.append(improvement_score)
+            # Flatten results
+            all_improvement_scores = []
+            for scores in improvement_results:
+                all_improvement_scores.extend(scores)
+        else:
+            all_improvement_scores = []
         
         # Normalize improvement scores
         if all_improvement_scores:
@@ -2174,14 +2360,30 @@ def plot_t_statistics_vs_constraints(quality_data, target_quality_indices, outpu
         else:
             max_abs_score = 1.0
         
-        # Create custom colormap: red for improvement, blue for deterioration
-        from matplotlib.colors import LinearSegmentedColormap
-
+        # Calculate total data points and connections for dynamic sizing
+        total_points = sum(len(t_stats) for t_stats in constraint_points.values())
+        total_connections = sum(len(current_t_stats) * len(next_t_stats) 
+                              for current_t_stats, next_t_stats in 
+                              [(constraint_points[sorted_constraints[i]], 
+                                constraint_points[sorted_constraints[i+1]]) 
+                               for i in range(len(sorted_constraints)-1)])
+        
+        # Get dynamic sizing parameters
+        sizing = calculate_dynamic_sizes(total_points, total_connections)
+        
+        print(f"  Drawing {total_points} points and {total_connections} connections...")
+        # print(f"  Using dynamic sizing: dots={sizing['dot_size']:.1f}, lines={sizing['line_width']:.1f}, alpha={sizing['alpha']:.2f}")
+        
+        # Move LinearSegmentedColormap import to top of file since we need it
         colors_list = ['#0066CC', '#e3e3e3', '#CC0000']  # Blue -> gray -> Red
         n_bins = 256
         cmap = LinearSegmentedColormap.from_list('improvement', colors_list, N=n_bins)
         
-        # Draw all connections first (so they appear behind the dots)
+        # Prepare all line segments and colors for vectorized drawing
+        print(f"  Preparing line segments for vectorized drawing...")
+        line_segments = []
+        line_colors = []
+        
         for i in range(len(sorted_constraints) - 1):
             current_constraint = sorted_constraints[i]
             next_constraint = sorted_constraints[i + 1]
@@ -2211,15 +2413,29 @@ def plot_t_statistics_vs_constraints(quality_data, target_quality_indices, outpu
                     color_value = (normalized_score + 1) / 2  # Convert [-1,1] to [0,1]
                     color = cmap(color_value)
                     
-                    ax.plot([current_constraint, next_constraint], [curr_t, next_t], 
-                           color=color, alpha=0.8, linewidth=1, zorder=1)
+                    # Store line segment and color
+                    line_segments.append([[current_constraint, curr_t], [next_constraint, next_t]])
+                    line_colors.append(color)
         
-        # Plot all individual points as white dots with black outline (on top of connections)
-        for x_constraint, t_stats in constraint_points.items():
-            for t_stat in t_stats:
-                # Plot individual point as white dot with black outline (smaller size)
-                ax.scatter(x_constraint, t_stat, color='white', edgecolor='black', 
-                          linewidth=1.2, s=60, zorder=3)
+        # Draw all connections at once using LineCollection (much faster than individual plot calls)
+        print(f"  Drawing {len(line_segments)} line segments using vectorized approach...")
+        if line_segments:  # Only draw if we have segments
+            lc = LineCollection(line_segments, colors=line_colors, alpha=sizing['alpha'], 
+                              linewidths=sizing['line_width'], zorder=1)
+            ax.add_collection(lc)
+        
+        # Plot all individual points colored by effect size (on top of connections)
+        for x_constraint in constraint_points.keys():
+            t_stats = constraint_points[x_constraint]
+            effect_sizes = constraint_effect_sizes[x_constraint]
+            
+            for t_stat, effect_size in zip(t_stats, effect_sizes):
+                # Get color based on effect size
+                dot_color = get_effect_size_color(effect_size)
+                
+                # Plot individual point colored by effect size with black outline
+                ax.scatter(x_constraint, t_stat, color=dot_color, edgecolor='black', 
+                          linewidth=max(0.5, sizing['line_width']), s=sizing['dot_size'], zorder=3)
         
         # Add null hypothesis line
         ax.axhline(y=0, color='darkgray', linestyle='--', alpha=0.7, linewidth=2, 
@@ -2237,15 +2453,30 @@ def plot_t_statistics_vs_constraints(quality_data, target_quality_indices, outpu
         ax.set_title(f't-statistics vs Age Constraints for {quality_index}\n{CORE_A} vs {CORE_B}')
         ax.grid(True, alpha=0.3, zorder=0)
         
-        # Create legend for static elements
+        # Create legend for static elements and effect sizes
         legend_elements = [
             ax.plot([], [], color='darkgray', linestyle='--', alpha=0.7, linewidth=2)[0],
-            ax.scatter([], [], color='white', edgecolor='black', linewidth=1.2, s=60)
         ]
         legend_labels = [
             'Null hypothesis (t=0)', 
-            'Real data points'
         ]
+        
+        # Add effect size legend elements with Cohen's d ranges
+        effect_size_info = [
+            ('negligible', '|d| < 0.2'),
+            ('small', '0.2 ≤ |d| < 0.5'),
+            ('medium', '0.5 ≤ |d| < 0.8'),
+            ('large', '|d| ≥ 0.8')
+        ]
+        
+        for category, d_range in effect_size_info:
+            color = get_effect_size_color(category)
+            legend_elements.append(
+                ax.scatter([], [], color=color, edgecolor='black', 
+                          linewidth=max(0.5, sizing['line_width']), s=sizing['dot_size'])
+            )
+            legend_labels.append(f'{category.capitalize()} effect ({d_range})')
+        
         ax.legend(legend_elements, legend_labels, bbox_to_anchor=(1.02, 0.5), loc='center left')
         
         # Add horizontal colorbar for improvement/deterioration
@@ -2262,7 +2493,7 @@ def plot_t_statistics_vs_constraints(quality_data, target_quality_indices, outpu
         
         # Save figure
         base_filename = output_figure_filenames[quality_index]
-        t_stat_filename = base_filename.replace('.png', '_tstatistics_neural.png').replace('.jpg', '_tstatistics_neural.jpg')
+        t_stat_filename = base_filename.replace('.png', '_tstat.png').replace('.jpg', '_tstat.jpg')
         plt.savefig(t_stat_filename, dpi=150, bbox_inches='tight')
         print(f"✓ t-statistics plot saved as: {t_stat_filename}")
         
