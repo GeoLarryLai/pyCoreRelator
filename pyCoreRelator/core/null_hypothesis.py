@@ -638,7 +638,7 @@ def run_multi_parameter_analysis(
             )
             
             # Find complete core paths
-            temp_mapping_file = f'temp_mappings_{core_a_name}_{core_b_name}_{combo_id}.csv'
+            temp_mapping_file = f'temp_mappings_{log_suffix}_{core_a_name}_{core_b_name}_{combo_id}.csv'
 
             if shortest_path_search:
                 _ = find_complete_core_paths(
