@@ -825,7 +825,7 @@ def run_multi_parameter_analysis(
                     )
                     
                     # Find paths with correct parameters
-                    temp_mapping_file = f'temp_mappings_{core_a_name}_{core_b_name}_{scenario_id}.pkl' # Accept *.csv or *.pkl; *.pkl is preferred for temporary files for efficiency
+                    temp_mapping_file = f'temp_mappings_{log_suffix}_{core_a_name}_{core_b_name}_{scenario_id}.pkl' # Accept *.csv or *.pkl; *.pkl is preferred for temporary files for efficiency
 
                     if shortest_path_search:
                         _ = find_complete_core_paths(
