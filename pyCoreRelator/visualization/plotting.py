@@ -1,11 +1,12 @@
 """
 Core plotting functions for DTW correlation visualization.
 
-Included Functions:
-- plot_segment_pair_correlation: Main function for plotting correlation between log segments
-- plot_multilog_segment_pair_correlation: Specialized function for multilogs with images
-- visualize_combined_segments: Combine and visualize multiple segment pairs
-- plot_correlation_distribution: Plot quality metric distributions from CSV results
+## Included Functions
+
+- **plot_segment_pair_correlation**: Main function for plotting correlation between log segments
+- **plot_multilog_segment_pair_correlation**: Specialized function for multilogs with images  
+- **visualize_combined_segments**: Combine and visualize multiple segment pairs
+- **plot_correlation_distribution**: Plot quality metric distributions from CSV results
 
 This module provides functions for visualizing dynamic time warping (DTW) correlations
 between core log data, including support for multi-segment correlations, RGB/CT images,
