@@ -12,28 +12,27 @@ between core log data, including support for multi-segment correlations, RGB/CT 
 age constraints, and quality indicators.
 """
 
+import os
+import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
 import matplotlib.patches as patches
 from matplotlib.collections import LineCollection
 from matplotlib.colors import LinearSegmentedColormap
-from PIL import Image
-import pandas as pd
 from matplotlib.gridspec import GridSpec
 from matplotlib.lines import Line2D
-from scipy import stats
-from IPython.display import display
-from joblib import Parallel, delayed
-from tqdm import tqdm
-import os
 import matplotlib.cm as cm
 import matplotlib.colors as colors
+from scipy import stats
+from tqdm import tqdm
+from joblib import Parallel, delayed
+from IPython.display import display
+from PIL import Image
 from ..utils.path_processing import combine_segment_dtw_results
 from ..visualization.matrix_plots import plot_dtw_matrix_with_paths
+from ..utils.data_loader import load_and_prepare_quality_data, reconstruct_raw_data_from_histogram
 from ..utils.helpers import cohens_d
-from ..utils.data_loader import reconstruct_raw_data_from_histogram
-
 
 def plot_segment_pair_correlation(log_a, log_b, md_a, md_b, 
                                   segment_pairs=None, dtw_results=None, segments_a=None, segments_b=None,
@@ -2570,14 +2569,208 @@ def plot_t_statistics_vs_constraints(quality_data, target_quality_indices, outpu
         plt.show()
 
 
-def plot_quality_comparison(target_quality_indices, master_csv_filenames, synthetic_csv_filenames, 
-                          output_figure_filenames, CORE_A, CORE_B, debug=True):
+def calculate_quality_comparison_t_statistics(target_quality_indices, master_csv_filenames, 
+                                               synthetic_csv_filenames, CORE_A, CORE_B, 
+                                               mute_mode=False):
+    """
+    Calculate t-statistics, Cohen's d, and effect size categories by comparing real core 
+    correlation data against synthetic null hypothesis data. Appends statistical columns 
+    to master CSV files and saves enhanced versions to 'outputs' subfolder.
+    
+    Parameters:
+    -----------
+    target_quality_indices : list
+        List of quality indices to process (e.g., ['norm_dtw', 'pearson_r'])
+    master_csv_filenames : dict
+        Dictionary mapping quality indices to their master CSV file paths
+    synthetic_csv_filenames : dict
+        Dictionary mapping quality indices to their synthetic/null hypothesis CSV file paths
+    CORE_A : str
+        Name identifier for the first core
+    CORE_B : str
+        Name identifier for the second core
+    mute_mode : bool, optional
+        If True, suppresses print statements (default: False)
+    
+    Returns:
+    --------
+    None
+        Function saves enhanced CSV files with statistical columns to 'outputs' folder
+        
+    Notes:
+    ------
+    The function calculates:
+    - t_statistic: Statistical test comparing real vs synthetic data
+    - cohens_d: Effect size measure
+    - effect_size_category: Categorical interpretation of Cohen's d values
+    
+    Enhanced CSV files are saved in 'outputs' subfolder with same filenames as originals.
+    """
+    
+    # Define which categories to load - same filters as load_and_prepare_quality_data
+    load_filters = {
+        'age_consideration': [True, False],
+        'restricted_age_correlation': [True, False],
+        'shortest_path_search': [True]
+    }
+    
+    for quality_index in target_quality_indices:
+        if not mute_mode:
+            print(f"\nProcessing {quality_index}...")
+        
+        # Load master CSV
+        master_csv_filename = master_csv_filenames[quality_index]
+        if not os.path.exists(master_csv_filename):
+            if not mute_mode:
+                print(f"✗ Error: Master CSV file not found: {master_csv_filename}")
+            continue
+            
+        try:
+            df_master = pd.read_csv(master_csv_filename)
+        except Exception as e:
+            if not mute_mode:
+                print(f"✗ Error loading master CSV {master_csv_filename}: {str(e)}")
+            continue
+        
+        # Apply same filters as load_and_prepare_quality_data
+        mask = pd.Series([True] * len(df_master))
+        for column, values in load_filters.items():
+            if values is not None:
+                if None in values:
+                    mask &= (df_master[column].isin([v for v in values if v is not None]) | 
+                            df_master[column].isna())
+                else:
+                    mask &= df_master[column].isin(values)
+        
+        df_filtered = df_master[mask].copy()
+        
+        # Load synthetic CSV for null hypothesis data
+        synthetic_csv_filename = synthetic_csv_filenames[quality_index]
+        if not os.path.exists(synthetic_csv_filename):
+            if not mute_mode:
+                print(f"✗ Error: Synthetic CSV file not found: {synthetic_csv_filename}")
+            continue
+            
+        try:
+            df_synthetic = pd.read_csv(synthetic_csv_filename)
+        except Exception as e:
+            if not mute_mode:
+                print(f"✗ Error loading synthetic CSV {synthetic_csv_filename}: {str(e)}")
+            continue
+        
+        # Reconstruct synthetic (null hypothesis) data
+        combined_data = []
+        for _, row in df_synthetic.iterrows():
+            try:
+                bins = np.fromstring(row['bins'].strip('[]'), sep=' ')
+                hist_percentages = np.fromstring(row['hist'].strip('[]'), sep=' ')
+                n_points = row['n_points']
+                raw_data_points = reconstruct_raw_data_from_histogram(bins, hist_percentages, n_points)
+                combined_data.extend(raw_data_points)
+            except:
+                continue
+        
+        combined_data = np.array(combined_data)
+        if len(combined_data) == 0:
+            if not mute_mode:
+                print(f"✗ Error: No valid synthetic data found for {quality_index}")
+            continue
+        
+        # Initialize new columns
+        t_statistics = []
+        cohens_d_values = []
+        effect_size_categories = []
+        
+        # Calculate statistics for each row
+        iterator = tqdm(df_filtered.iterrows(), total=len(df_filtered), 
+                       desc=f"  Calculating statistics for {quality_index}", 
+                       disable=mute_mode)
+        
+        for idx, row in iterator:
+            # Check if row has histogram data
+            has_histogram = ('bins' in row and 'hist' in row and 'n_points' in row and 
+                           pd.notna(row['bins']) and pd.notna(row['hist']) and pd.notna(row['n_points']))
+            
+            if has_histogram:
+                try:
+                    # Reconstruct raw data from histogram
+                    bins = np.fromstring(row['bins'].strip('[]'), sep=' ')
+                    hist_percentages = np.fromstring(row['hist'].strip('[]'), sep=' ')
+                    n_points = row['n_points']
+                    
+                    raw_data_points = reconstruct_raw_data_from_histogram(bins, hist_percentages, n_points)
+                    
+                    # Calculate t-statistic and Cohen's d
+                    if len(raw_data_points) > 1:
+                        t_stat, _ = stats.ttest_ind(raw_data_points, combined_data)
+                        cohens_d_value = cohens_d(raw_data_points, combined_data)
+                    elif len(raw_data_points) == 1:
+                        # Single point: use z-score as approximation for t-stat
+                        combined_mean = np.mean(combined_data)
+                        combined_std = np.std(combined_data)
+                        t_stat = (raw_data_points[0] - combined_mean) / combined_std if combined_std > 0 else 0.0
+                        cohens_d_value = cohens_d(raw_data_points, combined_data)
+                    else:
+                        t_stat = 0.0
+                        cohens_d_value = 0.0
+                    
+                    # Categorize effect size based on Cohen's d
+                    abs_cohens_d = abs(cohens_d_value)
+                    if abs_cohens_d < 0.2:
+                        effect_size_category = "negligible"
+                    elif abs_cohens_d < 0.5:
+                        effect_size_category = "small"
+                    elif abs_cohens_d < 0.8:
+                        effect_size_category = "medium"
+                    else:
+                        effect_size_category = "large"
+                        
+                except Exception as e:
+                    t_stat = 0.0
+                    cohens_d_value = 0.0
+                    effect_size_category = "negligible"
+            else:
+                t_stat = 0.0
+                cohens_d_value = 0.0
+                effect_size_category = "negligible"
+            
+            t_statistics.append(t_stat)
+            cohens_d_values.append(cohens_d_value)
+            effect_size_categories.append(effect_size_category)
+        
+        # Add new columns to the filtered dataframe
+        df_filtered['t_statistic'] = t_statistics
+        df_filtered['cohens_d'] = cohens_d_values
+        df_filtered['effect_size_category'] = effect_size_categories
+        
+        # For rows not in filtered data, add default values
+        df_master_with_stats = df_master.copy()
+        df_master_with_stats['t_statistic'] = 0.0
+        df_master_with_stats['cohens_d'] = 0.0
+        df_master_with_stats['effect_size_category'] = "negligible"
+        
+        # Update the filtered rows with calculated statistics
+        df_master_with_stats.loc[df_filtered.index, 't_statistic'] = df_filtered['t_statistic']
+        df_master_with_stats.loc[df_filtered.index, 'cohens_d'] = df_filtered['cohens_d']
+        df_master_with_stats.loc[df_filtered.index, 'effect_size_category'] = df_filtered['effect_size_category']
+        
+        # Save modified CSV to outputs subfolder
+        output_filename = os.path.join('outputs', os.path.basename(master_csv_filename))
+        df_master_with_stats.to_csv(output_filename, index=False)
+        
+        if not mute_mode:
+            print(f"✓ Data appending to CSV is done: {output_filename}")
+
+
+def plot_quality_comparison_t_statistics(target_quality_indices, master_csv_filenames, 
+                                        synthetic_csv_filenames, CORE_A, CORE_B, 
+                                        mute_mode=False, save_fig=True, output_figure_filenames=None):
     """
     Plot quality index distributions comparing real data vs synthetic null hypothesis
-    AND t-statistics vs age constraints.
+    AND t-statistics vs age constraints using pre-calculated statistics from CSV files.
     
-    Brief summary: This function orchestrates the complete analysis by loading data,
-    creating distribution plots, and generating t-statistics plots for quality indices.
+    Brief summary: This function loads pre-calculated t-statistics from modified CSV files
+    and creates distribution plots and t-statistics plots for quality indices.
     Each quality index shows its distribution plot followed immediately by its t-statistics plot.
     
     Parameters:
@@ -2585,55 +2778,118 @@ def plot_quality_comparison(target_quality_indices, master_csv_filenames, synthe
     target_quality_indices : list
         List of quality indices to process (e.g., ['corr_coef', 'norm_dtw', 'perc_diag'])
     master_csv_filenames : dict
-        Dictionary mapping quality_index to master CSV filename paths
+        Dictionary mapping quality_index to master CSV filename paths (should contain t-statistics columns)
     synthetic_csv_filenames : dict  
         Dictionary mapping quality_index to synthetic CSV filename paths
-    output_figure_filenames : dict
-        Dictionary mapping quality_index to output figure filename paths
     CORE_A : str
         Name of core A
     CORE_B : str
         Name of core B
-    debug : bool, default True
-        If True, only print essential messages. If False, print all detailed messages.
+    mute_mode : bool, default False
+        If True, suppress progress bars and print statements
+    save_fig : bool, default True
+        If True, save figures to files
+    output_figure_filenames : dict, optional
+        Dictionary mapping quality_index to output figure filename paths. Only used when save_fig=True.
+        Default: {quality_index}_comparison_log_{CORE_A}_{CORE_B}.png
     
     Returns:
     --------
     None
         Plots are displayed and saved to specified output files
     """
+    # Create outputs directory if it doesn't exist
+    if save_fig:
+        os.makedirs('outputs', exist_ok=True)
+        
+        # Set default output figure filenames if not provided
+        if output_figure_filenames is None:
+            output_figure_filenames = {}
+            for quality_index in target_quality_indices:
+                filename = f"{quality_index}_comparison_log_{CORE_A}_{CORE_B}.png"
+                output_figure_filenames[quality_index] = os.path.join('outputs', filename)
+        else:
+            # Ensure provided filenames are placed in outputs folder
+            modified_output_figure_filenames = {}
+            for quality_index, filename in output_figure_filenames.items():
+                outputs_figure_filename = os.path.join('outputs', os.path.basename(filename))
+                modified_output_figure_filenames[quality_index] = outputs_figure_filename
+            output_figure_filenames = modified_output_figure_filenames
     
-    # Import the function from data_loader
-    from ..utils.data_loader import load_and_prepare_quality_data
+    # Check for required columns in master CSV files
+    required_columns = ['t_statistic', 'cohens_d', 'effect_size_category']
+    
+    for quality_index in target_quality_indices:
+        master_csv_filename = master_csv_filenames[quality_index]
+        
+        # Check if file exists in outputs folder
+        outputs_filename = os.path.join('outputs', os.path.basename(master_csv_filename))
+        if os.path.exists(outputs_filename):
+            csv_to_check = outputs_filename
+        else:
+            csv_to_check = master_csv_filename
+            
+        if not os.path.exists(csv_to_check):
+            error_msg = f"Error: CSV file not found: {csv_to_check}"
+            if not mute_mode:
+                print(error_msg)
+            raise FileNotFoundError(error_msg)
+        
+        try:
+            df_check = pd.read_csv(csv_to_check)
+            missing_columns = [col for col in required_columns if col not in df_check.columns]
+            if missing_columns:
+                error_msg = (f"Error: Required columns {missing_columns} not found in {csv_to_check}. "
+                           f"Please run calculate_quality_comparison_t_statistics first.")
+                if not mute_mode:
+                    print(error_msg)
+                raise ValueError(error_msg)
+        except Exception as e:
+            error_msg = f"Error reading {csv_to_check}: {str(e)}"
+            if not mute_mode:
+                print(error_msg)
+            raise
+    
+    # Modify master_csv_filenames to point to outputs folder if files exist there
+    modified_master_csv_filenames = {}
+    for quality_index in target_quality_indices:
+        outputs_filename = os.path.join('outputs', os.path.basename(master_csv_filenames[quality_index]))
+        if os.path.exists(outputs_filename):
+            modified_master_csv_filenames[quality_index] = outputs_filename
+        else:
+            modified_master_csv_filenames[quality_index] = master_csv_filenames[quality_index]
     
     # Load and prepare data for all quality indices
     quality_data = load_and_prepare_quality_data(
-        target_quality_indices, master_csv_filenames, synthetic_csv_filenames, 
-        CORE_A, CORE_B, debug
+        target_quality_indices, modified_master_csv_filenames, synthetic_csv_filenames, 
+        CORE_A, CORE_B, not mute_mode
     )
     
     # Process each quality index: distribution plot followed by t-statistics plot
     for quality_index in target_quality_indices:
         if quality_index not in quality_data:
-            print(f"Skipping {quality_index} - no data available")
+            if not mute_mode:
+                print(f"Skipping {quality_index} - no data available")
             continue
         
-        print(f"\n{'='*60}")
-        print(f"PLOTTING RESULTS FOR {quality_index}")
-        print(f"{'='*60}")
+        if not mute_mode:
+            print(f"\n{'='*60}")
+            print(f"PLOTTING RESULTS FOR {quality_index}")
+            print(f"{'='*60}")
         
         # Create distribution plot for this quality index
         plot_quality_distributions(
-            quality_data, [quality_index], output_figure_filenames, 
-            CORE_A, CORE_B, debug
+            quality_data, [quality_index], output_figure_filenames if save_fig else {}, 
+            CORE_A, CORE_B, not mute_mode
         )
         
-        # Immediately follow with t-statistics plot for the same quality index
+        # Create t-statistics plot using pre-calculated values
         plot_t_statistics_vs_constraints(
-            quality_data, [quality_index], output_figure_filenames,
-            CORE_A, CORE_B, debug
+            quality_data, [quality_index], output_figure_filenames if save_fig else {},
+            CORE_A, CORE_B, not mute_mode
         )
     
-    print(f"\n{'='*80}")
-    print(f"ALL QUALITY INDICES PROCESSING COMPLETED")
-    print(f"{'='*80}")
+    if not mute_mode:
+        print(f"\n{'='*80}")
+        print(f"ALL QUALITY INDICES PROCESSING COMPLETED")
+        print(f"{'='*80}")

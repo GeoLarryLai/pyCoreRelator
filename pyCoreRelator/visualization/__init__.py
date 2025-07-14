@@ -14,7 +14,8 @@ from .plotting import (
     plot_multilog_segment_pair_correlation,
     visualize_combined_segments,
     plot_correlation_distribution,
-    plot_quality_comparison,
+    plot_quality_comparison_t_statistics,
+    calculate_quality_comparison_t_statistics,
     plot_t_statistics_vs_constraints,
     plot_quality_distributions
 )
@@ -40,7 +41,8 @@ __all__ = [
     'plot_multilog_segment_pair_correlation',
     'visualize_combined_segments',
     'plot_correlation_distribution',
-    'plot_quality_comparison',
+    'plot_quality_comparison_t_statistics',
+    'calculate_quality_comparison_t_statistics',
     'plot_t_statistics_vs_constraints',
     'plot_quality_distributions',
     

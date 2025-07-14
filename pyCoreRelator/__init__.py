@@ -66,9 +66,10 @@ from .visualization.plotting import (
     plot_multilog_segment_pair_correlation,
     visualize_combined_segments,
     plot_correlation_distribution,
-    plot_quality_comparison,
+    plot_quality_comparison_t_statistics,         
+    calculate_quality_comparison_t_statistics,    
     plot_t_statistics_vs_constraints,
-    plot_quality_distributions
+    plot_quality_distributions     
 )
 
 # Visualization functions - Matrix and advanced plots
@@ -136,7 +137,8 @@ __all__ = [
     'visualize_dtw_results_from_csv',
     'plot_dtw_matrix_with_paths',
     'plot_correlation_distribution',
-    'plot_quality_comparison',
+    'calculate_quality_comparison_t_statistics',  
+    'plot_quality_comparison_t_statistics',   
     'plot_t_statistics_vs_constraints',
     'plot_quality_distributions',
     'find_best_mappings',
