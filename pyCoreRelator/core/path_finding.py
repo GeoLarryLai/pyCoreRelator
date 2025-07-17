@@ -159,8 +159,9 @@ def find_complete_core_paths(
     shortest_path_search=True,
     shortest_path_level=2,
     max_search_path=5000,
-    output_metric_only=False,  # Add this new parameter
-    mute_mode=False  # Add this new parameter
+    output_metric_only=False,
+    mute_mode=False,
+    pca_for_dependent_dtw=False
 ):
     """
     Find and enumerate all complete core-to-core correlation paths with advanced optimization features.
@@ -184,6 +185,7 @@ def find_complete_core_paths(
         max_search_path (int): Maximum complete paths to find before stopping
         output_metric_only (bool): Only output quality metrics in the output CSV, no paths info
         mute_mode (bool): If True, suppress all print output
+        pca_for_dependent_dtw (bool): If True, perform PCA for dependent DTW
         
     Returns:
         dict: Comprehensive results including:
@@ -823,7 +825,7 @@ def find_complete_core_paths(
                 formatted_path_compact = ";".join(f"{a+1},{b+1}" for a, b in full_path)
                 
                 # Compute metrics and warping path
-                combined_wp, metrics = compute_path_metrics_lazy(compressed_path, log_a, log_b, dtw_results, dtw_distance_matrix_full)
+                combined_wp, metrics = compute_path_metrics_lazy(compressed_path, log_a, log_b, dtw_results, dtw_distance_matrix_full, pca_for_dependent_dtw=pca_for_dependent_dtw)
                 
                 # Format warping path compactly
                 if combined_wp is not None and len(combined_wp) > 0:

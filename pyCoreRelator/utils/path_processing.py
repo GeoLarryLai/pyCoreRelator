@@ -20,7 +20,7 @@ import csv
 
 
 def combine_segment_dtw_results(dtw_results, segment_pairs, segments_a, segments_b, 
-                               depth_boundaries_a, depth_boundaries_b, log_a, log_b, dtw_distance_matrix_full):
+                               depth_boundaries_a, depth_boundaries_b, log_a, log_b, dtw_distance_matrix_full, pca_for_dependent_dtw=False):
     """
     Combine DTW results from multiple segment pairs into a unified result.
     
@@ -110,7 +110,8 @@ def combine_segment_dtw_results(dtw_results, segment_pairs, segments_a, segments
                 age_overlap_values.append(float(qi['perc_age_overlap']))
         
         combined_quality = compute_combined_path_metrics(
-            combined_wp, log_a, log_b, all_quality_indicators, dtw_distance_matrix_full, age_overlap_values
+            combined_wp, log_a, log_b, all_quality_indicators, dtw_distance_matrix_full, age_overlap_values, 
+            pca_for_dependent_dtw=pca_for_dependent_dtw
         )
     else:
         combined_quality = None
@@ -118,7 +119,7 @@ def combine_segment_dtw_results(dtw_results, segment_pairs, segments_a, segments
     return combined_wp, combined_quality
 
 
-def compute_combined_path_metrics(combined_wp, log_a, log_b, segment_quality_indicators, dtw_distance_matrix_full, age_overlap_values=None):
+def compute_combined_path_metrics(combined_wp, log_a, log_b, segment_quality_indicators, dtw_distance_matrix_full, age_overlap_values=None, pca_for_dependent_dtw=False):
     """
     Compute quality metrics from combined warping path and log data.
     
@@ -202,7 +203,7 @@ def compute_combined_path_metrics(combined_wp, log_a, log_b, segment_quality_ind
         
         # Create dummy cost matrix for other metrics computation
         dummy_D = np.array([[path_cost]])
-        combined_metrics = compute_quality_indicators(log_a, log_b, p_indices, q_indices, dummy_D)
+        combined_metrics = compute_quality_indicators(log_a, log_b, p_indices, q_indices, dummy_D, pca_for_dependent_dtw=pca_for_dependent_dtw)
         
         # Update other metrics from compute_quality_indicators (excluding norm_dtw)
         metrics['dtw_ratio'] = float(combined_metrics.get('dtw_ratio', 0.0))

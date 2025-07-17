@@ -15,7 +15,7 @@ import pandas as pd
 import csv
 from scipy import stats
 
-def compute_quality_indicators(log1, log2, p, q, D):
+def compute_quality_indicators(log1, log2, p, q, D, pca_for_dependent_dtw=False):
     """
     Compute quality indicators for the DTW alignment.
     
@@ -35,6 +35,8 @@ def compute_quality_indicators(log1, log2, p, q, D):
         The warping path indices for log2
     D : numpy.ndarray
         The accumulated cost matrix from DTW computation
+    pca_for_dependent_dtw : bool, default=True
+        Whether to use PCA for dependent multidimensional DTW correlation calculation
     
     Returns
     -------
@@ -157,7 +159,7 @@ def compute_quality_indicators(log1, log2, p, q, D):
                 try:
                     # Handle both multidimensional and single dimension cases
                     if aligned_log1.ndim > 1 and aligned_log2.ndim > 1:
-                        # MULTIDIMENSIONAL CASE - Use PCA approach
+                        # MULTIDIMENSIONAL CASE
                         # Check if both logs have the same number of dimensions
                         if aligned_log1.shape[1] != aligned_log2.shape[1]:
                             corr_coef = 0.0
@@ -172,45 +174,72 @@ def compute_quality_indicators(log1, log2, p, q, D):
                             if min_length < 2:
                                 corr_coef = 0.0
                             else:
-                                # Use PCA to find the main trend direction
-                                try:
-                                    # Combine both sequences for consistent PCA transformation
-                                    combined_data = np.vstack([aligned_log1, aligned_log2])
-                                    
-                                    # Check if combined data has enough variation for PCA
-                                    if np.var(combined_data, axis=0).sum() < 1e-10:
-                                        corr_coef = 0.0
-                                    else:
-                                        # Simple PCA implementation (avoiding sklearn dependency)
-                                        # Center the data
-                                        mean_combined = np.mean(combined_data, axis=0)
-                                        centered_combined = combined_data - mean_combined
+                                if pca_for_dependent_dtw:
+                                    # Use PCA to find the main trend direction
+                                    try:
+                                        # Combine both sequences for consistent PCA transformation
+                                        combined_data = np.vstack([aligned_log1, aligned_log2])
                                         
-                                        # Calculate covariance matrix
-                                        cov_matrix = np.cov(centered_combined.T)
-                                        
-                                        # Get first principal component (eigenvector with largest eigenvalue)
-                                        eigenvalues, eigenvectors = np.linalg.eigh(cov_matrix)
-                                        pc1_direction = eigenvectors[:, -1]  # Last column = largest eigenvalue
-                                        
-                                        # Project aligned sequences onto first principal component
-                                        centered_log1 = aligned_log1 - mean_combined
-                                        centered_log2 = aligned_log2 - mean_combined
-                                        
-                                        pc1_log1 = np.dot(centered_log1, pc1_direction)
-                                        pc1_log2 = np.dot(centered_log2, pc1_direction)
-                                        
-                                        # Check for constant values in PC1 projections
-                                        if (np.all(pc1_log1 == pc1_log1[0]) or 
-                                            np.all(pc1_log2 == pc1_log2[0])):
+                                        # Check if combined data has enough variation for PCA
+                                        if np.var(combined_data, axis=0).sum() < 1e-10:
                                             corr_coef = 0.0
                                         else:
-                                            # Calculate Pearson correlation on PC1 scores
+                                            # Simple PCA implementation (avoiding sklearn dependency)
+                                            # Center the data
+                                            mean_combined = np.mean(combined_data, axis=0)
+                                            centered_combined = combined_data - mean_combined
+                                            
+                                            # Calculate covariance matrix
+                                            cov_matrix = np.cov(centered_combined.T)
+                                            
+                                            # Get first principal component (eigenvector with largest eigenvalue)
+                                            eigenvalues, eigenvectors = np.linalg.eigh(cov_matrix)
+                                            pc1_direction = eigenvectors[:, -1]  # Last column = largest eigenvalue
+                                            
+                                            # Project aligned sequences onto first principal component
+                                            centered_log1 = aligned_log1 - mean_combined
+                                            centered_log2 = aligned_log2 - mean_combined
+                                            
+                                            pc1_log1 = np.dot(centered_log1, pc1_direction)
+                                            pc1_log2 = np.dot(centered_log2, pc1_direction)
+                                            
+                                            # Check for constant values in PC1 projections
+                                            if (np.all(pc1_log1 == pc1_log1[0]) or 
+                                                np.all(pc1_log2 == pc1_log2[0])):
+                                                corr_coef = 0.0
+                                            else:
+                                                # Calculate Pearson correlation on PC1 scores
+                                                slope, intercept, r_value, p_value, slope_std_error = stats.linregress(
+                                                    pc1_log1, pc1_log2)
+                                                corr_coef = r_value
+                                    except Exception:
+                                        corr_coef = 0.0
+                                else:
+                                    # CONVENTIONAL MULTIDIMENSIONAL CORRELATION CALCULATION
+                                    # Average correlations across dimensions
+                                    try:
+                                        dim_correlations = []
+                                        for dim in range(aligned_log1.shape[1]):
+                                            dim_log1 = aligned_log1[:, dim]
+                                            dim_log2 = aligned_log2[:, dim]
+                                            
+                                            # Check for constant values in this dimension
+                                            if (np.all(dim_log1 == dim_log1[0]) or 
+                                                np.all(dim_log2 == dim_log2[0])):
+                                                continue  # Skip this dimension
+                                            
+                                            # Calculate correlation for this dimension
                                             slope, intercept, r_value, p_value, slope_std_error = stats.linregress(
-                                                pc1_log1, pc1_log2)
-                                            corr_coef = r_value
-                                except Exception:
-                                    corr_coef = 0.0
+                                                dim_log1, dim_log2)
+                                            dim_correlations.append(r_value)
+                                        
+                                        if len(dim_correlations) > 0:
+                                            # Average correlations across valid dimensions
+                                            corr_coef = np.mean(dim_correlations)
+                                        else:
+                                            corr_coef = 0.0
+                                    except Exception:
+                                        corr_coef = 0.0
                     else:
                         # SINGLE DIMENSIONAL CASE
                         # Flatten if necessary
@@ -243,7 +272,6 @@ def compute_quality_indicators(log1, log2, p, q, D):
             'dtw_warp_eff': 0.0,
             'corr_coef': 0.0
         }
-
 
 def calculate_age_overlap_percentage(a_lower_bound, a_upper_bound, b_lower_bound, b_upper_bound):
     """

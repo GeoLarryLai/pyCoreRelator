@@ -54,7 +54,7 @@ from .diagnostics import diagnose_chain_breaks
 from .segment_operations import build_connectivity_graph, identify_special_segments
 
 def force_bottom_segment_pairing(valid_dtw_pairs, segments_a, segments_b, depth_boundaries_a, depth_boundaries_b, 
-                                log_a, log_b, final_dtw_results, independent_dtw=False, mute_mode=False):
+                                log_a, log_b, final_dtw_results, independent_dtw=False, mute_mode=False, pca_for_dependent_dtw=False):
     """Force pairing of unpaired segments below the deepest valid pairs to ensure bottom completion."""
     
     # Find deepest valid pair depths
@@ -145,7 +145,8 @@ def force_bottom_segment_pairing(valid_dtw_pairs, segments_a, segments_b, depth_
             
             from .dtw_analysis import custom_dtw
             D_sub, wp, QIdx = custom_dtw(log_a_segment, log_b_segment, subseq=False, 
-                                       exponent=1, QualityIndex=True, independent_dtw=independent_dtw)
+                                       exponent=1, QualityIndex=True, independent_dtw=independent_dtw,
+                                       pca_for_dependent_dtw=pca_for_dependent_dtw)
             
             adjusted_wp = wp.copy()
             adjusted_wp[:, 0] += a_start
@@ -552,7 +553,7 @@ def handle_two_single_points(log1, log2, exponent=1, QualityIndex=False):
         return D, wp
 
 
-def custom_dtw(log1, log2, subseq=False, exponent=1, QualityIndex=False, independent_dtw=False, available_columns=None):
+def custom_dtw(log1, log2, subseq=False, exponent=1, QualityIndex=False, independent_dtw=False, available_columns=None, pca_for_dependent_dtw=False):
     """
     Custom implementation of Dynamic Time Warping for well log correlation.
     
@@ -576,6 +577,9 @@ def custom_dtw(log1, log2, subseq=False, exponent=1, QualityIndex=False, indepen
         If True, performs independent DTW on each dimension separately
     available_columns : list, default=None
         Column names for logging when independent_dtw=True
+    pca_for_dependent_dtw : bool, default=True
+        Whether to use PCA for dependent multidimensional DTW. If False, uses conventional 
+        multidimensional DTW with librosa directly without PCA projection.
         
     Returns
     -------
@@ -653,12 +657,12 @@ def custom_dtw(log1, log2, subseq=False, exponent=1, QualityIndex=False, indepen
             if QualityIndex:
                 D_dim, wp_dim, QIdx_dim = custom_dtw(dim_log1, dim_log2, subseq=subseq, 
                                                    exponent=exponent, QualityIndex=True, 
-                                                   independent_dtw=False)
+                                                   independent_dtw=False, pca_for_dependent_dtw=pca_for_dependent_dtw)
                 all_QIdx.append(QIdx_dim)
             else:
                 D_dim, wp_dim = custom_dtw(dim_log1, dim_log2, subseq=subseq, 
                                          exponent=exponent, QualityIndex=False, 
-                                         independent_dtw=False)
+                                         independent_dtw=False, pca_for_dependent_dtw=pca_for_dependent_dtw)
             
             all_D.append(D_dim)
             all_wp.append(wp_dim)
@@ -688,7 +692,7 @@ def custom_dtw(log1, log2, subseq=False, exponent=1, QualityIndex=False, indepen
     log2_is_multidim = (log2.ndim > 1 and log2.shape[1] > 1)
 
     if log1_is_multidim and log2_is_multidim:
-        # MULTIDIMENSIONAL DEPENDENT DTW - Use PCA-based distance
+        # MULTIDIMENSIONAL DEPENDENT DTW
         try:
             # Check if both logs have the same number of dimensions
             if log1.shape[1] != log2.shape[1]:
@@ -699,38 +703,44 @@ def custom_dtw(log1, log2, subseq=False, exponent=1, QualityIndex=False, indepen
                     diffs = np.array([np.linalg.norm(log1_array[i] - log2_array[j]) for j in range(c)])
                     sm[i, :] = diffs ** exponent
             else:
-                # Use PCA-based distance calculation
-                # Combine both logs for consistent PCA transformation
-                combined_logs = np.vstack([log1, log2])
-                
-                # Check if combined data has enough variation for PCA
-                if np.var(combined_logs, axis=0).sum() < 1e-10:
-                    # Fallback to mean if no variation
-                    mean_log1 = np.mean(log1, axis=1)
-                    mean_log2 = np.mean(log2, axis=1)
-                    for i in range(r):
-                        sm[i, :] = (np.abs(mean_log2 - mean_log1[i])) ** exponent
+                if pca_for_dependent_dtw:
+                    # Use PCA-based distance calculation
+                    # Combine both logs for consistent PCA transformation
+                    combined_logs = np.vstack([log1, log2])
+                    
+                    # Check if combined data has enough variation for PCA
+                    if np.var(combined_logs, axis=0).sum() < 1e-10:
+                        # Fallback to mean if no variation
+                        mean_log1 = np.mean(log1, axis=1)
+                        mean_log2 = np.mean(log2, axis=1)
+                        for i in range(r):
+                            sm[i, :] = (np.abs(mean_log2 - mean_log1[i])) ** exponent
+                    else:
+                        # Perform PCA to find main trend direction
+                        # Center the data
+                        mean_combined = np.mean(combined_logs, axis=0)
+                        centered_combined = combined_logs - mean_combined
+                        
+                        # Calculate covariance matrix and eigenvectors
+                        cov_matrix = np.cov(centered_combined.T)
+                        eigenvalues, eigenvectors = np.linalg.eigh(cov_matrix)
+                        pc1_direction = eigenvectors[:, -1]  # Largest eigenvalue = main trend
+                        
+                        # Transform both logs to PC1 space
+                        centered_log1 = log1 - mean_combined
+                        centered_log2 = log2 - mean_combined
+                        
+                        pc1_log1 = np.dot(centered_log1, pc1_direction)  # Shape: (r,)
+                        pc1_log2 = np.dot(centered_log2, pc1_direction)  # Shape: (c,)
+                        
+                        # Calculate DTW distance matrix in PC1 space (now 1D)
+                        for i in range(r):
+                            sm[i, :] = (np.abs(pc1_log2 - pc1_log1[i])) ** exponent
                 else:
-                    # Perform PCA to find main trend direction
-                    # Center the data
-                    mean_combined = np.mean(combined_logs, axis=0)
-                    centered_combined = combined_logs - mean_combined
-                    
-                    # Calculate covariance matrix and eigenvectors
-                    cov_matrix = np.cov(centered_combined.T)
-                    eigenvalues, eigenvectors = np.linalg.eigh(cov_matrix)
-                    pc1_direction = eigenvectors[:, -1]  # Largest eigenvalue = main trend
-                    
-                    # Transform both logs to PC1 space
-                    centered_log1 = log1 - mean_combined
-                    centered_log2 = log2 - mean_combined
-                    
-                    pc1_log1 = np.dot(centered_log1, pc1_direction)  # Shape: (r,)
-                    pc1_log2 = np.dot(centered_log2, pc1_direction)  # Shape: (c,)
-                    
-                    # Calculate DTW distance matrix in PC1 space (now 1D)
+                    # CONVENTIONAL MULTIDIMENSIONAL DTW - compute similarity matrix using Euclidean distances
                     for i in range(r):
-                        sm[i, :] = (np.abs(pc1_log2 - pc1_log1[i])) ** exponent
+                        diffs = np.array([np.linalg.norm(log1[i] - log2[j]) for j in range(c)])
+                        sm[i, :] = diffs ** exponent
                         
         except Exception:
             # Fallback to Euclidean norm if PCA fails
@@ -769,11 +779,10 @@ def custom_dtw(log1, log2, subseq=False, exponent=1, QualityIndex=False, indepen
     if QualityIndex and wp is not None:
         p = wp[:, 0]
         q = wp[:, 1]
-        QIdx = compute_quality_indicators(log1, log2, p, q, D)
+        QIdx = compute_quality_indicators(log1, log2, p, q, D, pca_for_dependent_dtw=pca_for_dependent_dtw)
         return D, wp, QIdx
     else:
         return D, wp
-
 
 def run_comprehensive_dtw_analysis(log_a, log_b, md_a, md_b, picked_depths_a=None, picked_depths_b=None, 
                               top_bottom=True, top_depth=0.0,
@@ -797,7 +806,8 @@ def run_comprehensive_dtw_analysis(log_a, log_b, md_a, md_b, picked_depths_a=Non
                               age_constraint_b_source_cores=None,
                               core_a_name=None,
                               core_b_name=None,
-                              mute_mode=False):
+                              mute_mode=False,
+                              pca_for_dependent_dtw=False):
     """
     Run comprehensive DTW analysis with integrated age correlation functionality.
     
@@ -884,6 +894,9 @@ def run_comprehensive_dtw_analysis(log_a, log_b, md_a, md_b, picked_depths_a=Non
         Name of second core for labeling
     mute_mode : bool, default=False
         If True, suppress all print output
+    pca_for_dependent_dtw : bool, default=True
+        Whether to use PCA for dependent multidimensional DTW. If False, uses conventional 
+        multidimensional DTW with librosa directly without PCA projection.
     
     Returns
     -------
@@ -965,7 +978,7 @@ def run_comprehensive_dtw_analysis(log_a, log_b, md_a, md_b, picked_depths_a=Non
     # Calculate full DTW distance matrix for reference
     if not mute_mode:
         print("Calculating full DTW distance matrix...")
-    dtw_distance_matrix_full, _ = custom_dtw(log_a, log_b, subseq=False, exponent=1, independent_dtw=independent_dtw)
+    dtw_distance_matrix_full, _ = custom_dtw(log_a, log_b, subseq=False, exponent=1, independent_dtw=independent_dtw, pca_for_dependent_dtw=pca_for_dependent_dtw)
     
     # Create all possible segment pairs for evaluation
     all_possible_pairs = []
@@ -1122,7 +1135,7 @@ def run_comprehensive_dtw_analysis(log_a, log_b, md_a, md_b, picked_depths_a=Non
         
         # Perform DTW
         try:
-            D_sub, wp, QIdx = custom_dtw(segment_a, segment_b, subseq=False, exponent=1, QualityIndex=True, independent_dtw=independent_dtw)
+            D_sub, wp, QIdx = custom_dtw(segment_a, segment_b, subseq=False, exponent=1, QualityIndex=True, independent_dtw=independent_dtw, pca_for_dependent_dtw=pca_for_dependent_dtw)
             
             # Adjust warping path coordinates
             adjusted_wp = wp.copy()
@@ -1414,7 +1427,8 @@ def run_comprehensive_dtw_analysis(log_a, log_b, md_a, md_b, picked_depths_a=Non
         # Add bottom-reaching pairs
         bottom_added = force_bottom_segment_pairing(
             valid_dtw_pairs, segments_a, segments_b, depth_boundaries_a, depth_boundaries_b,
-            log_a, log_b, final_dtw_results, independent_dtw=independent_dtw, mute_mode=mute_mode
+            log_a, log_b, final_dtw_results, independent_dtw=independent_dtw, mute_mode=mute_mode,
+            pca_for_dependent_dtw=pca_for_dependent_dtw
         )
 
         # Add gap-filling pairs 
@@ -1434,7 +1448,8 @@ def run_comprehensive_dtw_analysis(log_a, log_b, md_a, md_b, picked_depths_a=Non
             try:
                 # Calculate full DTW with quality indicators (same as regular pairs)
                 D_sub, wp, QIdx = custom_dtw(log_a_segment, log_b_segment, subseq=False, exponent=1, 
-                                        QualityIndex=True, independent_dtw=independent_dtw)
+                                        QualityIndex=True, independent_dtw=independent_dtw,
+                                        pca_for_dependent_dtw=pca_for_dependent_dtw)
                 
                 # Adjust warping path coordinates to match full log coordinates
                 adjusted_wp = wp.copy()
@@ -1606,3 +1621,4 @@ def run_comprehensive_dtw_analysis(log_a, log_b, md_a, md_b, picked_depths_a=Non
     gc.collect()
     
     return final_dtw_results, valid_dtw_pairs, segments_a, segments_b, depth_boundaries_a, depth_boundaries_b, dtw_distance_matrix_full
+
