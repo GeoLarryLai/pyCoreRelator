@@ -515,8 +515,8 @@ def run_multi_parameter_analysis(
     # Output configuration
     output_csv_filenames,  # Dict with quality_index as key and filename as value
     
-    # Optional parameters
-    log_columns=['hiresMS']
+    # Optional parameter
+    pca_for_dependent_dtw=False
 ):
     """
     Run comprehensive multi-parameter analysis for core correlation.
@@ -549,8 +549,8 @@ def run_multi_parameter_analysis(
         Names of cores A and B
     output_csv_filenames : dict
         Dictionary mapping quality_index to output CSV filename
-    log_columns : list, optional
-        Log columns being used (default: ['hiresMS'])
+    pca_for_dependent_dtw : bool
+        Whether to use PCA for dependent DTW
     
     Returns:
     --------
@@ -560,14 +560,6 @@ def run_multi_parameter_analysis(
     
     # Prepare output directory
     os.makedirs('outputs', exist_ok=True)
-    
-    # Determine log suffix for internal use
-    if log_columns == ['hiresMS']:
-        log_suffix = 'MSonly'
-    elif log_columns == ['hiresMS','CT', 'Lumin']:
-        log_suffix = 'MSCTLumin'
-    else:
-        log_suffix = 'unspecified'
     
     # Loop through all quality indices
     print(f"Running {len(parameter_combinations)} parameter combinations for {len(target_quality_indices)} quality indices...")
@@ -595,6 +587,9 @@ def run_multi_parameter_analysis(
 
     for idx, params in enumerate(tqdm(parameter_combinations, desc="Parameter combinations" if not test_age_constraint_removal else "Original parameter combinations")):
         
+        # Generate a random suffix for temporary files in this iteration
+        random_suffix = ''.join(random.choices('ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789', k=8))
+
         # Extract parameters
         age_consideration = params['age_consideration']
         restricted_age_correlation = params['restricted_age_correlation']
@@ -619,6 +614,7 @@ def run_multi_parameter_analysis(
                 picked_depths_a=all_depths_a_cat1,
                 picked_depths_b=all_depths_b_cat1,
                 independent_dtw=False,
+                pca_for_dependent_dtw=pca_for_dependent_dtw,
                 top_bottom=True,
                 top_depth=0.0,
                 exclude_deadend=True,
@@ -638,7 +634,7 @@ def run_multi_parameter_analysis(
             )
             
             # Find complete core paths
-            temp_mapping_file = f'temp_mappings_{log_suffix}_{core_a_name}_{core_b_name}_{combo_id}.csv'
+            temp_mapping_file = f'temp_mappings_{random_suffix}.pkl'
 
             if shortest_path_search:
                 _ = find_complete_core_paths(
@@ -647,7 +643,7 @@ def run_multi_parameter_analysis(
                     output_csv=temp_mapping_file,
                     start_from_top_only=True, batch_size=1000, n_jobs=-1,
                     shortest_path_search=True, shortest_path_level=2,
-                    max_search_path=100000, mute_mode=True
+                    max_search_path=100000, mute_mode=True, pca_for_dependent_dtw=pca_for_dependent_dtw
                 )
             else:
                 _ = find_complete_core_paths(
@@ -656,7 +652,7 @@ def run_multi_parameter_analysis(
                     output_csv=temp_mapping_file,
                     start_from_top_only=True, batch_size=1000, n_jobs=-1,
                     shortest_path_search=False, shortest_path_level=2,
-                    max_search_path=100000, mute_mode=True
+                    max_search_path=100000, mute_mode=True, pca_for_dependent_dtw=pca_for_dependent_dtw
                 )
             
             # Process quality indices
@@ -806,6 +802,7 @@ def run_multi_parameter_analysis(
                         picked_depths_a=all_depths_a_cat1,
                         picked_depths_b=all_depths_b_cat1,
                         independent_dtw=False,
+                        pca_for_dependent_dtw=pca_for_dependent_dtw,
                         top_bottom=True,
                         top_depth=0.0,
                         exclude_deadend=True,
@@ -825,7 +822,7 @@ def run_multi_parameter_analysis(
                     )
                     
                     # Find paths with correct parameters
-                    temp_mapping_file = f'temp_mappings_{log_suffix}_{core_a_name}_{core_b_name}_{scenario_id}.pkl' # Accept *.csv or *.pkl; *.pkl is preferred for temporary files for efficiency
+                    temp_mapping_file = f'temp_mappings_{random_suffix}.pkl' # Accept *.csv or *.pkl; *.pkl is preferred for temporary files for efficiency
 
                     if shortest_path_search:
                         _ = find_complete_core_paths(
@@ -834,7 +831,7 @@ def run_multi_parameter_analysis(
                             output_csv=temp_mapping_file,
                             start_from_top_only=True, batch_size=1000, n_jobs=-1,
                             shortest_path_search=True, shortest_path_level=2,
-                            max_search_path=100000, mute_mode=True
+                            max_search_path=100000, mute_mode=True, pca_for_dependent_dtw=pca_for_dependent_dtw
                         )
                     else:
                         _ = find_complete_core_paths(
@@ -843,7 +840,7 @@ def run_multi_parameter_analysis(
                             output_csv=temp_mapping_file,
                             start_from_top_only=True, batch_size=1000, n_jobs=-1,
                             shortest_path_search=False, shortest_path_level=2,
-                            max_search_path=100000, mute_mode=True
+                            max_search_path=100000, mute_mode=True, pca_for_dependent_dtw=pca_for_dependent_dtw
                         )
                     
                     # Process quality indices
