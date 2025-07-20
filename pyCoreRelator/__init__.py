@@ -2,10 +2,12 @@
 pyCoreRelator: Python package for geological core correlation using Dynamic Time Warping.
 
 This package provides comprehensive tools for correlating geological core data using
-advanced dynamic time warping algorithms, segment analysis, and quality assessment.
+advanced dynamic time warping algorithms, segment analysis, quality assessment, and
+machine learning-based data processing. Includes automated log data extraction from
+core images, intelligent gap filling, and advanced visualization capabilities.
 """
 
-__version__ = "0.1.2"
+__version__ = "0.2.0"
 
 # Core functionality - Data loading and basic operations
 from .utils.data_loader import (
@@ -103,6 +105,19 @@ from .log.ct_image2log import (
     process_and_stitch_segments
 )
 
+# Log processing functions - ML data imputation
+from .log.ml_log_data_imputation import (
+    preprocess_core_data,
+    plot_core_logs,
+    plot_filled_data,
+    prepare_feature_data,
+    apply_feature_weights,
+    adjust_gap_predictions,
+    train_model,
+    fill_gaps_with_ml,
+    process_and_fill_logs
+)
+
 # Make commonly used functions available at package level
 __all__ = [
     # Version
@@ -177,5 +192,16 @@ __all__ = [
     'create_stitched_slice',
     'process_single_scan',
     'process_two_scans',
-    'process_and_stitch_segments'
+    'process_and_stitch_segments',
+    
+    # ML data imputation functions
+    'preprocess_core_data',
+    'plot_core_logs',
+    'plot_filled_data',
+    'prepare_feature_data',
+    'apply_feature_weights',
+    'adjust_gap_predictions',
+    'train_model',
+    'fill_gaps_with_ml',
+    'process_and_fill_logs'
 ]

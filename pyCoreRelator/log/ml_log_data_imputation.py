@@ -1,0 +1,1692 @@
+"""
+Machine Learning log data imputation functions for pyCoreRelator.
+
+Included Functions:
+- preprocess_core_data: Preprocess core data by cleaning and scaling depth values using configurable parameters
+- plot_core_logs: Plot core logs using fully configurable parameters from data_config
+- plot_filled_data: Plot original and ML-filled data for a given log using configurable parameters
+- prepare_feature_data: Prepare merged feature data for ML training using configurable parameters
+- apply_feature_weights: Apply feature weights using configurable parameters from data_config
+- adjust_gap_predictions: Adjust ML predictions for gap rows to blend with linear interpolation
+- train_model: Helper function for parallel model training
+- fill_gaps_with_ml: Fill gaps in target data using specified ML method
+- process_and_fill_logs: Process and fill gaps in log data using ML methods with fully configurable parameters
+
+This module provides comprehensive machine learning tools for filling data gaps in
+geological core log data, with support for multiple ML algorithms and configurable
+preprocessing parameters.
+"""
+
+import pandas as pd
+import matplotlib.pyplot as plt
+import matplotlib.collections as mcoll  # For PolyCollection
+import numpy as np
+import os
+import warnings
+from scipy.signal import correlate, find_peaks
+from scipy.ndimage import gaussian_filter1d
+from PIL import Image
+
+# Create interaction features
+from sklearn.preprocessing import PolynomialFeatures
+from sklearn.impute import SimpleImputer
+from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import StandardScaler
+from sklearn.feature_selection import SelectKBest, f_regression
+from sklearn.ensemble import RandomForestRegressor, HistGradientBoostingRegressor
+import xgboost as xgb
+import lightgbm as lgb
+from joblib import Parallel, delayed
+
+
+def preprocess_core_data(data_config):
+    """
+    Preprocess core data by cleaning and scaling depth values using configurable parameters.
+    
+    This function processes core data by applying data-type specific thresholds to remove
+    artifacts and noises, then scales depth values according to the specified core length.
+    All processing actions are driven by the data_config content.
+    
+    Parameters
+    ----------
+    data_config : dict
+        Configuration dictionary containing:
+        - depth_column: Primary depth column name
+        - column_configs: Dictionary of data type configurations with thresholds
+        - mother_dir: Base directory path
+        - clean_output_folder: Output folder for cleaned data
+        - input_file_paths: Dictionary of input file paths by data type
+        - clean_file_paths: Dictionary of output file paths by data type
+        - core_length: Target core length for scaling
+        
+    Returns
+    -------
+    None
+        Saves cleaned data files to the specified output directory
+        
+    Notes
+    -----
+    The function validates threshold conditions and processes different data types
+    based on their configuration structure (single column, multi-column, or nested).
+    """
+    # Get primary depth column from config
+    depth_col = data_config['depth_column']
+    
+    # Validate threshold conditions from column configs
+    valid_conditions = ['>', '<', '<=', '>=']
+    
+    # Validate thresholds for all data types that have them
+    for data_type, type_config in data_config['column_configs'].items():
+        if isinstance(type_config, dict):
+            # Check for any threshold that uses condition operators
+            for key, value in type_config.items():
+                if key == 'threshold' and isinstance(value, list) and len(value) >= 1:
+                    if value[0] not in valid_conditions:
+                        raise ValueError(f"Invalid condition '{value[0]}' for {data_type}.{key}.")
+                # Check nested configs for thresholds
+                elif isinstance(value, dict):
+                    for sub_key, sub_config in value.items():
+                        if isinstance(sub_config, dict) and 'threshold' in sub_config:
+                            threshold = sub_config['threshold']
+                            if isinstance(threshold, list) and len(threshold) >= 1 and threshold[0] not in valid_conditions:
+                                raise ValueError(f"Invalid condition '{threshold[0]}' for {data_type}.{sub_key}.")
+
+    # Create output directories
+    os.makedirs(data_config['mother_dir'] + data_config['clean_output_folder'], exist_ok=True)
+
+    # Process data types that exist in both input_file_paths and column_configs
+    input_paths = data_config.get('input_file_paths', {})
+    clean_paths = data_config.get('clean_file_paths', {})
+    available_columns = data_config.get('column_configs', {})
+    
+    # Only process data types that have all necessary configurations
+    valid_data_types = set(input_paths.keys()) & set(clean_paths.keys()) & set(available_columns.keys())
+    
+    # Process each valid data type
+    for data_type in valid_data_types:
+        # Get data input path from config
+        data_path = data_config['mother_dir'] + input_paths[data_type]
+        
+        if os.path.exists(data_path):
+            print(f"Processing {data_type} data...")
+            data = pd.read_csv(data_path).astype('float32')
+            
+            if data is not None:
+                # Get type-specific configuration
+                type_config = available_columns[data_type]
+                
+                # Apply data-type specific processing based on config structure
+                if isinstance(type_config, dict):
+                    # Handle different config structures
+                    if 'data_cols' in type_config:
+                        # data with multiple columns
+                        data_columns = type_config['data_cols']
+                        
+                        # Apply multi-column threshold processing if configured
+                        for threshold_key, threshold_config in type_config.items():
+                            if threshold_key.endswith('_threshold') and isinstance(threshold_config, list) and len(threshold_config) >= 3:
+                                min_val, max_val, buffer_size = threshold_config
+                                buffer_indices = []
+                                for col in data_columns:
+                                    if col in data.columns:
+                                        extreme_values = (data[col] <= min_val) | (data[col] >= max_val)
+                                        for i in range(len(data)):
+                                            if extreme_values[i]:
+                                                buffer_indices.extend(range(max(0, i-buffer_size), min(len(data), i+buffer_size+1)))
+                             
+                                if buffer_indices:
+                                    std_columns = type_config.get('std_cols', [])
+                                    data.loc[buffer_indices, data_columns + std_columns] = np.nan
+                    
+                    elif 'data_col' in type_config:
+                        # Single column data
+                        data_col = type_config['data_col']
+                        
+                        # Apply threshold if defined
+                        if 'threshold' in type_config:
+                            condition, threshold_value, buffer_size = type_config['threshold']
+                            extreme_values = eval(f"data['{data_col}'] {condition} {threshold_value}")
+                            
+                            extreme_indices = []
+                            for i in range(len(data)):
+                                if extreme_values[i]:
+                                    extreme_indices.extend(range(max(0, i-buffer_size), min(len(data), i+buffer_size+1)))
+                            
+                            if extreme_indices:
+                                data.loc[extreme_indices, data_col] = np.nan
+                    
+                    else:
+                        # Nested configuration
+                        # Map original column names to config keys for threshold lookup
+                        column_to_config_map = {}
+                        special_extreme_indices = []
+                        
+                        for log_type, config in type_config.items():
+                            if isinstance(config, dict) and 'data_col' in config:
+                                column_to_config_map[config['data_col']] = log_type
+                                
+                                # Apply threshold for any sub-type that has special processing flag
+                                if 'threshold' in config and config.get('apply_to_all_columns', False):
+                                    data_col = config['data_col']
+                                    if data_col in data.columns:
+                                        condition, threshold_value, buffer_size = config['threshold']
+                                        extreme_values = eval(f"data['{data_col}'] {condition} {threshold_value}")
+                                        for i in range(len(data)):
+                                            if extreme_values[i]:
+                                                special_extreme_indices.extend(range(max(0, i-buffer_size), min(len(data), i+buffer_size+1)))
+
+                        # Process each column using config-based thresholds
+                        for column in data.columns:
+                            if column in column_to_config_map:
+                                config_key = column_to_config_map[column]
+                                if 'threshold' in type_config[config_key]:
+                                    condition, threshold_value, buffer_size = type_config[config_key]['threshold']
+                                    extreme_values = eval(f"data['{column}'] {condition} {threshold_value}")
+                                    
+                                    extreme_indices = []
+                                    for i in range(len(data)):
+                                        if extreme_values[i]:
+                                            extreme_indices.extend(range(max(0, i-buffer_size), min(len(data), i+buffer_size+1)))
+                                    
+                                    # Combine with special extreme indices if applicable
+                                    all_extreme_indices = list(set(extreme_indices + special_extreme_indices))
+                                    if all_extreme_indices:
+                                        data.loc[all_extreme_indices, column] = np.nan
+
+                # Scale depth using configurable depth column
+                depth_scale = data_config['core_length'] / data[depth_col].max()
+                data[depth_col] = data[depth_col] * depth_scale
+                
+                # Use direct file path from config
+                output_path = data_config['mother_dir'] + data_config['clean_output_folder'] + clean_paths[data_type]
+                data.to_csv(output_path, index=False)
+                print(f"Saved cleaned {data_type} data to: {output_path}")
+        else:
+            print(f"Raw file not found for {data_type}: {data_path}")
+    
+    print("Data preprocessing completed.") 
+
+
+def plot_core_logs(data_config, file_type='clean', title=None):
+    """
+    Plot core logs using fully configurable parameters from data_config.
+    
+    This function creates subplot panels for different types of core data (images and logs)
+    based on the configuration provided. All plotting decisions are driven by column_configs content.
+    
+    Parameters
+    ----------
+    data_config : dict
+        Configuration dictionary containing:
+        - depth_column: Primary depth column name
+        - column_configs: Dictionary of data type configurations
+        - mother_dir: Base directory path
+        - clean_output_folder or filled_output_folder: Data folder path
+        - clean_file_paths or filled_file_paths: Dictionary of file paths by data type
+        - core_length: Core length for y-axis limits
+        - core_name: Core name for title
+    file_type : str, default='clean'
+        Type of data files to plot ('clean' or 'filled')
+    title : str, optional
+        Custom title for the plot. If None, generates default title
+        
+    Returns
+    -------
+    tuple
+        (fig, axes) - matplotlib figure and axes objects
+        
+    Notes
+    -----
+    The function automatically determines plot structure based on column_configs and
+    available data files. Supports both image and data plotting panels.
+    """
+    # Get primary depth column from config
+    depth_col = data_config['depth_column']
+    
+    # Get file paths based on type
+    if file_type == 'clean':
+        data_paths = data_config.get('clean_file_paths', {})
+        output_folder = data_config['clean_output_folder']
+    else:
+        data_paths = data_config.get('filled_file_paths', {})
+        output_folder = data_config['filled_output_folder']
+    
+    # Get available column configs
+    available_columns = data_config.get('column_configs', {})
+    
+    # Only process data types that have both file path and column config
+    valid_data_types = set(data_paths.keys()) & set(available_columns.keys())
+    
+    # Build full file paths and load data
+    data = {}
+    for data_type in valid_data_types:
+        full_path = data_config['mother_dir'] + output_folder + data_paths[data_type]
+        if os.path.exists(full_path):
+            loaded_data = pd.read_csv(full_path)
+            if depth_col in loaded_data.columns:
+                data[data_type] = loaded_data
+    
+    if not data:
+        raise ValueError("No valid data files found to plot")
+    
+    # Load Core Length and Name
+    core_length = data_config['core_length']
+    core_name = data_config['core_name']
+    
+    if title is None:
+        file_type_title = 'Cleaned' if file_type == 'clean' else 'ML-Filled'
+        title = f'{core_name} {file_type_title} Logs'
+    
+    # Determine plot structure based on column_configs
+    plot_panels = []
+    
+    # Process each data type according to its configuration in the order defined in column_configs
+    for data_type in available_columns.keys():
+        if data_type not in valid_data_types or data_type not in data:
+            continue
+            
+        type_config = available_columns[data_type]
+        
+        # Check for image configuration
+        if 'image_path' in type_config:
+            image_path = data_config['mother_dir'] + type_config['image_path']
+            if os.path.exists(image_path):
+                # Add image panel
+                plot_panels.append({
+                    'type': 'image',
+                    'data_type': data_type,
+                    'image_path': image_path,
+                    'colormap': type_config.get('image_colormap', 'gray')
+                })
+        
+        # Handle different config structures for data plotting
+        if 'data_col' in type_config:
+            # Single column data type
+            data_col = type_config['data_col']
+            if data_col in data[data_type].columns and not data[data_type][data_col].isna().all():
+                plot_panels.append({
+                    'type': 'data',
+                    'data_type': data_type,
+                    'columns': [data_col],
+                    'config': type_config
+                })
+                
+        elif 'data_cols' in type_config:
+            # Multi-column data type
+            data_cols = type_config['data_cols']
+            available_cols = [col for col in data_cols if col in data[data_type].columns 
+                            and not data[data_type][col].isna().all()]
+            
+            if available_cols:
+                # Check for subplot grouping control
+                if type_config.get('group_in_subplot', True):
+                    # Plot all columns in one subplot
+                    plot_panels.append({
+                        'type': 'data',
+                        'data_type': data_type,
+                        'columns': available_cols,
+                        'config': type_config
+                    })
+                else:
+                    # Plot each column separately
+                    for col in available_cols:
+                        col_config = type_config.copy()
+                        col_config['data_cols'] = [col]
+                        plot_panels.append({
+                            'type': 'data',
+                            'data_type': data_type,
+                            'columns': [col],
+                            'config': col_config
+                        })
+                        
+        else:
+            # Nested configuration - process in the order defined in config
+            for item_name in type_config.keys():
+                item_config = type_config[item_name]
+                if (isinstance(item_config, dict) and 
+                    'data_col' in item_config):
+                    data_col = item_config['data_col']
+                    if data_col in data[data_type].columns and not data[data_type][data_col].isna().all():
+                        plot_panels.append({
+                            'type': 'data',
+                            'data_type': data_type,
+                            'columns': [data_col],
+                            'config': item_config,
+                            'item_name': item_name
+                        })
+    
+    if not plot_panels:
+        raise ValueError("No data available to plot")
+    
+    # Create subplot
+    n_plots = len(plot_panels)
+    fig, axes = plt.subplots(1, n_plots, figsize=(1.2*n_plots, 12))
+    if n_plots == 1:
+        axes = [axes]
+    
+    fig.suptitle(title, fontweight='bold', fontsize=14)
+    
+    # Plot each panel
+    for i, panel in enumerate(plot_panels):
+        ax = axes[i]
+        
+        # Only set y-label for the leftmost subplot
+        if i == 0:
+            ax.set_ylabel('Depth', fontweight='bold')
+        
+        if panel['type'] == 'image':
+            # Plot image
+            img = plt.imread(panel['image_path'])
+            ax.imshow(img, aspect='auto', extent=[0, 1, core_length, 0], cmap=panel['colormap'])
+            ax.set_xticks([])
+            ax.set_xlabel(f'{panel["data_type"].upper()}\nImage', fontweight='bold', fontsize='small')
+            
+        elif panel['type'] == 'data':
+            # Plot data
+            _plot_data_panel(ax, panel, data, depth_col, core_length)
+        
+        # Set common y-axis properties
+        ax.invert_yaxis()
+        ax.set_ylim(core_length, 0)
+        if i > 0:
+            ax.tick_params(axis='y', labelleft=False)
+    
+    plt.tight_layout()
+    return fig, axes
+
+
+def _plot_data_panel(ax, panel, data, depth_col, core_length):
+    """
+    Helper function to plot a single data panel.
+    
+    This function plots data columns with optional standard deviation shading and
+    colormap visualization based on the panel configuration.
+    
+    Parameters
+    ----------
+    ax : matplotlib.axes.Axes
+        Axes object to plot on
+    panel : dict
+        Panel configuration containing data type, columns, and styling config
+    data : dict
+        Dictionary of loaded data by data type
+    depth_col : str
+        Name of the depth column
+    core_length : float
+        Total core length for axis limits
+        
+    Returns
+    -------
+    None
+        Modifies the axes object in place
+    """
+    data_type = panel['data_type']
+    columns = panel['columns']
+    config = panel['config']
+    
+    df = data[data_type]
+    depth_values = df[depth_col].astype(np.float32)
+    
+    # Get plot styling from config
+    if 'plot_colors' in config:
+        plot_colors = config['plot_colors']
+    elif 'plot_color' in config:
+        plot_colors = [config['plot_color']]
+    else:
+        plot_colors = ['black'] * len(columns)
+    
+    if len(plot_colors) < len(columns):
+        plot_colors.extend(['black'] * (len(columns) - len(plot_colors)))
+    
+    # Plot each column
+    for j, col in enumerate(columns):
+        if col not in df.columns:
+            continue
+            
+        values = df[col].astype(np.float32)
+        color = plot_colors[j]
+        
+        # Plot main line
+        ax.plot(values, depth_values, color=color, linewidth=0.7)
+        
+        # Add standard deviation if available
+        std_col = None
+        if 'std_col' in config:
+            std_col = config['std_col']
+        elif 'std_cols' in config and j < len(config['std_cols']):
+            std_col = config['std_cols'][j]
+        
+        if std_col and std_col in df.columns:
+            std_values = df[std_col].astype(np.float32)
+            ax.fill_betweenx(depth_values,
+                           values - std_values,
+                           values + std_values,
+                           color=color, alpha=0.2, linewidth=0)
+        
+        # Add colormap visualization if configured
+        show_colormap = config.get('show_colormap', False)
+        if show_colormap:
+            colormap_name = config.get('colormap', 'viridis')
+            _add_colormap_visualization(ax, values, depth_values, colormap_name)
+        elif 'colormap_cols' in config and col in config['colormap_cols']:
+            colormap_name = config.get('colormap', 'viridis')
+            _add_colormap_visualization(ax, values, depth_values, colormap_name)
+    
+    # Set axis labels and styling
+    plot_label = config.get('plot_label', columns[0] if len(columns) == 1 else 'Data')
+    ax.set_xlabel(plot_label, fontweight='bold', fontsize='small')
+    ax.grid(True)
+    ax.tick_params(axis='x', labelsize='x-small')
+
+
+def _add_colormap_visualization(ax, values, depths, colormap_name):
+    """
+    Helper function to add colormap visualization using PolyCollection.
+    
+    This function creates a colored background visualization where colors represent
+    data values along the depth profile using the specified colormap.
+    
+    Parameters
+    ----------
+    ax : matplotlib.axes.Axes
+        Axes object to add colormap to
+    values : pandas.Series or numpy.array
+        Data values for color mapping
+    depths : pandas.Series or numpy.array
+        Corresponding depth values
+    colormap_name : str
+        Name of the matplotlib colormap to use
+        
+    Returns
+    -------
+    None
+        Adds PolyCollection to the axes object
+        
+    Notes
+    -----
+    Creates polygons between consecutive data points and colors them based on
+    the average value. Ignores NaN values in the data.
+    """
+    # Compute normalization range ignoring NaNs
+    valid_values = values[~np.isnan(values)]
+    if len(valid_values) == 0:
+        return
+        
+    vmin, vmax = valid_values.min(), valid_values.max()
+    if np.isclose(vmin, vmax):
+        return
+        
+    norm = plt.Normalize(vmin, vmax)
+    cmap = plt.colormaps[colormap_name]
+    
+    polys = []
+    facecolors = []
+    
+    for i in range(len(depths) - 1):
+        if not (np.isnan(values.iloc[i]) or np.isnan(values.iloc[i+1])):
+            poly = [
+                (0, depths.iloc[i]),
+                (values.iloc[i], depths.iloc[i]),
+                (values.iloc[i+1], depths.iloc[i+1]),
+                (0, depths.iloc[i+1])
+            ]
+            polys.append(poly)
+            avg_val = (values.iloc[i] + values.iloc[i+1]) / 2
+            facecolors.append(cmap(norm(avg_val)))
+    
+    if polys:
+        pc = mcoll.PolyCollection(polys, facecolors=facecolors, edgecolors='none', alpha=0.95)
+        ax.add_collection(pc) 
+
+
+def plot_filled_data(target_log, original_data, filled_data, data_config, ML_type='ML'):
+    """
+    Plot original and ML-filled data for a given log using configurable parameters.
+    
+    This function creates a horizontal plot showing the original data overlaid with
+    ML-filled gaps, including uncertainty shading if available. All plotting parameters
+    are driven by data_config content.
+    
+    Parameters
+    ----------
+    target_log : str
+        Name of the log to plot
+    original_data : pandas.DataFrame
+        Original data containing the log with gaps
+    filled_data : pandas.DataFrame
+        Data with ML-filled gaps
+    data_config : dict
+        Configuration containing all parameters including depth column, plot labels, etc.
+    ML_type : str, default='ML'
+        Type of ML method used for title
+        
+    Returns
+    -------
+    None
+        Displays the plot directly
+        
+    Notes
+    -----
+    The function searches through column_configs to find the target log configuration
+    and uses appropriate plot labels and styling. Handles standard deviation shading
+    if configured.
+    """
+    # Get parameters from config
+    depth_col = data_config['depth_column']
+    core_length = data_config['core_length']
+    core_name = data_config['core_name']
+    
+    # Find the configuration for this target log
+    target_config = None
+    target_data_type = None
+    
+    # Search through column_configs to find the target log
+    for data_type, type_config in data_config['column_configs'].items():
+        if isinstance(type_config, dict):
+            # Check for single column data types
+            if 'data_col' in type_config and type_config['data_col'] == target_log:
+                target_config = type_config
+                target_data_type = data_type
+                break
+            # Check for multi-column data types
+            elif 'data_cols' in type_config and target_log in type_config['data_cols']:
+                target_config = type_config
+                target_data_type = data_type
+                break
+            # Check for nested configurations
+            else:
+                for sub_key, sub_config in type_config.items():
+                    if isinstance(sub_config, dict) and 'data_col' in sub_config and sub_config['data_col'] == target_log:
+                        target_config = sub_config
+                        target_data_type = data_type
+                        break
+                if target_config:
+                    break
+    
+    # Get plot label from config or use default
+    if target_config and 'plot_label' in target_config:
+        plot_label = target_config['plot_label']
+    else:
+        plot_label = f'{target_log}\nBrightness'
+    
+    # Check if there are any gaps
+    has_gaps = original_data[target_log].isna().any()
+    
+    # Create figure
+    fig, ax = plt.subplots(figsize=(15, 3))
+    title_suffix = f'Use {ML_type} for Data Gap Filling' if has_gaps else "(No Data Gap to be filled by ML)"
+    fig.suptitle(f'{core_name} {target_log} Values {title_suffix}', fontweight='bold')
+
+    # Plot data with ML-predicted gaps only if gaps exist
+    if has_gaps:
+        ax.plot(filled_data[depth_col], filled_data[target_log], 
+                color='red', label=f'ML Predicted {target_log}', linewidth=0.7, alpha=0.7)
+
+    # Plot original data
+    ax.plot(original_data[depth_col], original_data[target_log], 
+            color='black', label=f'Original {target_log}', linewidth=0.7)
+
+    # Add uncertainty shade if std column exists - get std column name from config
+    std_col = None
+    if target_config:
+        # For single column configs
+        if 'std_col' in target_config:
+            std_col = target_config['std_col']
+        # For multi-column configs, find the corresponding std column
+        elif 'std_cols' in target_config and 'data_cols' in target_config:
+            data_cols = target_config['data_cols']
+            std_cols = target_config['std_cols']
+            if target_log in data_cols and len(std_cols) > data_cols.index(target_log):
+                std_col = std_cols[data_cols.index(target_log)]
+    
+    if std_col and std_col in original_data.columns:
+        ax.fill_between(original_data[depth_col],
+                       original_data[target_log] - original_data[std_col],
+                       original_data[target_log] + original_data[std_col],
+                       color='black', alpha=0.2, linewidth=0)
+
+    # Customize plot
+    ax.set_ylabel(plot_label, fontweight='bold', fontsize='small')
+    ax.set_xlabel('Depth')
+    ax.grid(True)
+    ax.invert_xaxis()
+    ax.set_xlim(0, core_length)
+    ax.tick_params(axis='y', labelsize='x-small')
+    ax.legend()
+
+    plt.tight_layout()
+    plt.show() 
+
+
+def prepare_feature_data(target_log, All_logs, merge_tolerance, data_config):
+    """
+    Prepare merged feature data for ML training using configurable parameters.
+    
+    This function merges data from multiple log sources to create a comprehensive
+    feature dataset for machine learning. It handles depth alignment with tolerance
+    and converts data types appropriately.
+    
+    Parameters
+    ----------
+    target_log : str
+        Name of the target column for prediction
+    All_logs : dict
+        Dictionary of (dataframe, columns) pairs containing feature data
+    merge_tolerance : float
+        Maximum allowed difference in depth for merging rows
+    data_config : dict
+        Configuration containing depth column name and other parameters
+        
+    Returns
+    -------
+    tuple
+        Contains the following elements:
+        - target_data (pandas.DataFrame): Original target data
+        - merged_data (pandas.DataFrame): Merged feature data for ML
+        - features (list): List of feature column names
+        
+    Notes
+    -----
+    Uses merge_asof with tolerance for data alignment. Warns about unmatched rows
+    due to tolerance constraints. Renames feature columns to avoid conflicts.
+    """
+    # Get primary depth column from config
+    depth_col = data_config['depth_column']
+    
+    # Get target data from All_logs
+    target_data = None
+    for df, cols in All_logs.values():
+        if target_log in cols:
+            target_data = df.copy()
+            break
+    
+    if target_data is None:
+        raise ValueError(f"Target log '{target_log}' not found in any dataset")
+
+    # Convert depth column to float32 in target data
+    target_data[depth_col] = target_data[depth_col].astype('float32')
+    
+    # Prepare training data by merging all available logs
+    merged_data = target_data[[depth_col, target_log]].copy()
+    features = []
+    
+    # Merge feature dataframes one by one, using their own depth column
+    for df_name, (df, cols) in All_logs.items():
+        if target_log not in cols:  # Skip the target dataframe
+            df = df.copy()
+            df[depth_col] = df[depth_col].astype('float32')
+            # Rename depth column temporarily to avoid conflicts during merging
+            temp_depth_col = f'{depth_col}_{df_name}'
+            df = df.rename(columns={depth_col: temp_depth_col})
+            # Convert all numeric columns to float32
+            for col in cols:
+                if col != depth_col and df[col].dtype.kind in 'biufc':
+                    df[col] = df[col].astype('float32')
+            # Rename feature columns for merging
+            df_renamed = df.rename(columns={col: f'{df_name}_{col}' for col in cols if col != depth_col})
+            df_renamed = df_renamed.sort_values(temp_depth_col)
+            
+            # Perform merge_asof with tolerance for data alignment
+            merged_data = pd.merge_asof(
+                merged_data.sort_values(depth_col),
+                df_renamed,
+                left_on=depth_col,
+                right_on=temp_depth_col,
+                direction='nearest',
+                tolerance=merge_tolerance
+            )
+            
+            # Check for unmatched rows due to the tolerance constraint
+            unmatched = merged_data[temp_depth_col].isna().sum()
+            if unmatched > 0:
+                warnings.warn(f"{unmatched} rows did not have a matching depth within tolerance for log '{df_name}'.")
+            
+            # Add renamed feature columns to features list
+            features.extend([f'{df_name}_{col}' for col in cols if col != depth_col])
+            # Drop the temporary depth column used for merging
+            merged_data = merged_data.drop(columns=[temp_depth_col])
+    
+    # Add depth column as a feature
+    features.append(depth_col)
+    
+    return target_data, merged_data, features
+
+
+def apply_feature_weights(X, data_config):
+    """
+    Apply feature weights using configurable parameters from data_config.
+    
+    This function multiplies feature columns by their configured weights to
+    adjust their relative importance in machine learning models.
+    
+    Parameters
+    ----------
+    X : pandas.DataFrame
+        Feature dataframe to apply weights to
+    data_config : dict
+        Configuration containing column_configs with feature weights
+        
+    Returns
+    -------
+    pandas.DataFrame
+        Weighted feature dataframe
+        
+    Notes
+    -----
+    Processes different configuration structures (single column, multi-column, nested)
+    and applies weights to matching columns in the feature dataframe.
+    """
+    X_weighted = X.copy()
+    column_configs = data_config['column_configs']
+    
+    # Process each data type in column_configs
+    for data_type, type_config in column_configs.items():
+        if isinstance(type_config, dict):
+            # Handle multi-column data types with feature_weights
+            if 'data_cols' in type_config and 'feature_weights' in type_config:
+                data_cols = type_config['data_cols']
+                weights = type_config['feature_weights']
+                
+                # Apply weights to each column
+                for col, weight in zip(data_cols, weights):
+                    matching_cols = [x_col for x_col in X_weighted.columns if col in x_col]
+                    for x_col in matching_cols:
+                        X_weighted[x_col] = (X_weighted[x_col] * weight).astype('float32')
+            
+            # Handle single column data types with feature_weight
+            elif 'data_col' in type_config and 'feature_weight' in type_config:
+                data_col = type_config['data_col']
+                weight = type_config['feature_weight']
+                
+                # Find matching columns in X that contain this data column name
+                matching_cols = [x_col for x_col in X_weighted.columns if data_col in x_col]
+                for x_col in matching_cols:
+                    X_weighted[x_col] = (X_weighted[x_col] * weight).astype('float32')
+            
+            # Handle nested configurations (with multiple sub-types)
+            else:
+                for sub_type, sub_config in type_config.items():
+                    if isinstance(sub_config, dict) and 'data_col' in sub_config and 'feature_weight' in sub_config:
+                        data_col = sub_config['data_col']
+                        weight = sub_config['feature_weight']
+                        
+                        # Find matching columns in X that contain this data column name
+                        matching_cols = [x_col for x_col in X_weighted.columns if data_col in x_col]
+                        for x_col in matching_cols:
+                            X_weighted[x_col] = (X_weighted[x_col] * weight).astype('float32')
+    
+    return X_weighted
+
+
+def adjust_gap_predictions(df, gap_mask, ml_preds, target_log, data_config):
+    """
+    Adjust ML predictions for gap rows to blend with linear interpolation between boundaries.
+    
+    This function adjusts ML predictions for contiguous gap segments by blending them
+    with linear interpolation between the boundary values, ensuring smoother transitions.
+    
+    Parameters
+    ----------
+    df : pandas.DataFrame
+        Original dataframe containing depth and target data
+    gap_mask : pandas.Series
+        Boolean mask indicating gap positions
+    ml_preds : numpy.array
+        ML predictions for gap positions
+    target_log : str
+        Name of the target column
+    data_config : dict
+        Configuration containing depth column name
+        
+    Returns
+    -------
+    numpy.array
+        Adjusted predictions with blended interpolation
+        
+    Notes
+    -----
+    For each contiguous gap segment with both left and right boundaries available,
+    the predictions are blended with linear interpolation. The blending weight varies
+    from the boundaries (more interpolation) to the middle (more ML prediction).
+    """
+    # Get primary depth column from config
+    depth_col = data_config['depth_column']
+    
+    # Get the integer positions (row numbers) of missing values
+    gap_positions = np.where(gap_mask.values)[0]
+    # Create a Series for easier handling; index = positions in df
+    preds_series = pd.Series(ml_preds, index=gap_positions)
+    
+    # Identify contiguous segments in the gap positions
+    segments = np.split(gap_positions, np.where(np.diff(gap_positions) != 1)[0] + 1)
+    
+    adjusted = preds_series.copy()
+    for seg in segments:
+        # seg is an array of row positions (in df) for a contiguous gap segment.
+        start_pos = seg[0]
+        end_pos = seg[-1]
+        
+        # Enforce trend constraints only if both boundaries exist.
+        if start_pos == 0 or end_pos == len(df) - 1:
+            continue  # Skip segments at the very beginning or end.
+        
+        # Retrieve boundary (observed) values and depths using configurable depth column
+        left_value = df.iloc[start_pos - 1][target_log]
+        right_value = df.iloc[end_pos + 1][target_log]
+        # Skip if boundaries are missing (should not happen if gap_mask is correct)
+        if pd.isna(left_value) or pd.isna(right_value):
+            continue
+        left_depth = df.iloc[start_pos - 1][depth_col]
+        right_depth = df.iloc[end_pos + 1][depth_col]
+        
+        # For each gap row in the segment, blend the ML prediction with linear interpolation
+        for pos in seg:
+            current_depth = df.iloc[pos][depth_col]
+            # Normalize the depth position (x in [0, 1])
+            if right_depth == left_depth:
+                x = 0.5
+            else:
+                x = (current_depth - left_depth) / (right_depth - left_depth)
+            # Compute the linear interpolation value at this depth
+            interp_val = left_value + (right_value - left_value) * x
+            # Define a weight that is 0 at the boundaries and 1 at the middle.
+            # Here we use: weight = 1 - 2*|x - 0.5|
+            weight = 1 - 2 * abs(x - 0.5)
+            weight = max(0, min(weight, 1))  # Ensure weight is between 0 and 1
+            # Blend: final = interpolation + weight*(ML_prediction - interpolation)
+            adjusted[pos] = interp_val + weight * (preds_series[pos] - interp_val)
+    
+    return adjusted.values
+
+
+def train_model(model):
+    """
+    Helper function for parallel model training.
+    
+    This function creates a wrapper for training a single model in parallel processing
+    contexts. It fits the model on training data and returns predictions.
+    
+    Parameters
+    ----------
+    model : sklearn-like model
+        Machine learning model with fit and predict methods
+        
+    Returns
+    -------
+    function
+        Wrapper function that trains the model and returns predictions
+        
+    Notes
+    -----
+    Used in conjunction with joblib.Parallel for training multiple models simultaneously.
+    """
+    def train_wrapper(X_train, y_train, X_pred):
+        model.fit(X_train, y_train)
+        return model.predict(X_pred)
+    return train_wrapper 
+
+
+def _apply_random_forest(X_train, y_train, X_pred):
+    """
+    Apply Random Forest method.
+    
+    This function trains an ensemble of Random Forest and Histogram Gradient Boosting
+    models to predict missing values, with outlier removal using IQR method.
+    
+    Parameters
+    ----------
+    X_train : pandas.DataFrame or numpy.array
+        Training feature data
+    y_train : pandas.Series or numpy.array
+        Training target values
+    X_pred : pandas.DataFrame or numpy.array
+        Feature data for prediction
+        
+    Returns
+    -------
+    numpy.array
+        Ensemble predictions from both models
+        
+    Notes
+    -----
+    Removes outliers using 2.5% quantile cutoff and IQR method before training.
+    Uses parallel processing for model training and averages predictions.
+    """
+    # Handle outliers using IQR method
+    quantile_cutoff = 0.025
+    Q1 = y_train.quantile(quantile_cutoff)
+    Q3 = y_train.quantile(1 - quantile_cutoff)
+    IQR = Q3 - Q1
+    outlier_mask = (y_train >= Q1 - 1.5 * IQR) & (y_train <= Q3 + 1.5 * IQR)
+    X_train = X_train[outlier_mask]
+    y_train = y_train[outlier_mask]
+
+    def train_model(model):
+        model.fit(X_train, y_train)
+        return model.predict(X_pred)
+
+    # Initialize two ensemble models
+    models = [
+        RandomForestRegressor(n_estimators=1000,
+                              max_depth=30,
+                              min_samples_split=5,
+                              min_samples_leaf=5,
+                              max_features='sqrt',
+                              bootstrap=True,
+                              random_state=42,
+                              n_jobs=-1),
+        HistGradientBoostingRegressor(max_iter=800,
+                                      learning_rate=0.05,
+                                      max_depth=5,
+                                      min_samples_leaf=50,
+                                      l2_regularization=1.0,
+                                      random_state=42,
+                                      verbose=0)
+    ]
+
+    # Train models in parallel
+    predictions = Parallel(n_jobs=-1)(delayed(train_model)(model) for model in models)
+
+    # Ensemble predictions by averaging
+    ensemble_predictions = np.mean(predictions, axis=0)
+    
+    return ensemble_predictions
+
+
+def _apply_random_forest_with_trend_constraints(X_train, y_train, X_pred, merged_data, gap_mask, target_log, data_config):
+    """
+    Apply Random Forest with trend constraints method.
+    
+    This function trains Random Forest and Histogram Gradient Boosting models and
+    then applies trend constraints by blending predictions with linear interpolation.
+    
+    Parameters
+    ----------
+    X_train : pandas.DataFrame or numpy.array
+        Training feature data
+    y_train : pandas.Series or numpy.array
+        Training target values
+    X_pred : pandas.DataFrame or numpy.array
+        Feature data for prediction
+    merged_data : pandas.DataFrame
+        Complete merged dataset for trend constraint calculation
+    gap_mask : pandas.Series
+        Boolean mask indicating gap positions
+    target_log : str
+        Name of the target column
+    data_config : dict
+        Configuration containing depth column and other parameters
+        
+    Returns
+    -------
+    numpy.array
+        Trend-constrained ensemble predictions
+        
+    Notes
+    -----
+    Uses a higher outlier cutoff (15%) and applies trend constraints using the
+    adjust_gap_predictions helper function.
+    """
+    # Handle outliers using IQR method
+    quantile_cutoff = 0.15
+    Q1 = y_train.quantile(quantile_cutoff)
+    Q3 = y_train.quantile(1 - quantile_cutoff)
+    IQR = Q3 - Q1
+    outlier_mask = (y_train >= Q1 - 1.5 * IQR) & (y_train <= Q3 + 1.5 * IQR)
+    X_train = X_train[outlier_mask]
+    y_train = y_train[outlier_mask]
+    
+    def train_model(model):
+        model.fit(X_train, y_train)
+        return model.predict(X_pred)
+    
+    # Initialize two ensemble models
+    models = [
+        RandomForestRegressor(n_estimators=1000,
+                              max_depth=30,
+                              min_samples_split=5,
+                              min_samples_leaf=5,
+                              max_features='sqrt',
+                              bootstrap=True,
+                              random_state=42,
+                              n_jobs=-1),
+        HistGradientBoostingRegressor(max_iter=800,
+                                      learning_rate=0.05,
+                                      max_depth=5,
+                                      min_samples_leaf=50,
+                                      l2_regularization=1.0,
+                                      random_state=42,
+                                      verbose=-1)
+    ]
+    
+    # Train models in parallel and average their predictions
+    predictions = Parallel(n_jobs=-1)(delayed(train_model)(model) for model in models)
+    ensemble_predictions = np.mean(predictions, axis=0)
+    
+    # Apply trend constraints using the helper function from original
+    adjusted_predictions = adjust_gap_predictions(merged_data, gap_mask, ensemble_predictions, target_log, data_config)
+    
+    return adjusted_predictions
+
+
+def _apply_xgboost(X_train, y_train, X_pred, data_config):
+    """
+    Apply XGBoost method with configurable feature weights.
+    
+    This function applies feature weights, creates polynomial features, and trains
+    an XGBoost model with comprehensive feature preprocessing.
+    
+    Parameters
+    ----------
+    X_train : pandas.DataFrame
+        Training feature data
+    y_train : pandas.Series
+        Training target values
+    X_pred : pandas.DataFrame
+        Feature data for prediction
+    data_config : dict
+        Configuration containing feature weights and other parameters
+        
+    Returns
+    -------
+    numpy.array
+        XGBoost predictions
+        
+    Notes
+    -----
+    Applies feature weights before processing, creates polynomial interaction features,
+    and uses comprehensive feature selection with XGBoost regressor.
+    """
+    # Apply feature weights BEFORE processing
+    X_train_weighted = apply_feature_weights(X_train, data_config)
+    X_pred_weighted = apply_feature_weights(X_pred, data_config)
+    
+    # Handle outliers using IQR method
+    quantile_cutoff = 0.025
+    Q1 = y_train.quantile(quantile_cutoff)
+    Q3 = y_train.quantile(1 - quantile_cutoff)
+    IQR = Q3 - Q1
+    outlier_mask = (y_train >= Q1 - 1.5 * IQR) & (y_train <= Q3 + 1.5 * IQR)
+    X_train_weighted = X_train_weighted[outlier_mask]
+    y_train = y_train[outlier_mask]
+
+    # Create feature pipeline
+    feature_pipeline = Pipeline([
+        ('imputer', SimpleImputer(strategy='median')),
+        ('scaler', StandardScaler()),
+        ('poly', PolynomialFeatures(degree=2, interaction_only=True, include_bias=True)),
+        ('selector', SelectKBest(score_func=f_regression, k='all'))
+    ])
+
+    # Process features
+    X_train_processed = feature_pipeline.fit_transform(X_train_weighted, y_train)
+    X_pred_processed = feature_pipeline.transform(X_pred_weighted)
+
+    # Convert processed arrays to float32
+    X_train_processed = X_train_processed.astype('float32')
+    X_pred_processed = X_pred_processed.astype('float32')
+    y_train = y_train.astype('float32')
+
+    # Initialize and train XGBoost model
+    model = xgb.XGBRegressor(
+        n_estimators=5000,
+        learning_rate=0.003,
+        max_depth=10,
+        min_child_weight=5,
+        subsample=0.75,
+        colsample_bytree=0.75,
+        gamma=0.2,
+        reg_alpha=0.3,
+        reg_lambda=3.0,
+        random_state=42,
+        n_jobs=-1,
+    )
+    
+    model.fit(X_train_processed, y_train)
+    predictions = model.predict(X_pred_processed).astype('float32')
+    
+    return predictions
+
+
+def _apply_xgboost_lightgbm(X_train, y_train, X_pred, data_config):
+    """
+    Apply XGBoost + LightGBM ensemble method with configurable feature weights.
+    
+    This function trains both XGBoost and LightGBM models and ensembles their
+    predictions by averaging. Uses polynomial features and feature selection.
+    
+    Parameters
+    ----------
+    X_train : pandas.DataFrame
+        Training feature data
+    y_train : pandas.Series
+        Training target values
+    X_pred : pandas.DataFrame
+        Feature data for prediction
+    data_config : dict
+        Configuration containing feature weights and other parameters
+        
+    Returns
+    -------
+    numpy.array
+        Ensemble predictions from XGBoost and LightGBM
+        
+    Notes
+    -----
+    Applies feature weights, creates polynomial features with limited selection,
+    and trains both models with warnings suppressed for cleaner output.
+    """
+    # Apply feature weights BEFORE processing
+    X_train_weighted = apply_feature_weights(X_train, data_config)
+    X_pred_weighted = apply_feature_weights(X_pred, data_config)
+    
+    # Create feature pipeline
+    feature_pipeline = Pipeline([
+        ('imputer', SimpleImputer(strategy='median')),
+        ('scaler', StandardScaler()),
+        ('poly', PolynomialFeatures(degree=2, interaction_only=True, include_bias=True))
+    ])
+
+    # Process features without selector first to get actual feature count
+    X_train_processed = feature_pipeline.fit_transform(X_train_weighted, y_train)
+    
+    # Now add selector with correct feature count
+    max_features = min(50, X_train.shape[0]//10, X_train_processed.shape[1])
+    selector = SelectKBest(score_func=f_regression, k=max_features)
+    X_train_processed = selector.fit_transform(X_train_processed, y_train)
+    X_pred_processed = feature_pipeline.transform(X_pred_weighted)
+    X_pred_processed = selector.transform(X_pred_processed)
+
+    # Convert processed arrays to float32
+    X_train_processed = X_train_processed.astype('float32')
+    X_pred_processed = X_pred_processed.astype('float32')
+    y_train = y_train.astype('float32')
+
+    # Initialize models
+    xgb_model = xgb.XGBRegressor(
+        n_estimators=3000,
+        learning_rate=0.003,
+        max_depth=10,
+        min_child_weight=5,
+        subsample=0.75,
+        colsample_bytree=0.75,
+        gamma=0.2,
+        reg_alpha=0.3,
+        reg_lambda=3.0,
+        random_state=42,
+        n_jobs=-1,
+    )
+
+    lgb_model = lgb.LGBMRegressor(
+        n_estimators=3000,
+        learning_rate=0.003,
+        max_depth=6,
+        num_leaves=20,
+        min_child_samples=50,
+        subsample=0.9,
+        colsample_bytree=0.9,
+        reg_alpha=0.3,
+        reg_lambda=3.0,
+        random_state=42,
+        n_jobs=-1,
+        force_col_wise=True,
+        verbose=-1
+    )
+
+    # Train both models with warnings suppressed
+    import warnings
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        xgb_model.fit(X_train_processed, y_train)
+        lgb_model.fit(X_train_processed, y_train, feature_name='auto')
+
+    # Make predictions with both models
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        xgb_predictions = xgb_model.predict(X_pred_processed).astype('float32')
+        lgb_predictions = lgb_model.predict(X_pred_processed).astype('float32')
+
+    # Ensemble predictions (simple average)
+    predictions = (xgb_predictions + lgb_predictions) / 2
+
+    return predictions 
+
+
+def _generate_output_filename(target_log, data_config):
+    """
+    Generate output filename for ML-filled data based on target log and data configuration.
+    
+    This function creates appropriate output filenames using existing filled_file_paths
+    from data_config, handling different data type configurations.
+    
+    Parameters
+    ----------
+    target_log : str
+        Name of the target column
+    data_config : dict
+        Configuration containing filled_file_paths and column_configs
+        
+    Returns
+    -------
+    str
+        Generated filename for the output file
+        
+    Notes
+    -----
+    For multi-column data types, creates individual file variations. For single-column
+    or nested types, uses the base filename directly.
+    """
+    column_configs = data_config['column_configs']
+    filled_file_paths = data_config.get('filled_file_paths', {})
+    
+    # Find which data type this target log belongs to
+    target_data_type = None
+    for data_type, type_config in column_configs.items():
+        if isinstance(type_config, dict):
+            # Check for single column data types
+            if 'data_col' in type_config and type_config['data_col'] == target_log:
+                target_data_type = data_type
+                break
+            # Check for multi-column data types
+            elif 'data_cols' in type_config and target_log in type_config['data_cols']:
+                target_data_type = data_type
+                break
+            # Check for nested configurations
+            else:
+                for sub_key, sub_config in type_config.items():
+                    if isinstance(sub_config, dict) and 'data_col' in sub_config and sub_config['data_col'] == target_log:
+                        target_data_type = data_type
+                        break
+                if target_data_type:
+                    break
+    
+    # Use existing filled_file_paths from data_config
+    if target_data_type and target_data_type in filled_file_paths:
+        type_config = column_configs[target_data_type]
+        base_filename = filled_file_paths[target_data_type]
+        
+        # For multi-column data types, create individual file variation
+        if 'data_cols' in type_config:
+            # Extract the pattern from the base filename and adapt for individual columns
+            base_name, ext = os.path.splitext(base_filename)
+            # Replace the data type part with the specific column name
+            core_name = data_config['core_name']
+            # Find data type identifier in base filename and replace with target_log
+            if f'_{target_data_type.upper()}_' in base_name:
+                individual_filename = base_name.replace(f'_{target_data_type.upper()}_', f'_{target_log}_') + ext
+            elif f'_{target_data_type}_' in base_name:
+                individual_filename = base_name.replace(f'_{target_data_type}_', f'_{target_log}_') + ext
+            else:
+                # Fallback: insert target_log before the last part
+                parts = base_name.split('_')
+                if len(parts) >= 2:
+                    parts.insert(-1, target_log)
+                    individual_filename = '_'.join(parts) + ext
+                else:
+                    individual_filename = f"{base_name}_{target_log}{ext}"
+            return individual_filename
+        else:
+            # For single-column or nested types, use the base filename directly
+            return base_filename
+    
+    # If no configuration found, raise an error rather than hardcoding
+    raise ValueError(f"No filled_file_paths configuration found for target_log '{target_log}' in data_type '{target_data_type}'")
+
+
+def fill_gaps_with_ml(target_log, All_logs, data_config, output_csv=True, 
+                      merge_tolerance=3.0, ml_method='xgblgbm'):
+    """
+    Fill gaps in target data using specified ML method.
+    
+    This function prepares feature data, applies the specified machine learning method,
+    and fills gaps in the target log data. All parameters and file paths are driven
+    by data_config content.
+    
+    Parameters
+    ----------
+    target_log : str
+        Name of the target column to fill gaps in
+    All_logs : dict
+        Dictionary of dataframes containing feature data and target data
+    data_config : dict
+        Configuration containing all parameters including file paths, core info, etc.
+    output_csv : bool, default=True
+        Whether to output filled data to CSV file
+    merge_tolerance : float, default=3.0
+        Maximum allowed difference in depth for merging rows
+    ml_method : str, default='xgblgbm'
+        ML method to use - 'rf', 'rftc', 'xgb', 'xgblgbm'
+        
+    Returns
+    -------
+    tuple
+        (target_data_filled, gap_mask) containing filled data and gap locations
+        
+    Raises
+    ------
+    ValueError
+        If required parameters are missing or ml_method is invalid
+        
+    Notes
+    -----
+    Supports four ML methods: Random Forest ('rf'), Random Forest with Trend
+    Constraints ('rftc'), XGBoost ('xgb'), and XGBoost+LightGBM ensemble ('xgblgbm').
+    """
+    # Input validation
+    if target_log is None or All_logs is None or data_config is None:
+        raise ValueError("target_log, All_logs, and data_config must be provided")
+    
+    if ml_method not in ['rf', 'rftc', 'xgb', 'xgblgbm']:
+        raise ValueError("ml_method must be one of: 'rf', 'rftc', 'xgb', 'xgblgbm'")
+    
+    # Get parameters from config
+    mother_dir = data_config['mother_dir']
+    filled_output_folder = data_config['filled_output_folder']
+    
+    # Prepare feature data
+    target_data, merged_data, features = prepare_feature_data(target_log, All_logs, merge_tolerance, data_config)
+    
+    # Create a copy of the original data to hold the interpolated results
+    target_data_filled = target_data.copy()
+
+    # Identify gaps in target data
+    gap_mask = target_data[target_log].isna()
+    
+    # If no gaps exist, save to CSV if requested and return original data
+    if not gap_mask.any():
+        if output_csv:
+            # Generate output filename based on target_log and data_config
+            output_filename = _generate_output_filename(target_log, data_config)
+            output_path = mother_dir + filled_output_folder + output_filename
+            target_data_filled.to_csv(output_path, index=False)
+        return target_data_filled, gap_mask
+
+    # Prepare features and target for ML
+    X = merged_data[features].copy()
+    y = merged_data[target_log].copy()
+
+    # Convert all features to float32
+    for col in X.columns:
+        if X[col].dtype.kind in 'biufc':
+            X[col] = X[col].astype('float32')
+    y = y.astype('float32')
+
+    # Split into training (non-gap) and prediction (gap) sets
+    X_train = X[~gap_mask]
+    y_train = y[~gap_mask]
+    X_pred = X[gap_mask]
+
+    # Apply specific ML method
+    if ml_method == 'rf':
+        predictions = _apply_random_forest(X_train, y_train, X_pred)
+    elif ml_method == 'rftc':
+        predictions = _apply_random_forest_with_trend_constraints(X_train, y_train, X_pred, merged_data, gap_mask, target_log, data_config)
+    elif ml_method == 'xgb':
+        predictions = _apply_xgboost(X_train, y_train, X_pred, data_config)
+    elif ml_method == 'xgblgbm':
+        predictions = _apply_xgboost_lightgbm(X_train, y_train, X_pred, data_config)
+
+    # Fill gaps with predictions
+    target_data_filled.loc[gap_mask, target_log] = predictions
+    
+    # Save to CSV if requested
+    if output_csv:
+        # Generate output filename based on target_log and data_config
+        output_filename = _generate_output_filename(target_log, data_config)
+        output_path = mother_dir + filled_output_folder + output_filename
+        target_data_filled.to_csv(output_path, index=False)
+
+    return target_data_filled, gap_mask 
+
+
+def process_and_fill_logs(data_config, ml_method='xgblgbm'):
+    """
+    Process and fill gaps in log data using ML methods with fully configurable parameters.
+    
+    This function orchestrates the complete ML-based gap filling process for all configured
+    log data types. It loads cleaned data, processes each target log, applies ML methods,
+    and consolidates results into final output files.
+    
+    Parameters
+    ----------
+    data_config : dict
+        Configuration containing all parameters including:
+        - depth_column: Primary depth column name
+        - mother_dir: Base directory path
+        - clean_output_folder: Input folder for cleaned data
+        - filled_output_folder: Output folder for ML-filled data
+        - clean_file_paths: Dictionary of input file paths by data type
+        - filled_file_paths: Dictionary of output file paths by data type
+        - column_configs: Dictionary of data type configurations
+    ml_method : str, default='xgblgbm'
+        ML method to use - 'rf', 'rftc', 'xgb', 'xgblgbm'
+        
+    Returns
+    -------
+    None
+        Saves filled data files and displays progress information
+        
+    Notes
+    -----
+    The function handles different data type configurations (single column, multi-column,
+    nested) and creates both individual and consolidated output files as appropriate.
+    Removes temporary individual files for multi-column data types after consolidation.
+    """
+    # Get configurable parameters
+    depth_col = data_config['depth_column']
+    mother_dir = data_config['mother_dir']
+    clean_output_folder = data_config['clean_output_folder']
+    filled_output_folder = data_config['filled_output_folder']
+    
+    os.makedirs(mother_dir + filled_output_folder, exist_ok=True)
+    
+    clean_paths = data_config.get('clean_file_paths', {})
+    filled_paths = data_config.get('filled_file_paths', {})
+    available_columns = data_config.get('column_configs', {})
+    valid_data_types = set(clean_paths.keys()) & set(available_columns.keys())
+    
+    # Load data with correct path construction
+    data_dict = {}
+    for data_type in valid_data_types:
+        full_path = mother_dir + clean_output_folder + clean_paths[data_type]
+        if os.path.exists(full_path):
+            data = pd.read_csv(full_path)
+            if not data.empty:
+                data_dict[data_type] = data
+
+    if not data_dict:
+        print("No valid data files found for processing")
+        return
+
+    # Create feature data dictionary using configurable column names
+    feature_data = {}
+    
+    for data_type in valid_data_types:
+        if data_type in data_dict:
+            type_config = available_columns[data_type]
+            
+            # Handle single column data types
+            if 'data_col' in type_config:
+                data_col = type_config['data_col']
+                if data_col in data_dict[data_type].columns:
+                    feature_data[data_type] = (data_dict[data_type], [depth_col, data_col])
+            
+            # Handle multi-column data types
+            elif 'data_cols' in type_config:
+                valid_cols = [depth_col] + [col for col in type_config['data_cols'] 
+                                           if col in data_dict[data_type].columns]
+                if len(valid_cols) > 1:
+                    feature_data[data_type] = (data_dict[data_type], valid_cols)
+            
+            # Handle nested configurations
+            else:
+                data_cols = [depth_col]
+                for sub_key, sub_config in type_config.items():
+                    if isinstance(sub_config, dict) and 'data_col' in sub_config:
+                        data_col = sub_config['data_col']
+                        if data_col in data_dict[data_type].columns:
+                            data_cols.append(data_col)
+                if len(data_cols) > 1:
+                    feature_data[data_type] = (data_dict[data_type], data_cols)
+
+    if not feature_data:
+        print("No valid feature data found for ML processing")
+        return
+
+    # ML method names for plotting
+    ml_names = {
+        'rf': 'Random Forest', 
+        'rftc': 'Random Forest with Trend Constraints',
+        'xgb': 'XGBoost', 
+        'xgblgbm': 'XGBoost + LightGBM'
+    }
+
+    # Helper function to get additional feature support for multi-column data types
+    def get_additional_features_for_type(target_data_type):
+        """Get additional feature columns for a data type based on configuration."""
+        type_config = available_columns.get(target_data_type, {})
+        
+        # Check if this data type has additional feature support configured
+        if 'additional_feature_source' in type_config:
+            source_type = type_config['additional_feature_source']
+            source_columns = type_config.get('additional_feature_columns', [])
+            
+            if source_type in feature_data and source_columns:
+                df, available_cols = feature_data[source_type]
+                valid_columns = [col for col in source_columns if col in available_cols and col in df.columns]
+                if valid_columns:
+                    return source_type, [depth_col] + valid_columns
+        
+        return None, None
+
+    # Collect target logs dynamically from column configurations
+    target_logs = []
+    
+    for data_type in valid_data_types:
+        if data_type in feature_data:
+            type_config = available_columns[data_type]
+            
+            # Handle multi-column data types
+            if 'data_cols' in type_config:
+                for col in type_config['data_cols']:
+                    if col in data_dict[data_type].columns:
+                        target_logs.append((col, data_type))
+            
+            # Handle single column data types
+            elif 'data_col' in type_config:
+                col = type_config['data_col']
+                if col in data_dict[data_type].columns:
+                    target_logs.append((col, data_type))
+            
+            # Handle nested configurations
+            else:
+                for sub_key, sub_config in type_config.items():
+                    if isinstance(sub_config, dict) and 'data_col' in sub_config:
+                        col = sub_config['data_col']
+                        if col in data_dict[data_type].columns:
+                            target_logs.append((col, data_type))
+
+    # Process each target log
+    data_type_results = {}  # Store results by data type for consolidation
+    
+    for target_log, data_type in target_logs:
+        print(f"Processing {target_log}...")
+        
+        # Get source data
+        data = data_dict[data_type]
+        plot_name = target_log
+        
+        # Create filtered feature data based on configuration
+        type_config = available_columns[data_type]
+        
+        # For multi-column data types, create filtered features
+        if 'data_cols' in type_config:
+            # Use all other feature data types except the current one
+            filtered_features = {k: v for k, v in feature_data.items() if k != data_type}
+            filtered_features[data_type] = (data, [depth_col, target_log])
+            
+            # Check if this data type has additional feature support configured
+            additional_source_type, additional_columns = get_additional_features_for_type(data_type)
+            if additional_source_type and additional_columns:
+                df, _ = feature_data[additional_source_type]
+                filtered_features[additional_source_type] = (df, additional_columns)
+                    
+            filled_data, gap_mask = fill_gaps_with_ml(
+                target_log=target_log,
+                All_logs=filtered_features,
+                data_config=data_config,
+                output_csv=True,
+                ml_method=ml_method
+            )
+            plot_filled_data(plot_name, data, filled_data, data_config, ML_type=ml_names[ml_method])
+        else:
+            # For single column or nested data types, don't create individual files
+            filled_data, gap_mask = fill_gaps_with_ml(
+                target_log=target_log,
+                All_logs=feature_data,
+                data_config=data_config,
+                output_csv=False,
+                ml_method=ml_method
+            )
+            
+            # Store the filled results for this column by data type
+            if data_type not in data_type_results:
+                data_type_results[data_type] = {}
+            data_type_results[data_type][target_log] = filled_data[target_log]
+            
+            # Plot filled data for each column
+            plot_filled_data(plot_name, data, filled_data, data_config, ML_type=ml_names[ml_method])
+
+    # Create consolidated files for each data type using configured paths
+    for data_type, filled_columns in data_type_results.items():
+        if data_type in data_dict and data_type in filled_paths:
+            data_copy = data_dict[data_type].copy()
+            updated_columns = []
+            
+            for col, filled_values in filled_columns.items():
+                data_copy[col] = filled_values
+                updated_columns.append(col)
+            
+            # Save consolidated file using filled_file_paths from config
+            output_filename = filled_paths[data_type]
+            output_path = mother_dir + filled_output_folder + output_filename
+            data_copy.to_csv(output_path, index=False)
+            print(f"Saved [{', '.join(updated_columns)}] to {output_filename}")
+
+    # Consolidate multi-column data types - remove individual files
+    multi_column_types = [dt for dt, config in available_columns.items() 
+                         if 'data_cols' in config and dt in data_dict]
+    
+    for data_type in multi_column_types:
+        if data_type in filled_paths:
+            data_copy = data_dict[data_type].copy()
+            type_config = available_columns[data_type]
+            data_columns = type_config['data_cols']
+            updated_columns = []
+            
+            for col in data_columns:
+                if col in data_copy.columns:
+                    # Generate individual filename using the same logic as fill_gaps_with_ml
+                    individual_filename = _generate_output_filename(col, data_config)
+                    individual_file = mother_dir + filled_output_folder + individual_filename
+                    if os.path.exists(individual_file):
+                        filled_data = pd.read_csv(individual_file)
+                        if col in filled_data.columns:
+                            data_copy[col] = filled_data[col]
+                            updated_columns.append(col)
+            
+            if updated_columns:
+                # Save consolidated file using filled_file_paths from config
+                output_filename = filled_paths[data_type]
+                output_path = mother_dir + filled_output_folder + output_filename
+                data_copy.to_csv(output_path, index=False)
+                print(f"Saved [{', '.join(updated_columns)}] to {output_filename}")
+                
+                # Remove individual files
+                for col in data_columns:
+                    individual_filename = _generate_output_filename(col, data_config)
+                    individual_file = mother_dir + filled_output_folder + individual_filename
+                    if os.path.exists(individual_file):
+                        os.remove(individual_file)
+
+    print("ML-based gap filling completed for all target logs.") 

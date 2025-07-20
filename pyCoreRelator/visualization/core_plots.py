@@ -6,6 +6,7 @@ Included Functions:
 
 This module provides basic plotting functionality for geological core data,
 including log curves and optional RGB/CT images with category-based depth marking.
+Compatible with both original and ML-processed core data.
 """
 
 import numpy as np

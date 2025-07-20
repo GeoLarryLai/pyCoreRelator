@@ -13,7 +13,7 @@
 - **Quality Assessment**: Compute metrics for the quality of correlation and optimal solution search.
 - **Complete DTW Path Finding**: Identify correlation DTW paths spanning entire cores from top to bottom
 - **Null Hypothesis Testing**: Generate synthetic cores and test correlation significance with multi-parameter analysis
-- **Log Data Cleaning & Processing**: Convert core images (CT scans, RGB photos) to digital log data with capabilities of automated brightness/color profile extraction, image alignment & stitching, and machine-learning based data imputation for data gaps (future features to be updated)
+- **Log Data Cleaning & Processing**: Convert core images (CT scans, RGB photos) to digital log data with capabilities of automated brightness/color profile extraction, image alignment & stitching, and machine-learning based data imputation for data gaps
 - **Multi-dimensional Log Support**: Handle multiple log types (MS, CT, RGB, density) simultaneously with dependent or independent multi-dimentiaonl DTW approach
 - **Visualizations**: DTW cost matrix and paths, segment-wise core correlations, animated sequences, and statistical analysis for the correlation solutions
 
@@ -39,6 +39,8 @@ Python 3.9+ with the following packages:
 - `ipympl>=0.9.0` - Interactive matplotlib widgets for depth picking functions
 - `scikit-image>=0.18.0` - Advanced image processing
 - `scikit-learn>=1.0.0` - Machine learning for data imputation
+- `xgboost>=1.5.0` - Gradient boosting for ML data imputation
+- `lightgbm>=3.0.0` - LightGBM for ML data imputation
 
 **Installation:**
 ```bash
@@ -61,7 +63,8 @@ pyCoreRelator/
 │   └── path_helpers.py      # DTW Path processing utilities
 ├── log/                     # Log processing and image analysis
 │   ├── rgb_image2log.py     # RGB image processing and color profile extraction
-│   └── ct_image2log.py      # CT image processing and brightness analysis
+│   ├── ct_image2log.py      # CT image processing and brightness analysis
+│   └── ml_log_data_imputation.py # Machine learning-based data gap imputation
 ├── utils/                   # Data handling utilities
 │   ├── data_loader.py       # Multi-format data loading with image support
 │   ├── path_processing.py   # DTW Path analysis and manipulation
@@ -97,6 +100,7 @@ The package includes several Jupyter notebooks demonstrating real-world applicat
 - **`pyCoreRelator_boundary_picker.ipynb`**: Interactive depth boundary selection tool
 - **`pyCoreRelator_RGB_image2log.ipynb`**: RGB core image processing and color profile extraction
 - **`pyCoreRelator_CT_image2log.ipynb`**: CT scan image processing and brightness analysis
+- **`pyCoreRelator_ML_data_imputation.ipynb`**: Machine learning-based data gap filling and log processing
 
 ## Core Functions
 
@@ -134,6 +138,13 @@ Detailed function documentation is available in [FUNCTION_DOCUMENTATION.md](FUNC
 - **`stitch_core_sections()`**: Stitch multiple core section images and RGB profiles
 - **`display_slice_bt_std()`**: Display CT slices with brightness traces and standard deviation plots
 - **`process_and_stitch_segments()`**: Complete workflow for multi-segment CT processing
+
+### Machine Learning Data Imputation Functions
+- **`preprocess_core_data()`**: Clean core data by removing artifacts and scaling depth values using configurable parameters
+- **`plot_core_logs()`**: Plot core logs with configurable parameters supporting both image and data visualization
+- **`plot_filled_data()`**: Plot original and ML-filled data comparisons for gap analysis
+- **`fill_gaps_with_ml()`**: Fill data gaps using multiple ML methods (Random Forest, XGBoost, LightGBM ensembles)
+- **`process_and_fill_logs()`**: Complete ML-based gap filling workflow for all configured log data types
 
 ## License
 

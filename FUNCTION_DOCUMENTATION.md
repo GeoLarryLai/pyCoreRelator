@@ -505,6 +505,95 @@ Orchestrates complete processing workflow for multi-segment core with rescaling 
 **Returns:**
 - `set`: Filtered set of valid segment pairs excluding dead ends and orphans
 
+### Machine Learning Data Imputation (`ml_log_data_imputation.py`)
+
+#### `preprocess_core_data(data_config)`
+
+Preprocesses core data by cleaning and scaling depth values using configurable parameters. All processing actions are driven by the data_config content.
+
+**Parameters:**
+- `data_config` (dict): Configuration dictionary containing:
+  - `depth_column`: Primary depth column name
+  - `column_configs`: Dictionary of data type configurations with thresholds
+  - `mother_dir`: Base directory path
+  - `clean_output_folder`: Output folder for cleaned data
+  - `input_file_paths`: Dictionary of input file paths by data type
+  - `clean_file_paths`: Dictionary of output file paths by data type
+  - `core_length`: Target core length for scaling
+
+**Returns:**
+- None (saves cleaned data files to the specified output directory)
+
+#### `plot_core_logs(data_config, file_type='clean', title=None)`
+
+Plot core logs using fully configurable parameters from data_config. Creates subplot panels for different types of core data (images and logs) based on the configuration provided.
+
+**Parameters:**
+- `data_config` (dict): Configuration dictionary containing plotting parameters
+- `file_type` (str, default='clean'): Type of data files to plot ('clean' or 'filled')
+- `title` (str, optional): Custom title for the plot. If None, generates default title
+
+**Returns:**
+- `tuple`: (fig, axes) - matplotlib figure and axes objects
+
+#### `plot_filled_data(target_log, original_data, filled_data, data_config, ML_type='ML')`
+
+Plot original and ML-filled data for a given log using configurable parameters. Creates a horizontal plot showing the original data overlaid with ML-filled gaps, including uncertainty shading if available.
+
+**Parameters:**
+- `target_log` (str): Name of the log to plot
+- `original_data` (pandas.DataFrame): Original data containing the log with gaps
+- `filled_data` (pandas.DataFrame): Data with ML-filled gaps
+- `data_config` (dict): Configuration containing all parameters including depth column, plot labels, etc.
+- `ML_type` (str, default='ML'): Type of ML method used for title
+
+**Returns:**
+- None (displays the plot directly)
+
+#### `fill_gaps_with_ml(target_log, All_logs, data_config, output_csv=True, merge_tolerance=3.0, ml_method='xgblgbm')`
+
+Fill gaps in target data using specified ML method. Prepares feature data, applies the specified machine learning method, and fills gaps in the target log data.
+
+**Parameters:**
+- `target_log` (str): Name of the target column to fill gaps in
+- `All_logs` (dict): Dictionary of dataframes containing feature data and target data
+- `data_config` (dict): Configuration containing all parameters including file paths, core info, etc.
+- `output_csv` (bool, default=True): Whether to output filled data to CSV file
+- `merge_tolerance` (float, default=3.0): Maximum allowed difference in depth for merging rows
+- `ml_method` (str, default='xgblgbm'): ML method to use - 'rf', 'rftc', 'xgb', 'xgblgbm'
+
+**Returns:**
+- `tuple`: (target_data_filled, gap_mask) containing filled data and gap locations
+
+#### `process_and_fill_logs(data_config, ml_method='xgblgbm')`
+
+Process and fill gaps in log data using ML methods with fully configurable parameters. Orchestrates the complete ML-based gap filling process for all configured log data types.
+
+**Parameters:**
+- `data_config` (dict): Configuration containing all parameters including data paths and column configurations
+- `ml_method` (str, default='xgblgbm'): ML method to use - 'rf', 'rftc', 'xgb', 'xgblgbm'
+  - 'rf': Random Forest
+  - 'rftc': Random Forest with Trend Constraints
+  - 'xgb': XGBoost
+  - 'xgblgbm': XGBoost + LightGBM ensemble
+
+**Returns:**
+- None (saves filled data files and displays progress information)
+
+#### Helper Functions
+
+**`prepare_feature_data(target_log, All_logs, merge_tolerance, data_config)`**
+- Prepares merged feature data for ML training using configurable parameters
+
+**`apply_feature_weights(X, data_config)`**
+- Applies feature weights using configurable parameters from data_config
+
+**`adjust_gap_predictions(df, gap_mask, ml_preds, target_log, data_config)`**
+- Adjusts ML predictions for gap rows to blend with linear interpolation between boundaries
+
+**`train_model(model)`**
+- Helper function for parallel model training
+
 ### Path Finding (`path_finding.py`)
 
 #### `compute_total_complete_paths(valid_dtw_pairs, detailed_pairs, max_depth_a, max_depth_b, mute_mode=False)`

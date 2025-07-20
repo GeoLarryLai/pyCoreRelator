@@ -10,6 +10,7 @@ Included Functions:
 
 This module provides utilities for loading core log data from CSV files.
 It handles multiple log types, data normalization, and resampling to common depth scales.
+Compatible with both original and ML-processed/gap-filled core data.
 """
 
 import numpy as np

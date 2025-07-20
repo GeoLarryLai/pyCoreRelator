@@ -10,7 +10,8 @@ Core plotting functions for DTW correlation visualization.
 
 This module provides functions for visualizing dynamic time warping (DTW) correlations
 between core log data, including support for multi-segment correlations, RGB/CT images,
-age constraints, and quality indicators.
+age constraints, and quality indicators. Works seamlessly with both original and 
+ML-processed core data.
 """
 
 import os

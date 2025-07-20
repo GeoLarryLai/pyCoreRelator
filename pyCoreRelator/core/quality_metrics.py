@@ -8,6 +8,7 @@ Included Functions:
 
 This module provides functions to compute various quality indicators for Dynamic Time Warping (DTW)
 alignment results and calculate age overlap percentages between geological intervals.
+Compatible with both original and ML-processed core data.
 """
 
 import numpy as np
