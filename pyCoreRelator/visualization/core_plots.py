@@ -16,7 +16,7 @@ import matplotlib.pyplot as plt
 def plot_core_data(md, log, title, core_img_1=None, core_img_2=None, figsize=(20, 4), 
                   label_name=None, available_columns=None, is_multilog=False,
                   picked_depths=None, picked_categories=None, picked_uncertainties=None,
-                  show_category=None, show_bed_number=False):
+                  show_category=None, show_bed_number=False, cluster_data=None):
     """
     Plot core data with optional core images and support for multiple log types with category visualization.
     
@@ -59,6 +59,11 @@ def plot_core_data(md, log, title, core_img_1=None, core_img_2=None, figsize=(20
     show_bed_number : bool, default=False
         If True, displays bed numbers next to category depth lines in black bold text.
         Numbers are assigned based on depth order of the smallest category at each depth.
+    cluster_data : dict, optional
+        Dictionary containing cluster data with keys:
+            'depth_vals': depth_values_array,
+            'labels_vals': cluster_labels_array,
+            'k': number_of_clusters
     
     Returns
     -------
@@ -110,139 +115,172 @@ def plot_core_data(md, log, title, core_img_1=None, core_img_2=None, figsize=(20
         9: 'black'
     }
     
+    # Define cluster colors if cluster data is provided
+    if cluster_data is not None:
+        cluster_colors = {
+            0: (0.8, 0.2, 0.2),  # Red
+            1: (0.2, 0.4, 0.8),  # Blue  
+            2: (0.2, 0.7, 0.3),  # Green
+            3: (0.8, 0.6, 0.2),  # Orange
+            4: (0.6, 0.2, 0.8),  # Purple
+            5: (0.8, 0.8, 0.2),  # Yellow
+            6: (0.3, 0.8, 0.8),  # Cyan
+            7: (0.8, 0.4, 0.6),  # Pink
+            8: (0.5, 0.3, 0.1),  # Brown
+            9: (0.7, 0.7, 0.7),  # Gray
+        }
+    
     # Use names from available_columns or create generic names
     if is_multilog and log.ndim > 1 and log.shape[1] > 1:
         column_names = available_columns if available_columns else [f"Log {i+1}" for i in range(log.shape[1])]
     
+    # Calculate number of plots needed
+    num_data_plots = 1  # Always have at least one plot for the log data
+    total_plots = num_data_plots
+    if cluster_data is not None:
+        total_plots += 1  # Add one plot for cluster data
+    
     # Setup figure layout based on available images
     if core_img_1 is not None and core_img_2 is not None:
-        # Create figure with three subplots for both images
-        fig, axs = plt.subplots(3, 1, figsize=figsize, gridspec_kw={'height_ratios': [1, 1, 2]})
+        # Create figure with core images and data plots
+        height_ratios = [1, 1] + [2]  # Two image rows, one data row
+        fig, axs = plt.subplots(3, total_plots, figsize=figsize, 
+                               gridspec_kw={'height_ratios': height_ratios, 'width_ratios': [1]*total_plots})
         
-        # First core image display with transposed axes for proper orientation
-        axs[0].imshow(core_img_1.transpose(1, 0, 2), aspect='auto', extent=[md[0], md[-1], 0, 1])
-        axs[0].set_ylabel('Core\nImage')
-        axs[0].set_xticks([])
-        axs[0].set_yticks([])
+        # Handle axes indexing for multiple columns
+        if total_plots == 1:
+            axs = axs.reshape(-1, 1)  # Make it 2D for consistent indexing
         
-        # Second core image display with conditional transposition for grayscale/color
-        axs[1].imshow(core_img_2.transpose(1, 0, 2) if len(core_img_2.shape) == 3 else 
-                      core_img_2.transpose(), aspect='auto', extent=[md[0], md[-1], 0, 1], cmap='gray')
-        axs[1].set_ylabel('Core\nImage')
-        axs[1].set_xticks([])
-        axs[1].set_yticks([])
+        # First core image display - span all columns
+        for col in range(total_plots):
+            axs[0, col].imshow(core_img_1.transpose(1, 0, 2), aspect='auto', extent=[md[0], md[-1], 0, 1])
+            axs[0, col].set_xticks([])
+            axs[0, col].set_yticks([])
+            if col == 0:
+                axs[0, col].set_ylabel('Core\nImage')
         
-        # Log curves plotting
-        if is_multilog and log.ndim > 1 and log.shape[1] > 1:
-            for i, col_name in enumerate(column_names):
-                # Get predefined color and style or use defaults
-                if col_name in color_style_map:
-                    color = color_style_map[col_name]['color']
-                    linestyle = color_style_map[col_name]['linestyle']
-                else:
-                    color = f'C{i}'
-                    linestyle = '-'
-                
-                axs[2].plot(md, log[:, i], label=col_name, color=color, 
-                          linestyle=linestyle, linewidth=0.7)
+        # Second core image display - span all columns
+        for col in range(total_plots):
+            axs[1, col].imshow(core_img_2.transpose(1, 0, 2) if len(core_img_2.shape) == 3 else 
+                              core_img_2.transpose(), aspect='auto', extent=[md[0], md[-1], 0, 1], cmap='gray')
+            axs[1, col].set_xticks([])
+            axs[1, col].set_yticks([])
+            if col == 0:
+                axs[1, col].set_ylabel('Core\nImage')
+        
+        # Set up data plot axes
+        if cluster_data is not None:
+            cluster_ax = axs[2, 0]
+            plot_ax = axs[2, 1]
         else:
-            axs[2].plot(md, log, label=label_name, linewidth=0.7)
-        
-        axs[2].set_ylim(0, 1)
-        axs[2].set_xlim(md[0], md[-1])
-        axs[2].set_xlabel('Depth')
-        axs[2].set_ylabel('Normalized Values')
-        
-        plot_ax = axs[2]
+            plot_ax = axs[2, 0]
     
     elif core_img_1 is not None:
-        # Create figure with two subplots for first core image only
-        fig, axs = plt.subplots(2, 1, figsize=figsize, gridspec_kw={'height_ratios': [1, 2]})
+        # Create figure with one core image and data plots
+        height_ratios = [1, 2]  # One image row, one data row
+        fig, axs = plt.subplots(2, total_plots, figsize=figsize, 
+                               gridspec_kw={'height_ratios': height_ratios, 'width_ratios': [1]*total_plots})
         
-        axs[0].imshow(core_img_1.transpose(1, 0, 2), aspect='auto', extent=[md[0], md[-1], 0, 1])
-        axs[0].set_ylabel('Core\nImage')
-        axs[0].set_xticks([])
-        axs[0].set_yticks([])
+        # Handle axes indexing for multiple columns
+        if total_plots == 1:
+            axs = axs.reshape(-1, 1)  # Make it 2D for consistent indexing
         
-        # Log curves plotting
-        if is_multilog and log.ndim > 1 and log.shape[1] > 1:
-            for i, col_name in enumerate(column_names):
-                if col_name in color_style_map:
-                    color = color_style_map[col_name]['color']
-                    linestyle = color_style_map[col_name]['linestyle']
-                else:
-                    color = f'C{i}'
-                    linestyle = '-'
-                
-                axs[1].plot(md, log[:, i], label=col_name, color=color, 
-                          linestyle=linestyle, linewidth=0.7)
+        # Core image display - span all columns
+        for col in range(total_plots):
+            axs[0, col].imshow(core_img_1.transpose(1, 0, 2), aspect='auto', extent=[md[0], md[-1], 0, 1])
+            axs[0, col].set_xticks([])
+            axs[0, col].set_yticks([])
+            if col == 0:
+                axs[0, col].set_ylabel('Core\nImage')
+        
+        # Set up data plot axes
+        if cluster_data is not None:
+            cluster_ax = axs[1, 0]
+            plot_ax = axs[1, 1]
         else:
-            axs[1].plot(md, log, label=label_name, linewidth=0.7)
-        
-        axs[1].set_ylim(0, 1)
-        axs[1].set_xlim(md[0], md[-1])
-        axs[1].set_xlabel('Depth')
-        axs[1].set_ylabel('Normalized Values')
-        
-        plot_ax = axs[1]
+            plot_ax = axs[1, 0]
     
     elif core_img_2 is not None:
-        # Create figure with two subplots for second core image only
-        fig, axs = plt.subplots(2, 1, figsize=figsize, gridspec_kw={'height_ratios': [1, 2]})
+        # Create figure with second core image and data plots
+        height_ratios = [1, 2]  # One image row, one data row
+        fig, axs = plt.subplots(2, total_plots, figsize=figsize, 
+                               gridspec_kw={'height_ratios': height_ratios, 'width_ratios': [1]*total_plots})
         
-        axs[0].imshow(core_img_2.transpose(1, 0, 2) if len(core_img_2.shape) == 3 else 
-                      core_img_2.transpose(), aspect='auto', extent=[md[0], md[-1], 0, 1], cmap='gray')
-        axs[0].set_ylabel('Core\nImage')
-        axs[0].set_xticks([])
-        axs[0].set_yticks([])
+        # Handle axes indexing for multiple columns
+        if total_plots == 1:
+            axs = axs.reshape(-1, 1)  # Make it 2D for consistent indexing
         
-        # Log curves plotting
-        if is_multilog and log.ndim > 1 and log.shape[1] > 1:
-            for i, col_name in enumerate(column_names):
-                if col_name in color_style_map:
-                    color = color_style_map[col_name]['color']
-                    linestyle = color_style_map[col_name]['linestyle']
-                else:
-                    color = f'C{i}'
-                    linestyle = '-'
-                
-                axs[1].plot(md, log[:, i], label=col_name, color=color, 
-                          linestyle=linestyle, linewidth=0.7)
+        # Core image display - span all columns
+        for col in range(total_plots):
+            axs[0, col].imshow(core_img_2.transpose(1, 0, 2) if len(core_img_2.shape) == 3 else 
+                              core_img_2.transpose(), aspect='auto', extent=[md[0], md[-1], 0, 1], cmap='gray')
+            axs[0, col].set_xticks([])
+            axs[0, col].set_yticks([])
+            if col == 0:
+                axs[0, col].set_ylabel('Core\nImage')
+        
+        # Set up data plot axes
+        if cluster_data is not None:
+            cluster_ax = axs[1, 0]
+            plot_ax = axs[1, 1]
         else:
-            axs[1].plot(md, log, label=label_name, linewidth=0.7)
-        
-        axs[1].set_ylim(0, 1)
-        axs[1].set_xlim(md[0], md[-1])
-        axs[1].set_xlabel('Depth')
-        axs[1].set_ylabel('Normalized Values')
-        
-        plot_ax = axs[1]
+            plot_ax = axs[1, 0]
     
     else:
-        # Create figure with single subplot for log curves only
-        fig, ax = plt.subplots(figsize=figsize)
-        
-        # Log curves plotting
-        if is_multilog and log.ndim > 1 and log.shape[1] > 1:
-            for i, col_name in enumerate(column_names):
-                if col_name in color_style_map:
-                    color = color_style_map[col_name]['color']
-                    linestyle = color_style_map[col_name]['linestyle']
-                else:
-                    color = f'C{i}'
-                    linestyle = '-'
-                
-                ax.plot(md, log[:, i], label=col_name, color=color, 
-                      linestyle=linestyle, linewidth=0.7)
+        # Create figure with data plots only
+        if total_plots == 1:
+            fig, plot_ax = plt.subplots(figsize=figsize)
         else:
-            ax.plot(md, log, label=label_name, linewidth=0.7)
+            fig, axs = plt.subplots(1, total_plots, figsize=figsize, 
+                                   gridspec_kw={'width_ratios': [1]*total_plots})
+            cluster_ax = axs[0]
+            plot_ax = axs[1]
+    
+    # Plot cluster data if provided
+    if cluster_data is not None:
+        depth_vals = cluster_data['depth_vals']
+        labels_vals = cluster_data['labels_vals']
+        k = cluster_data['k']
         
-        ax.set_ylim(0, 1)
-        ax.set_xlim(md[0], md[-1])
-        ax.set_xlabel('Depth')
-        ax.set_ylabel('Normalized Values')
+        # Use cluster colors
+        colors = [cluster_colors[i] for i in range(k)]
         
-        plot_ax = ax
+        for i in range(len(depth_vals)-1):
+            top = depth_vals[i]
+            bottom = depth_vals[i+1]
+            cluster_label = labels_vals[i]
+            color = colors[cluster_label]
+            
+            # Create rectangle for cluster segment
+            cluster_ax.fill_between([0, 1], [top, top], [bottom, bottom], 
+                                   color=color, alpha=0.8, edgecolor='black', linewidth=0.5)
+        
+        cluster_ax.set_xlim(0, 1)
+        cluster_ax.set_ylim(md[0], md[-1])
+        cluster_ax.set_xlabel('Cluster\nLabels', fontweight='bold', fontsize='small')
+        cluster_ax.set_xticks([])
+        cluster_ax.invert_yaxis()
+    
+    # Log curves plotting
+    if is_multilog and log.ndim > 1 and log.shape[1] > 1:
+        for i, col_name in enumerate(column_names):
+            # Get predefined color and style or use defaults
+            if col_name in color_style_map:
+                color = color_style_map[col_name]['color']
+                linestyle = color_style_map[col_name]['linestyle']
+            else:
+                color = f'C{i}'
+                linestyle = '-'
+            
+            plot_ax.plot(md, log[:, i], label=col_name, color=color, 
+                      linestyle=linestyle, linewidth=0.7)
+    else:
+        plot_ax.plot(md, log, label=label_name, linewidth=0.7)
+    
+    plot_ax.set_ylim(0, 1)
+    plot_ax.set_xlim(md[0], md[-1])
+    plot_ax.set_xlabel('Depth')
+    plot_ax.set_ylabel('Normalized Values')
     
     # Add category-based depth marking if data is provided
     if picked_depths is not None and picked_categories is not None:

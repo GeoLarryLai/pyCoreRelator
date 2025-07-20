@@ -9,7 +9,7 @@
 !/pyCoreRelator_CT_image2log.ipynb
 !/pyCoreRelator_datum_picker.ipynb
 !/pyCoreRelator_data_gap_fill.ipynb
-!/pyCoreRelator_auto_facies_classification.ipynb
+!/Auto_facies_classification.ipynb
 !/LICENSE
 !/FUNCTION_DOCUMENTATION.md
 !/requirements.txt
