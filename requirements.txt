@@ -16,7 +16,6 @@ joblib>=1.1.0
 
 # Interactive environment support
 IPython>=7.25.0
-ipympl>=0.9.0
 
 # System utilities and memory management
 psutil>=5.8.0
@@ -25,11 +24,14 @@ psutil>=5.8.0
 pydicom>=2.3.0
 opencv-python>=4.5.0
 
-# Machine learning for data imputation
-scikit-learn>=1.0.0
+# Dependencies for Jupyter Notebooks (optional):
+# Uncomment the following line if using interactive matplotlib widgets for depth picking
+# ipympl>=0.9.0
 
-# Statistical analysis
-# scipy already included above for stats module
+# Optional packages for advanced features:
+# Uncomment the following lines if using advanced image processing or ML features:
+# scikit-image>=0.18.0    # For advanced core image processing
+# scikit-learn>=1.0.0     # For machine learning-based data imputation
 
 # Built-in modules (no installation required):
 # sqlite3 - for database operations
@@ -45,8 +47,4 @@ scikit-learn>=1.0.0
 # hashlib - for hash calculations
 # sys - for system operations
 # math - for mathematical operations
-
-# Optional packages for advanced features:
-# Uncomment the following lines if using advanced image processing features:
-# scikit-image>=0.18.0    # For advanced core image processing
-# scikit-learn>=1.0.0     # For machine learning-based quality assessment 
+# warnings - for warning management 

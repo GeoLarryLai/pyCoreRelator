@@ -36,9 +36,9 @@ Python 3.9+ with the following packages:
 - `pydicom>=2.3.0` - Image processing for CT scan DICOM files
 - `opencv-python>=4.5.0` - Computer vision and image processing
 
-**Dependencies for Jupyter Notebooks:**
-- `ipympl>=0.9.0` - Interactive matplotlib widgets for depth picking functions
-- `scikit-image>=0.18.0` - Advanced image processing
+**Optional Dependencies:**
+- `ipympl>=0.9.0` - Interactive matplotlib widgets for depth picking functions (for Jupyter notebooks)
+- `scikit-image>=0.18.0` - Advanced image processing features
 - `scikit-learn>=1.0.0` - Machine learning for data imputation
 
 **Installation:**
@@ -62,7 +62,8 @@ pyCoreRelator/
 │   └── path_helpers.py      # DTW Path processing utilities
 ├── log/                     # Log processing and image analysis
 │   ├── rgb_image2log.py     # RGB image processing and color profile extraction
-│   └── ct_image2log.py      # CT image processing and brightness analysis
+│   ├── ct_image2log.py      # CT image processing and brightness analysis
+│   └── core_datum_picker.py # Interactive core boundary picking and depth selection
 ├── utils/                   # Data handling utilities
 │   ├── data_loader.py       # Multi-format data loading with image support
 │   ├── path_processing.py   # DTW Path analysis and manipulation
@@ -92,9 +93,12 @@ The package computes comprehensive quality indicators for each correlation with 
 
 The package includes several Jupyter notebooks demonstrating real-world applications:
 
+### Correlation analysis
 - **`pyCoreRelator_core_pair_analysis.ipynb`**: Comprehensive workflow with Cascadia margin turbidite cores showing full analysis pipeline
-- **`pyCoreRelator_compare2Null.ipynb`**: Advanced comparison against null hypothesis with multi-parameter analysis
 - **`pyCoreRelator_null_hypothesis.ipynb`**: Synthetic data generation and significance testing examples
+- **`pyCoreRelator_compare2Null.ipynb`**: Advanced comparison against null hypothesis with multi-parameter analysis
+
+### Log data processing
 - **`pyCoreRelator_datum_picker.ipynb`**: Interactive stratigraphic boundary picking with real-time visualization and category-based classification
 - **`pyCoreRelator_data_gap_fill.ipynb`**: Machine learning-based data processing and gap filling for core log data
 - **`pyCoreRelator_RGB_image2log.ipynb`**: Processing, stitching, and converting RGB core images into RGB color logs
