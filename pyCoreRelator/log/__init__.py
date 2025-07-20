@@ -2,7 +2,8 @@
 Log processing functions for pyCoreRelator.
 
 This module contains functions for processing various types of log data
-including RGB image analysis, CT image processing, and ML-based data imputation.
+including RGB image analysis, CT image processing, and interactive core 
+datum picking.
 """
 
 from .rgb_image2log import (
@@ -30,16 +31,12 @@ from .ct_image2log import (
     process_and_stitch_segments
 )
 
-from .ml_log_data_imputation import (
-    preprocess_core_data,
-    plot_core_logs,
-    plot_filled_data,
-    prepare_feature_data,
-    apply_feature_weights,
-    adjust_gap_predictions,
-    train_model,
-    fill_gaps_with_ml,
-    process_and_fill_logs
+from .core_datum_picker import (
+    onclick_boundary,
+    get_category_color,
+    onkey_boundary,
+    create_interactive_figure,
+    pick_stratigraphic_levels
 )
 
 __all__ = [
@@ -66,14 +63,10 @@ __all__ = [
     'process_two_scans',
     'process_and_stitch_segments',
     
-    # ML data imputation functions
-    'preprocess_core_data',
-    'plot_core_logs',
-    'plot_filled_data',
-    'prepare_feature_data',
-    'apply_feature_weights',
-    'adjust_gap_predictions',
-    'train_model',
-    'fill_gaps_with_ml',
-    'process_and_fill_logs'
+    # Core datum picking functions
+    'onclick_boundary',
+    'get_category_color',
+    'onkey_boundary',
+    'create_interactive_figure',
+    'pick_stratigraphic_levels'
 ] 

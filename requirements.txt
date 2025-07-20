@@ -27,8 +27,6 @@ opencv-python>=4.5.0
 
 # Machine learning for data imputation
 scikit-learn>=1.0.0
-xgboost>=1.5.0
-lightgbm>=3.0.0
 
 # Statistical analysis
 # scipy already included above for stats module
@@ -51,5 +49,4 @@ lightgbm>=3.0.0
 # Optional packages for advanced features:
 # Uncomment the following lines if using advanced image processing features:
 # scikit-image>=0.18.0    # For advanced core image processing
-
-# Note: scikit-learn, xgboost, and lightgbm are now included above for ML data imputation 
+# scikit-learn>=1.0.0     # For machine learning-based quality assessment 

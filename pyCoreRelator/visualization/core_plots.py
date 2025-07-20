@@ -13,15 +13,15 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 
-def plot_core_data(md, log, title, rgb_img=None, ct_img=None, figsize=(20, 4), 
+def plot_core_data(md, log, title, core_img_1=None, core_img_2=None, figsize=(20, 4), 
                   label_name=None, available_columns=None, is_multilog=False,
                   picked_depths=None, picked_categories=None, picked_uncertainties=None,
                   show_category=None, show_bed_number=False):
     """
-    Plot core data with optional RGB and CT images and support for multiple log types with category visualization.
+    Plot core data with optional core images and support for multiple log types with category visualization.
     
     This function creates a comprehensive plot of core data including log curves and
-    optional RGB/CT images. It automatically adjusts the layout based on available
+    optional core images. It automatically adjusts the layout based on available
     images and supports both single and multiple log plotting with custom styling.
     Enhanced with category-based depth marking functionality.
     
@@ -33,10 +33,10 @@ def plot_core_data(md, log, title, rgb_img=None, ct_img=None, figsize=(20, 4),
         Array of log values, either 1D for single log or 2D for multiple logs
     title : str
         Title for the plot
-    rgb_img : array_like, optional
-        RGB image array to display above the log curves
-    ct_img : array_like, optional
-        CT image array to display above the log curves
+    core_img_1 : array_like, optional
+        First core image array to display above the log curves
+    core_img_2 : array_like, optional
+        Second core image array to display above the log curves
     boundaries : array_like, optional
         Array of depth points for marking boundaries with vertical lines
     figsize : tuple, default=(20, 4)
@@ -115,20 +115,20 @@ def plot_core_data(md, log, title, rgb_img=None, ct_img=None, figsize=(20, 4),
         column_names = available_columns if available_columns else [f"Log {i+1}" for i in range(log.shape[1])]
     
     # Setup figure layout based on available images
-    if rgb_img is not None and ct_img is not None:
+    if core_img_1 is not None and core_img_2 is not None:
         # Create figure with three subplots for both images
         fig, axs = plt.subplots(3, 1, figsize=figsize, gridspec_kw={'height_ratios': [1, 1, 2]})
         
-        # RGB image display with transposed axes for proper orientation
-        axs[0].imshow(rgb_img.transpose(1, 0, 2), aspect='auto', extent=[md[0], md[-1], 0, 1])
-        axs[0].set_ylabel('RGB')
+        # First core image display with transposed axes for proper orientation
+        axs[0].imshow(core_img_1.transpose(1, 0, 2), aspect='auto', extent=[md[0], md[-1], 0, 1])
+        axs[0].set_ylabel('Core\nImage')
         axs[0].set_xticks([])
         axs[0].set_yticks([])
         
-        # CT image display with conditional transposition for grayscale/color
-        axs[1].imshow(ct_img.transpose(1, 0, 2) if len(ct_img.shape) == 3 else 
-                      ct_img.transpose(), aspect='auto', extent=[md[0], md[-1], 0, 1], cmap='gray')
-        axs[1].set_ylabel('CT')
+        # Second core image display with conditional transposition for grayscale/color
+        axs[1].imshow(core_img_2.transpose(1, 0, 2) if len(core_img_2.shape) == 3 else 
+                      core_img_2.transpose(), aspect='auto', extent=[md[0], md[-1], 0, 1], cmap='gray')
+        axs[1].set_ylabel('Core\nImage')
         axs[1].set_xticks([])
         axs[1].set_yticks([])
         
@@ -150,17 +150,17 @@ def plot_core_data(md, log, title, rgb_img=None, ct_img=None, figsize=(20, 4),
         
         axs[2].set_ylim(0, 1)
         axs[2].set_xlim(md[0], md[-1])
-        axs[2].set_xlabel('depth (cm)')
-        axs[2].set_ylabel('Normalized Intensity')
+        axs[2].set_xlabel('Depth')
+        axs[2].set_ylabel('Normalized Values')
         
         plot_ax = axs[2]
     
-    elif rgb_img is not None:
-        # Create figure with two subplots for RGB image only
+    elif core_img_1 is not None:
+        # Create figure with two subplots for first core image only
         fig, axs = plt.subplots(2, 1, figsize=figsize, gridspec_kw={'height_ratios': [1, 2]})
         
-        axs[0].imshow(rgb_img.transpose(1, 0, 2), aspect='auto', extent=[md[0], md[-1], 0, 1])
-        axs[0].set_ylabel('RGB')
+        axs[0].imshow(core_img_1.transpose(1, 0, 2), aspect='auto', extent=[md[0], md[-1], 0, 1])
+        axs[0].set_ylabel('Core\nImage')
         axs[0].set_xticks([])
         axs[0].set_yticks([])
         
@@ -181,18 +181,18 @@ def plot_core_data(md, log, title, rgb_img=None, ct_img=None, figsize=(20, 4),
         
         axs[1].set_ylim(0, 1)
         axs[1].set_xlim(md[0], md[-1])
-        axs[1].set_xlabel('depth (cm)')
-        axs[1].set_ylabel('Normalized Intensity')
+        axs[1].set_xlabel('Depth')
+        axs[1].set_ylabel('Normalized Values')
         
         plot_ax = axs[1]
     
-    elif ct_img is not None:
-        # Create figure with two subplots for CT image only
+    elif core_img_2 is not None:
+        # Create figure with two subplots for second core image only
         fig, axs = plt.subplots(2, 1, figsize=figsize, gridspec_kw={'height_ratios': [1, 2]})
         
-        axs[0].imshow(ct_img.transpose(1, 0, 2) if len(ct_img.shape) == 3 else 
-                      ct_img.transpose(), aspect='auto', extent=[md[0], md[-1], 0, 1], cmap='gray')
-        axs[0].set_ylabel('CT')
+        axs[0].imshow(core_img_2.transpose(1, 0, 2) if len(core_img_2.shape) == 3 else 
+                      core_img_2.transpose(), aspect='auto', extent=[md[0], md[-1], 0, 1], cmap='gray')
+        axs[0].set_ylabel('Core\nImage')
         axs[0].set_xticks([])
         axs[0].set_yticks([])
         
@@ -213,8 +213,8 @@ def plot_core_data(md, log, title, rgb_img=None, ct_img=None, figsize=(20, 4),
         
         axs[1].set_ylim(0, 1)
         axs[1].set_xlim(md[0], md[-1])
-        axs[1].set_xlabel('depth (cm)')
-        axs[1].set_ylabel('Normalized Intensity')
+        axs[1].set_xlabel('Depth')
+        axs[1].set_ylabel('Normalized Values')
         
         plot_ax = axs[1]
     
@@ -239,8 +239,8 @@ def plot_core_data(md, log, title, rgb_img=None, ct_img=None, figsize=(20, 4),
         
         ax.set_ylim(0, 1)
         ax.set_xlim(md[0], md[-1])
-        ax.set_xlabel('depth (cm)')
-        ax.set_ylabel('Normalized Intensity')
+        ax.set_xlabel('Depth')
+        ax.set_ylabel('Normalized Values')
         
         plot_ax = ax
     

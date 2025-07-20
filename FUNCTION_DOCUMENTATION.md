@@ -948,6 +948,91 @@ Finds the index in a depth array that corresponds to the closest depth value to 
 **Returns:**
 - `int`: Index in depth_array with closest value to target depth
 
+### Core Datum Picking (`core_datum_picker.py`)
+
+#### `pick_stratigraphic_levels(md, log, core_img_1=None, core_img_2=None, core_name="", csv_filename=None)`
+
+Creates an interactive matplotlib environment for manually picking stratigraphic boundaries and datum levels with real-time visualization and CSV export.
+
+**Parameters:**
+- `md` (array-like): Depth values for x-axis data
+- `log` (array-like): Log data for y-axis data (typically normalized 0-1)
+- `core_img_1` (numpy.ndarray, optional): First core image data (e.g., RGB image)
+- `core_img_2` (numpy.ndarray, optional): Second core image data (e.g., CT image)
+- `core_name` (str, default=""): Name of the core for display in plot title
+- `csv_filename` (str, optional): Full path/filename for the output CSV file
+
+**Interactive Controls:**
+- Left-click: Add depth point
+- Number keys (0-9): Change current category
+- Delete/Backspace: Remove last point
+- Enter: Finish selection and save
+- Pan/Zoom tools: Temporarily disable point selection
+
+**Returns:**
+- `tuple`: (picked_depths, categories) - Lists of picked depth values and their categories
+
+#### `create_interactive_figure(md, log, core_img_1=None, core_img_2=None, miny=0, maxy=1)`
+
+Creates a matplotlib figure with subplots for core images and log data visualization, optimized for interactive boundary picking.
+
+**Parameters:**
+- `md` (array-like): Depth values for x-axis data
+- `log` (array-like): Log data for y-axis data
+- `core_img_1` (numpy.ndarray, optional): First core image data (e.g., RGB image)
+- `core_img_2` (numpy.ndarray, optional): Second core image data (e.g., CT image)
+- `miny` (float, default=0): Minimum y-axis limit for log plot
+- `maxy` (float, default=1): Maximum y-axis limit for log plot
+
+**Returns:**
+- `tuple`: (figure, axes) - Matplotlib figure and the interactive axes object
+
+#### `onclick_boundary(event, xs, lines, ax, toolbar, categories, current_category, status_text=None)`
+
+Handles mouse click events for interactive boundary picking. Processes left mouse clicks to add depth values and corresponding vertical lines to the interactive plot.
+
+**Parameters:**
+- `event` (matplotlib event object): Mouse click event containing position and button information
+- `xs` (list): List to store x-coordinate values of clicked points
+- `lines` (list): List to store matplotlib line objects for visualization
+- `ax` (matplotlib.axes.Axes): The axes object where the clicking occurs
+- `toolbar` (matplotlib toolbar object): Navigation toolbar to check if any tools are active
+- `categories` (list): List to store category values for each clicked point
+- `current_category` (list): Single-element list containing the current category value
+- `status_text` (matplotlib.text.Text, optional): Text object for displaying status messages
+
+**Returns:**
+- None (modifies input lists and plot in place)
+
+#### `onkey_boundary(event, xs, lines, ax, cid, toolbar, categories, current_category, csv_filename=None, status_text=None)`
+
+Handles keyboard events for interactive boundary picking, including category changes, point removal, and completion of selection.
+
+**Parameters:**
+- `event` (matplotlib event object): Keyboard event containing key information
+- `xs` (list): List storing x-coordinate values of clicked points
+- `lines` (list): List storing matplotlib line objects for visualization
+- `ax` (matplotlib.axes.Axes): The axes object where the interaction occurs
+- `cid` (list): List containing connection IDs for event handlers
+- `toolbar` (matplotlib toolbar object): Navigation toolbar reference
+- `categories` (list): List storing category values for each clicked point
+- `current_category` (list): Single-element list containing the current category value
+- `csv_filename` (str, optional): Full path/filename for the output CSV file
+- `status_text` (matplotlib.text.Text, optional): Text object for displaying status messages
+
+**Returns:**
+- None (modifies input lists and saves data when 'enter' is pressed)
+
+#### `get_category_color(category)`
+
+Maps category identifiers to specific colors for consistent visualization of different stratigraphic units or boundary types.
+
+**Parameters:**
+- `category` (str or int): Category identifier (can be string or numeric)
+
+**Returns:**
+- `str`: Color string compatible with matplotlib (e.g., 'r', 'g', 'b')
+
 ## Visualization Module (`pyCoreRelator.visualization`)
 
 ### Core Plots (`core_plots.py`)
@@ -1014,137 +1099,4 @@ Plots core data with optional RGB and CT images and support for multiple log typ
 - `title` (str, optional): Plot title
 
 **Returns:**
-- `matplotlib.figure.Figure`: The created figure
-
-#### `visualize_combined_segments(log_a, log_b, md_a, md_b, dtw_results, valid_dtw_pairs, segments_a, segments_b, depth_boundaries_a, depth_boundaries_b, dtw_distance_matrix_full, segment_pairs_to_combine, **kwargs)`
-
-**ENHANCED** - Creates combined visualization of multiple segment correlations with both correlation plot and DTW matrix display.
-
-**Parameters:**
-- `log_a, log_b` (array-like): Full log data arrays
-- `md_a, md_b` (array-like): Measured depth arrays  
-- `dtw_results` (dict): DTW results for all segment pairs
-- `valid_dtw_pairs` (set): Set of valid segment pair indices
-- `segments_a, segments_b` (list): Segment definitions
-- `depth_boundaries_a, depth_boundaries_b` (list): Depth boundary indices
-- `dtw_distance_matrix_full` (np.ndarray): Full DTW distance matrix
-- `segment_pairs_to_combine` (list): Specific segment pairs to visualize
-- `color_interval_size` (int, default=5): Color coding interval for depth visualization
-- `visualize_pairs` (bool, default=True): Whether to show individual segment pairs
-- `mark_ages` (bool, default=False): Whether to display age constraints
-- `correlation_save_path, matrix_save_path` (str, optional): Output file paths
-
-**Returns:**
-- `tuple`: (correlation_fig, matrix_fig, combined_wp, combined_quality) containing visualization results and quality metrics
-
-#### `plot_correlation_distribution(csv_file, target_mapping_id=None, quality_index=None, save_png=True, png_filename=None, core_a_name=None, core_b_name=None, no_bins=None, pdf_method='KDE', kde_bandwidth=0.05, mute_mode=False)`
-
-**NEW** - Analyzes and plots correlation quality distributions with advanced statistical fitting and percentile analysis.
-
-**Parameters:**
-- `csv_file` (str): Path to CSV/Parquet file containing mapping results
-- `quality_index` (str): Required parameter specifying which quality index to plot ('corr_coef', 'norm_dtw', etc.)
-- `target_mapping_id` (int, optional): Specific mapping ID to highlight in the plot
-- `save_png` (bool, default=True): Whether to save the plot as PNG
-- `png_filename` (str, optional): Custom filename for saving PNG
-- `core_a_name, core_b_name` (str, optional): Core names for plot title
-- `no_bins` (int, optional): Number of histogram bins (auto if None)
-- `pdf_method` (str, default='KDE'): Probability density function method ('KDE', 'skew-normal', or 'normal')
-- `kde_bandwidth` (float, default=0.05): Bandwidth for KDE method
-- `mute_mode` (bool, default=False): If True, suppress all print statements
-
-**Returns:**
-- `tuple`: (fig, ax, fit_params) containing plot figure, axes, and statistical parameters
-
-#### `plot_quality_distributions(quality_data, target_quality_indices, output_figure_filenames, CORE_A, CORE_B, debug=True)`
-
-**NEW** - Compares real data distributions against null hypothesis with comprehensive statistical testing.
-
-**Parameters:**
-- `quality_data` (dict): Dictionary containing quality metric data for different parameter combinations
-- `target_quality_indices` (list): List of quality metrics to analyze and plot
-- `output_figure_filenames` (dict): Mapping of quality indices to output filenames
-- `CORE_A, CORE_B` (str): Core identifiers for plot titles
-- `debug` (bool, default=True): Whether to print detailed statistical information
-
-**Returns:**
-- `None`: Plots are saved to specified output files with comprehensive statistical analysis
-
-#### `plot_t_statistics_vs_constraints(quality_data, target_quality_indices, output_figure_filenames, CORE_A, CORE_B, debug=True)`
-
-**NEW** - Plots t-statistics versus age constraints showing correlation quality improvement with additional constraints.
-
-**Parameters:**
-- `quality_data` (dict): Dictionary containing quality metric data across constraint combinations
-- `target_quality_indices` (list): Quality metrics to analyze
-- `output_figure_filenames` (dict): Output filename mapping
-- `CORE_A, CORE_B` (str): Core names for labeling
-- `debug` (bool, default=True): Whether to show detailed analysis
-
-**Returns:**
-- `None`: Creates plots showing statistical significance trends and saves to files
-
-### Matrix Plots (`matrix_plots.py`)
-
-#### `plot_dtw_matrix_with_paths(dtw_distance_matrix_full, **kwargs)`
-
-**ENHANCED** - Visualizes DTW distance matrices with correlation paths and advanced color-coding options.
-
-**Parameters:**
-- `dtw_distance_matrix_full` (np.ndarray): Full DTW distance matrix
-- `sequential_mappings_csv` (str, optional): CSV file with correlation paths to overlay
-- `core_a_name, core_b_name` (str, optional): Core identifiers
-- `mode` (str, default='all_paths_colored'): Visualization mode for path display
-- `color_metric` (str, optional): Metric used for path coloring ('corr_coef', 'norm_dtw', 'dtw_warp_eff', etc.)
-- `output_filename` (str, optional): Output filename for saving plot
-- `age_constraint_a_depths, age_constraint_b_depths` (list, optional): Age constraint depths
-- `n_jobs` (int, default=-1): Number of parallel processing jobs
-
-**Returns:**
-- `matplotlib.figure.Figure`: DTW matrix visualization with colored correlation paths
-
-### Animation (`animation.py`)
-
-#### `visualize_dtw_results_from_csv(sequential_mappings_csv, log_a, log_b, md_a, md_b, dtw_results, valid_dtw_pairs, segments_a, segments_b, depth_boundaries_a, depth_boundaries_b, dtw_distance_matrix_full, **kwargs)`
-
-**ENHANCED** - Generates animated correlation sequences from CSV results with comprehensive visualization options.
-
-**Parameters:**
-- `sequential_mappings_csv` (str): CSV file containing sequential correlation mappings
-- `log_a, log_b` (array-like): Core log data
-- `md_a, md_b` (array-like): Measured depth arrays
-- `dtw_results` (dict): DTW analysis results
-- `valid_dtw_pairs` (set): Valid segment pairs
-- `segments_a, segments_b` (list): Segment definitions
-- `depth_boundaries_a, depth_boundaries_b` (list): Depth boundaries
-- `dtw_distance_matrix_full` (np.ndarray): Full DTW distance matrix
-- `core_a_name, core_b_name` (str, optional): Core identifiers
-- `creategif` (bool, default=True): Whether to create animated GIF output
-- `max_frames` (int, default=50): Maximum number of animation frames
-- `mark_ages` (bool, default=False): Whether to include age constraint markers
-
-**Returns:**
-- `None`: Creates animated visualizations and saves to specified output files
-
-## Performance and Optimization Features
-
-The package includes several performance enhancements documented across the functions:
-
-### Memory Management
-- **SQLite Database Storage**: Temporary database storage for large path collections
-- **Path Compression**: String-based compression for memory-efficient path storage  
-- **Garbage Collection**: Automatic memory cleanup during intensive operations
-- **Memory Monitoring**: Real-time memory usage tracking with cleanup triggers
-
-### Parallel Processing
-- **Multi-core Support**: Parallel processing for batch operations and quality metric computation
-- **Configurable Job Count**: User-controllable parallel job allocation
-- **Database Optimization**: WAL mode and indexed operations for efficient concurrent access
-
-### Path Optimization
-- **Shortest Path Search**: Focus on most promising correlation paths
-- **Path Pruning**: Intelligent removal of intermediate paths to prevent memory overflow
-- **Topological Ordering**: Efficient segment processing order for optimal path discovery
-- **Duplicate Removal**: Advanced deduplication algorithms with batch processing
-
-These optimizations enable analysis of large core datasets while maintaining computational efficiency and memory constraints. 
+- `

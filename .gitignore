@@ -2,13 +2,13 @@
 /*
 !/pyCoreRelator/
 !/.gitignore
-!/pyCoreRelator_test.ipynb
-!/pyCoreRelator_test_comparedtoNull.ipynb
+!/pyCoreRelator_core_pair_analysis.ipynb
+!/pyCoreRelator_compare2Null.ipynb
 !/pyCoreRelator_null_hypothesis.ipynb
 !/pyCoreRelator_RGB_image2log.ipynb
 !/pyCoreRelator_CT_image2log.ipynb
-!/pyCoreRelator_boundary_picker.ipynb
-!/pyCoreRelator_ML_data_imputation.ipynb
+!/pyCoreRelator_datum_picker.ipynb
+!/pyCoreRelator_data_gap_fill.ipynb
 !/pyCoreRelator_auto_facies_classification.ipynb
 !/LICENSE
 !/FUNCTION_DOCUMENTATION.md
