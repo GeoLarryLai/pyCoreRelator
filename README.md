@@ -14,7 +14,8 @@
 - **Quality Assessment**: Compute metrics for the quality of correlation and optimal solution search.
 - **Complete DTW Path Finding**: Identify correlation DTW paths spanning entire cores from top to bottom
 - **Null Hypothesis Testing**: Generate synthetic cores and test correlation significance with multi-parameter analysis
-- **Log Data Cleaning & Processing**: Convert core images (CT scans, RGB photos) to digital log data with capabilities of automated brightness/color profile extraction, image alignment & stitching, and machine-learning based data imputation for data gaps (future features to be updated)
+- **Log Data Cleaning & Processing**: Convert core images (CT scans, RGB photos) to digital log data with capabilities of automated brightness/color profile extraction, image alignment & stitching
+- **Machine Learning Data Imputation**: Advanced ML-based gap filling for core log data using ensemble methods (Random Forest, XGBoost, LightGBM) with configurable feature weighting and trend constraints
 - **Multi-dimensional Log Support**: Handle multiple log types (MS, CT, RGB, density) simultaneously with dependent or independent multi-dimentiaonl DTW approach
 - **Visualizations**: DTW cost matrix and paths, segment-wise core correlations, animated sequences, and statistical analysis for the correlation solutions
 
@@ -36,10 +37,14 @@ Python 3.9+ with the following packages:
 - `pydicom>=2.3.0` - Image processing for CT scan DICOM files
 - `opencv-python>=4.5.0` - Computer vision and image processing
 
+**Machine Learning Dependencies:**
+- `scikit-learn>=1.0.0` - Machine learning algorithms and preprocessing
+- `xgboost>=1.6.0` - XGBoost gradient boosting framework
+- `lightgbm>=3.3.0` - LightGBM gradient boosting framework
+
 **Optional Dependencies:**
 - `ipympl>=0.9.0` - Interactive matplotlib widgets for depth picking functions (for Jupyter notebooks)
 - `scikit-image>=0.18.0` - Advanced image processing features
-- `scikit-learn>=1.0.0` - Machine learning for data imputation
 
 **Installation:**
 ```bash
@@ -63,7 +68,8 @@ pyCoreRelator/
 ├── log/                     # Log processing and image analysis
 │   ├── rgb_image2log.py     # RGB image processing and color profile extraction
 │   ├── ct_image2log.py      # CT image processing and brightness analysis
-│   └── core_datum_picker.py # Interactive core boundary picking and depth selection
+│   ├── core_datum_picker.py # Interactive core boundary picking and depth selection
+│   └── ml_log_data_imputation.py # Machine learning-based data gap filling
 ├── utils/                   # Data handling utilities
 │   ├── data_loader.py       # Multi-format data loading with image support
 │   ├── path_processing.py   # DTW Path analysis and manipulation
@@ -120,6 +126,13 @@ Detailed function documentation is available in [FUNCTION_DOCUMENTATION.md](FUNC
 - **`load_log_data()`**: Load multi-column log data with optional image support and normalization
 - **`load_core_age_constraints()`**: Load age constraint data from CSV files with support for adjacent cores
 - **`plot_core_data()`**: Visualize core data with multiple log curves and images
+
+### Machine Learning Data Imputation Functions
+- **`preprocess_core_data()`**: Clean and preprocess core data with configurable thresholds and scaling
+- **`plot_core_logs()`**: Visualize core logs with configurable parameters and multiple data types
+- **`plot_filled_data()`**: Compare original data with ML-filled gaps using uncertainty visualization
+- **`fill_gaps_with_ml()`**: Fill data gaps using ensemble ML methods (RF, XGBoost, LightGBM)
+- **`process_and_fill_logs()`**: Complete ML-based gap filling workflow for all configured log types
 
 ### Null Hypothesis Testing Functions
 - **`load_segment_pool()`**: Create pools of real segments for synthetic core generation

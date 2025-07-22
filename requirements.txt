@@ -24,14 +24,17 @@ psutil>=5.8.0
 pydicom>=2.3.0
 opencv-python>=4.5.0
 
+# Machine Learning dependencies (for ml_log_data_imputation module)
+scikit-learn>=1.0.0     # For ML-based data imputation and preprocessing
+xgboost>=1.6.0          # For XGBoost ML models
+lightgbm>=3.3.0         # For LightGBM ML models
+
 # Dependencies for Jupyter Notebooks (optional):
 # Uncomment the following line if using interactive matplotlib widgets for depth picking
 # ipympl>=0.9.0
 
 # Optional packages for advanced features:
-# Uncomment the following lines if using advanced image processing or ML features:
 # scikit-image>=0.18.0    # For advanced core image processing
-# scikit-learn>=1.0.0     # For machine learning-based data imputation
 
 # Built-in modules (no installation required):
 # sqlite3 - for database operations

@@ -112,6 +112,18 @@ from .log.core_datum_picker import (
     pick_stratigraphic_levels
 )
 
+# Log processing functions - Machine learning data imputation
+from .log.ml_log_data_imputation import (
+    preprocess_core_data,
+    plot_core_logs,
+    plot_filled_data,
+    prepare_feature_data,
+    apply_feature_weights,
+    adjust_gap_predictions,
+    fill_gaps_with_ml,
+    process_and_fill_logs
+)
+
 # Make commonly used functions available at package level
 __all__ = [
     # Version
@@ -193,5 +205,15 @@ __all__ = [
     'get_category_color',
     'onkey_boundary',
     'create_interactive_figure',
-    'pick_stratigraphic_levels'
+    'pick_stratigraphic_levels',
+    
+    # Machine learning log data imputation functions
+    'preprocess_core_data',
+    'plot_core_logs',
+    'plot_filled_data',
+    'prepare_feature_data',
+    'apply_feature_weights',
+    'adjust_gap_predictions',
+    'fill_gaps_with_ml',
+    'process_and_fill_logs'
 ]
