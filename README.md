@@ -55,30 +55,30 @@ pip install -r requirements.txt
 
 ```
 pyCoreRelator/
-├── core/                    # Core analysis modules
-│   ├── dtw_analysis.py      # DTW computation and comprehensive analysis
-│   ├── segment_operations.py # Segment identification and manipulation
-│   ├── segment_analysis.py  # Legacy segment analysis functions
-│   ├── path_finding.py      # Complete DTW path discovery algorithms
-│   ├── quality_metrics.py   # Quality indicators computation
-│   ├── age_models.py        # Age constraint handling and interpolation
-│   ├── diagnostics.py       # Chain break analysis and debugging
-│   ├── null_hypothesis.py   # Synthetic data generation and multi-parameter testing
-│   └── path_helpers.py      # DTW Path processing utilities
-├── log/                     # Log processing and image analysis
-│   ├── rgb_image2log.py     # RGB image processing and color profile extraction
-│   ├── ct_image2log.py      # CT image processing and brightness analysis
-│   ├── core_datum_picker.py # Interactive core boundary picking and depth selection
-│   └── ml_log_data_imputation.py # Machine learning-based data gap filling
-├── utils/                   # Data handling utilities
-│   ├── data_loader.py       # Multi-format data loading with image support
-│   ├── path_processing.py   # DTW Path analysis and manipulation
-│   └── helpers.py           # General utility functions
-└── visualization/           # Plotting and visualization
-    ├── plotting.py          # Core plotting functions and segment visualization
-    ├── matrix_plots.py      # DTW matrix and path overlays
-    ├── animation.py         # Animated correlation sequences
-    └── core_plots.py        # Basic core data visualization
+├── core/                          # Core analysis modules
+│   ├── dtw_analysis.py            # DTW computation & comprehensive analysis
+│   ├── segment_operations.py      # Segment identification & manipulation
+│   ├── segment_analysis.py        # Legacy segment analysis functions
+│   ├── path_finding.py            # Complete DTW path discovery algorithms
+│   ├── quality_metrics.py         # Quality indicators computation
+│   ├── age_models.py              # Age constraint handling & interpolation
+│   ├── diagnostics.py             # Chain break analysis & debugging
+│   ├── null_hypothesis.py         # Synthetic data generation & multi-parameter testing
+│   └── path_helpers.py            # DTW path processing utilities
+├── log/                           # Log processing & image analysis
+│   ├── rgb_image2log.py           # RGB image processing & color profile extraction
+│   ├── ct_image2log.py            # CT image processing & brightness analysis
+│   ├── core_datum_picker.py       # Interactive core boundary picking & depth selection
+│   └── ml_log_data_imputation.py  # ML-based data gap filling
+├── utils/                         # Data handling utilities
+│   ├── data_loader.py             # Multi-format data loading with image support
+│   ├── path_processing.py         # DTW path analysis & manipulation
+│   └── helpers.py                 # General utility functions
+└── visualization/                 # Plotting & visualization
+    ├── plotting.py                # Core plotting functions & segment visualization
+    ├── matrix_plots.py            # DTW matrix & path overlays
+    ├── animation.py               # Animated correlation sequences
+    └── core_plots.py              # Basic core data visualization
 ```
 
 
