@@ -114,7 +114,7 @@ The package includes several Jupyter notebooks demonstrating real-world applicat
 
 Detailed function documentation is available in [FUNCTION_DOCUMENTATION.md](FUNCTION_DOCUMENTATION.md).
 
-### Main Analysis Functions (from example notebooks)
+### Main Analysis Functions
 - **`run_comprehensive_dtw_analysis()`**: Main function for segment-based DTW with age constraints and visualization
 - **`find_complete_core_paths()`**: Advanced complete DTW path discovery with memory optimization
 - **`calculate_interpolated_ages()`**: Interpolate ages for depth boundaries using age models with uncertainty propagation
@@ -130,8 +130,6 @@ Detailed function documentation is available in [FUNCTION_DOCUMENTATION.md](FUNC
 ### Machine Learning Data Imputation Functions
 - **`preprocess_core_data()`**: Clean and preprocess core data with configurable thresholds and scaling
 - **`plot_core_logs()`**: Visualize core logs with configurable parameters and multiple data types
-- **`plot_filled_data()`**: Compare original data with ML-filled gaps using uncertainty visualization
-- **`fill_gaps_with_ml()`**: Fill data gaps using ensemble ML methods (RF, XGBoost, LightGBM)
 - **`process_and_fill_logs()`**: Complete ML-based gap filling workflow for all configured log types
 
 ### Null Hypothesis Testing Functions
@@ -146,7 +144,11 @@ Detailed function documentation is available in [FUNCTION_DOCUMENTATION.md](FUNC
 - **`visualize_dtw_results_from_csv()`**: Generate animated correlation sequences from results
 - **`plot_dtw_matrix_with_paths()`**: Visualize DTW cost matrices with correlation paths
 - **`plot_correlation_distribution()`**: Visualize and statistically analyze the distributions of the correlation quality metrics
-- **`plot_quality_comparison()`**: Compare quality metrics between real and synthetic data
+- **`calculate_quality_comparison_t_statistics()`**: Calculate t-statistics for quality metric comparisons
+- **`plot_quality_comparison_t_statistics()`**: Plot quality metric comparison results with statistical analysis
+
+### Interactive Core Analysis Functions
+- **`pick_stratigraphic_levels()`**: Interactive manual stratigraphic boundary picking with real-time visualization
 
 ### Image Processing Functions
 - **`plot_rgb_profile()`**: Create comprehensive RGB analysis visualizations
