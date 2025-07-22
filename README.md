@@ -55,7 +55,7 @@ pip install -r requirements.txt
 
 ```
 pyCoreRelator/
-├── core/                          # Core analysis modules
+├── core/                          
 │   ├── dtw_analysis.py            # DTW computation & comprehensive analysis
 │   ├── segment_operations.py      # Segment identification & manipulation
 │   ├── segment_analysis.py        # Legacy segment analysis functions
@@ -65,16 +65,16 @@ pyCoreRelator/
 │   ├── diagnostics.py             # Chain break analysis & debugging
 │   ├── null_hypothesis.py         # Synthetic data generation & multi-parameter testing
 │   └── path_helpers.py            # DTW path processing utilities
-├── log/                           # Log processing & image analysis
+├── log/                           
 │   ├── rgb_image2log.py           # RGB image processing & color profile extraction
 │   ├── ct_image2log.py            # CT image processing & brightness analysis
 │   ├── core_datum_picker.py       # Interactive core boundary picking & depth selection
 │   └── ml_log_data_imputation.py  # ML-based data gap filling
-├── utils/                         # Data handling utilities
+├── utils/                         
 │   ├── data_loader.py             # Multi-format data loading with image support
 │   ├── path_processing.py         # DTW path analysis & manipulation
 │   └── helpers.py                 # General utility functions
-└── visualization/                 # Plotting & visualization
+└── visualization/                 
     ├── plotting.py                # Core plotting functions & segment visualization
     ├── matrix_plots.py            # DTW matrix & path overlays
     ├── animation.py               # Animated correlation sequences
