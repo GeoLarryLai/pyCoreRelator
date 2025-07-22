@@ -16,13 +16,15 @@ Functions:
 # Data manipulation and analysis
 import os
 import gc
-import pandas as pd
-import numpy as np
-import matplotlib.pyplot as plt
-from tqdm import tqdm
 import random
-import warnings
+import string
+import numpy as np
+import pandas as pd
+from tqdm import tqdm
+from joblib import Parallel, delayed
 from itertools import combinations
+import matplotlib.pyplot as plt
+import warnings
 warnings.filterwarnings('ignore')
 
 # Import from other pyCoreRelator modules
@@ -495,6 +497,307 @@ def generate_constraint_subsets(n_constraints):
             all_subsets.append(list(subset))
     return all_subsets
 
+def _process_single_parameter_combination(
+    idx, params, 
+    log_a, log_b, md_a, md_b,
+    all_depths_a_cat1, all_depths_b_cat1,
+    pickeddepth_ages_a, pickeddepth_ages_b,
+    age_data_a, age_data_b,
+    target_quality_indices,
+    output_csv_filenames,
+    pca_for_dependent_dtw,
+    test_age_constraint_removal
+):
+    """Process a single parameter combination (exact copy of original loop body)"""
+    
+    # Import here to avoid circular imports in workers
+    from .dtw_analysis import run_comprehensive_dtw_analysis
+    from .path_finding import find_complete_core_paths
+    from ..visualization.plotting import plot_correlation_distribution
+    
+    # Generate a random suffix for temporary files in this iteration
+    random_suffix = ''.join(random.choices('ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789', k=8))
+
+    # Initialize temp_mapping_file here to ensure it's always defined
+    temp_mapping_file = f'temp_mappings_{random_suffix}.pkl'
+
+    # Extract parameters
+    age_consideration = params['age_consideration']
+    restricted_age_correlation = params['restricted_age_correlation']
+    shortest_path_search = params['shortest_path_search']
+    
+    # Generate parameter labels
+    if age_consideration:
+        if restricted_age_correlation:
+            age_label = 'restricted_age'
+        else:
+            age_label = 'loose_age'
+    else:
+        age_label = 'no_age'
+    
+    search_label = 'optimal' if shortest_path_search else 'random'
+    combo_id = f"{age_label}_{search_label}"
+    
+    try:        
+        # Run comprehensive DTW analysis with original constraints
+        dtw_results, valid_dtw_pairs, segments_a, segments_b, depth_boundaries_a, depth_boundaries_b, dtw_distance_matrix_full = run_comprehensive_dtw_analysis(
+            log_a, log_b, md_a, md_b,
+            picked_depths_a=all_depths_a_cat1,
+            picked_depths_b=all_depths_b_cat1,
+            independent_dtw=False,
+            pca_for_dependent_dtw=pca_for_dependent_dtw,
+            top_bottom=True,
+            top_depth=0.0,
+            exclude_deadend=True,
+            mute_mode=True,
+            age_consideration=age_consideration,
+            ages_a=pickeddepth_ages_a if age_consideration else None,
+            ages_b=pickeddepth_ages_b if age_consideration else None,
+            restricted_age_correlation=restricted_age_correlation if age_consideration else False,
+            all_constraint_ages_a=age_data_a['in_sequence_ages'] if age_consideration else None,
+            all_constraint_ages_b=age_data_b['in_sequence_ages'] if age_consideration else None,
+            all_constraint_depths_a=age_data_a['in_sequence_depths'] if age_consideration else None,
+            all_constraint_depths_b=age_data_b['in_sequence_depths'] if age_consideration else None,
+            all_constraint_pos_errors_a=age_data_a['in_sequence_pos_errors'] if age_consideration else None,
+            all_constraint_pos_errors_b=age_data_b['in_sequence_pos_errors'] if age_consideration else None,
+            all_constraint_neg_errors_a=age_data_a['in_sequence_neg_errors'] if age_consideration else None,
+            all_constraint_neg_errors_b=age_data_b['in_sequence_neg_errors'] if age_consideration else None
+        )
+        
+        # Find complete core paths
+        if shortest_path_search:
+            _ = find_complete_core_paths(
+                valid_dtw_pairs, segments_a, segments_b, log_a, log_b,
+                depth_boundaries_a, depth_boundaries_b, dtw_results, dtw_distance_matrix_full,
+                output_csv=temp_mapping_file,
+                start_from_top_only=True, batch_size=1000, n_jobs=1,  # Use n_jobs=1 to avoid nested parallelism
+                shortest_path_search=True, shortest_path_level=2,
+                max_search_path=100000, mute_mode=True, pca_for_dependent_dtw=pca_for_dependent_dtw
+            )
+        else:
+            _ = find_complete_core_paths(
+                valid_dtw_pairs, segments_a, segments_b, log_a, log_b,
+                depth_boundaries_a, depth_boundaries_b, dtw_results, dtw_distance_matrix_full,
+                output_csv=temp_mapping_file,
+                start_from_top_only=True, batch_size=1000, n_jobs=1,  # Use n_jobs=1 to avoid nested parallelism
+                shortest_path_search=False, shortest_path_level=2,
+                max_search_path=100000, mute_mode=True, pca_for_dependent_dtw=pca_for_dependent_dtw
+            )
+        
+        # Process quality indices and collect results
+        results = {}
+        for quality_index in target_quality_indices:
+            
+            _, _, fit_params = plot_correlation_distribution(
+                csv_file=f'outputs/{temp_mapping_file}',
+                quality_index=quality_index,
+                no_bins=30, save_png=False, pdf_method='normal',
+                kde_bandwidth=0.05, mute_mode=True
+            )
+            
+            if fit_params is not None:
+                fit_params_copy = fit_params.copy()
+                fit_params_copy['combination_id'] = combo_id
+                fit_params_copy['age_consideration'] = age_consideration
+                fit_params_copy['restricted_age_correlation'] = restricted_age_correlation
+                fit_params_copy['shortest_path_search'] = shortest_path_search
+                
+                # Add constraint tracking columns
+                fit_params_copy['core_a_constraints_count'] = len(age_data_a['in_sequence_ages']) if age_consideration else 0
+                fit_params_copy['core_b_constraints_count'] = len(age_data_b['in_sequence_ages']) if age_consideration else 0
+                fit_params_copy['constraint_scenario_description'] = 'all_original_constraints_remained' if age_consideration else 'no_age_constraints_used'
+                
+                results[quality_index] = fit_params_copy
+        
+        # Clean up
+        if os.path.exists(f'outputs/{temp_mapping_file}'):
+            os.remove(f'outputs/{temp_mapping_file}')
+        
+        del dtw_results, valid_dtw_pairs, segments_a, segments_b
+        del depth_boundaries_a, depth_boundaries_b, dtw_distance_matrix_full
+        gc.collect()
+        
+        return True, combo_id, results
+        
+    except Exception as e:
+        if os.path.exists(f'outputs/{temp_mapping_file}'):
+            os.remove(f'outputs/{temp_mapping_file}')
+        gc.collect()
+        return False, combo_id, str(e)
+
+def _process_single_constraint_scenario(
+    param_idx, params, constraint_subset, in_sequence_indices,
+    log_a, log_b, md_a, md_b,
+    all_depths_a_cat1, all_depths_b_cat1,
+    pickeddepth_ages_a, pickeddepth_ages_b,
+    age_data_a, age_data_b,
+    uncertainty_method,
+    target_quality_indices,
+    pca_for_dependent_dtw
+):
+    """Process a single constraint scenario (exact copy of original loop body)"""
+    
+    # Import here to avoid circular imports in workers
+    from .dtw_analysis import run_comprehensive_dtw_analysis
+    from .path_finding import find_complete_core_paths
+    from ..visualization.plotting import plot_correlation_distribution
+    from .age_models import calculate_interpolated_ages
+    
+    # Generate a random suffix for temporary files in this iteration
+    random_suffix = ''.join(random.choices('ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789', k=8))
+    
+    # Initialize temp_mapping_file here to ensure it's always defined
+    temp_mapping_file = f'temp_mappings_{random_suffix}.pkl'
+    
+    # Reset and reload parameters correctly for each iteration
+    age_consideration = params['age_consideration']
+    restricted_age_correlation = params['restricted_age_correlation']
+    shortest_path_search = params['shortest_path_search']
+    
+    # Generate parameter labels
+    if restricted_age_correlation:
+        age_label = 'restricted_age'
+    else:
+        age_label = 'loose_age'
+    
+    search_label = 'optimal' if shortest_path_search else 'random'
+    combo_id = f"{age_label}_{search_label}"
+    
+    try:
+        # Map subset indices to original constraint indices (in-sequence only)
+        original_indices = [in_sequence_indices[i] for i in constraint_subset]
+        
+        # Create modified age_data_b using original indices
+        age_data_b_current = {
+            'depths': [age_data_b['depths'][i] for i in original_indices],
+            'ages': [age_data_b['ages'][i] for i in original_indices],
+            'pos_errors': [age_data_b['pos_errors'][i] for i in original_indices],
+            'neg_errors': [age_data_b['neg_errors'][i] for i in original_indices],
+            'in_sequence_flags': [age_data_b['in_sequence_flags'][i] for i in original_indices],
+            'in_sequence_depths': [age_data_b['depths'][i] for i in original_indices],
+            'in_sequence_ages': [age_data_b['ages'][i] for i in original_indices],
+            'in_sequence_pos_errors': [age_data_b['pos_errors'][i] for i in original_indices],
+            'in_sequence_neg_errors': [age_data_b['neg_errors'][i] for i in original_indices],
+            'core': [age_data_b['core'][i] for i in original_indices]
+        }
+        
+        # Recalculate interpolated ages for core B with reduced constraints
+        pickeddepth_ages_b_current = calculate_interpolated_ages(
+            picked_depths=all_depths_b_cat1,
+            age_constraints_depths=age_data_b_current['depths'],
+            age_constraints_ages=age_data_b_current['ages'],
+            age_constraints_pos_errors=age_data_b_current['pos_errors'],
+            age_constraints_neg_errors=age_data_b_current['neg_errors'],
+            age_constraints_in_sequence_flags=age_data_b_current['in_sequence_flags'],
+            age_constraint_source_core=age_data_b_current['core'],
+            top_bottom=True,
+            top_depth=0.0,
+            bottom_depth=md_b[-1],
+            top_age=0,
+            top_age_pos_error=75,
+            top_age_neg_error=75,
+            uncertainty_method=uncertainty_method,
+            n_monte_carlo=10000,
+            show_plot=False,
+            export_csv=False,
+            mute_mode=True
+        )
+        
+        # Run DTW analysis with reduced constraints
+        dtw_results, valid_dtw_pairs, segments_a, segments_b, depth_boundaries_a, depth_boundaries_b, dtw_distance_matrix_full = run_comprehensive_dtw_analysis(
+            log_a, log_b, md_a, md_b,
+            picked_depths_a=all_depths_a_cat1,
+            picked_depths_b=all_depths_b_cat1,
+            independent_dtw=False,
+            pca_for_dependent_dtw=pca_for_dependent_dtw,
+            top_bottom=True,
+            top_depth=0.0,
+            exclude_deadend=True,
+            mute_mode=True,
+            age_consideration=age_consideration,
+            ages_a=pickeddepth_ages_a,  # Use original ages for core A
+            ages_b=pickeddepth_ages_b_current,  # Use modified ages for core B
+            restricted_age_correlation=restricted_age_correlation,
+            all_constraint_ages_a=age_data_a['in_sequence_ages'],  # Original constraints for core A
+            all_constraint_ages_b=age_data_b_current['in_sequence_ages'],  # Modified constraints for core B
+            all_constraint_depths_a=age_data_a['in_sequence_depths'],  # Original depths for core A
+            all_constraint_depths_b=age_data_b_current['in_sequence_depths'],  # Modified depths for core B
+            all_constraint_pos_errors_a=age_data_a['in_sequence_pos_errors'],  # Original errors for core A
+            all_constraint_pos_errors_b=age_data_b_current['in_sequence_pos_errors'],  # Modified errors for core B
+            all_constraint_neg_errors_a=age_data_a['in_sequence_neg_errors'],  # Original errors for core A
+            all_constraint_neg_errors_b=age_data_b_current['in_sequence_neg_errors']  # Modified errors for core B
+        )
+        
+        # Find paths with correct parameters
+        if shortest_path_search:
+            _ = find_complete_core_paths(
+                valid_dtw_pairs, segments_a, segments_b, log_a, log_b,
+                depth_boundaries_a, depth_boundaries_b, dtw_results, dtw_distance_matrix_full,
+                output_csv=temp_mapping_file,
+                start_from_top_only=True, batch_size=1000, n_jobs=1,  # Use n_jobs=1 to avoid nested parallelism
+                shortest_path_search=True, shortest_path_level=2,
+                max_search_path=100000, mute_mode=True, pca_for_dependent_dtw=pca_for_dependent_dtw
+            )
+        else:
+            _ = find_complete_core_paths(
+                valid_dtw_pairs, segments_a, segments_b, log_a, log_b,
+                depth_boundaries_a, depth_boundaries_b, dtw_results, dtw_distance_matrix_full,
+                output_csv=temp_mapping_file,
+                start_from_top_only=True, batch_size=1000, n_jobs=1,  # Use n_jobs=1 to avoid nested parallelism
+                shortest_path_search=False, shortest_path_level=2,
+                max_search_path=100000, mute_mode=True, pca_for_dependent_dtw=pca_for_dependent_dtw
+            )
+        
+        # Process quality indices
+        results = {}
+        for quality_index in target_quality_indices:
+            
+            _, _, fit_params = plot_correlation_distribution(
+                csv_file=f'outputs/{temp_mapping_file}',
+                quality_index=quality_index,
+                no_bins=30, save_png=False, pdf_method='normal',
+                kde_bandwidth=0.05, mute_mode=True
+            )
+            
+            if fit_params is not None:
+                fit_params_copy = fit_params.copy()
+                # Store the correct parameter values
+                fit_params_copy['combination_id'] = combo_id
+                fit_params_copy['age_consideration'] = age_consideration
+                fit_params_copy['restricted_age_correlation'] = restricted_age_correlation
+                fit_params_copy['shortest_path_search'] = shortest_path_search
+                
+                # Add constraint tracking with correct counts
+                fit_params_copy['core_a_constraints_count'] = len(age_data_a['in_sequence_ages'])  # Original count for core A
+                fit_params_copy['core_b_constraints_count'] = len(constraint_subset)  # Modified count for core B
+                # Convert 0-based indices to 1-based for constraint description
+                remaining_indices_1based = [i + 1 for i in sorted(constraint_subset)]
+                fit_params_copy['constraint_scenario_description'] = f'constraints_{remaining_indices_1based}_remained'
+                
+                results[quality_index] = fit_params_copy
+        
+        # Clean up temporary files
+        if os.path.exists(f'outputs/{temp_mapping_file}'):
+            os.remove(f'outputs/{temp_mapping_file}')
+        
+        del dtw_results, valid_dtw_pairs, segments_a, segments_b
+        del depth_boundaries_a, depth_boundaries_b, dtw_distance_matrix_full
+        del age_data_b_current, pickeddepth_ages_b_current
+        gc.collect()
+        
+        scenario_id = f"{combo_id}_subset_{len(constraint_subset)}"
+        return True, scenario_id, results
+        
+    except Exception as e:
+        if os.path.exists(f'outputs/{temp_mapping_file}'):
+            os.remove(f'outputs/{temp_mapping_file}')
+        # Clean up variables in case of error
+        if 'age_data_b_current' in locals():
+            del age_data_b_current
+        if 'pickeddepth_ages_b_current' in locals():
+            del pickeddepth_ages_b_current
+        gc.collect()
+        return False, f"{combo_id}_subset_error", str(e)
 
 def run_multi_parameter_analysis(
     # Core data inputs
@@ -516,7 +819,8 @@ def run_multi_parameter_analysis(
     output_csv_filenames,  # Dict with quality_index as key and filename as value
     
     # Optional parameter
-    pca_for_dependent_dtw=False
+    pca_for_dependent_dtw=False,
+    n_jobs=-1  # Number of cores used in parallel processing (-1 uses all available cores)
 ):
     """
     Run comprehensive multi-parameter analysis for core correlation.
@@ -551,6 +855,9 @@ def run_multi_parameter_analysis(
         Dictionary mapping quality_index to output CSV filename
     pca_for_dependent_dtw : bool
         Whether to use PCA for dependent DTW
+    n_jobs : int, default=-1
+        Number of parallel jobs to run. -1 means using all available cores.
+        Set to 1 for sequential processing (useful for debugging).
     
     Returns:
     --------
@@ -563,6 +870,7 @@ def run_multi_parameter_analysis(
     
     # Loop through all quality indices
     print(f"Running {len(parameter_combinations)} parameter combinations for {len(target_quality_indices)} quality indices...")
+    print(f"Using {n_jobs if n_jobs > 0 else 'all available'} CPU cores for parallel processing")
 
     # Reset variables at the beginning
     n_constraints_b = 0
@@ -585,125 +893,43 @@ def run_multi_parameter_analysis(
     else:
         print("\nRunning parameter combinations...")
 
-    for idx, params in enumerate(tqdm(parameter_combinations, desc="Parameter combinations" if not test_age_constraint_removal else "Original parameter combinations")):
-        
-        # Generate a random suffix for temporary files in this iteration
-        random_suffix = ''.join(random.choices('ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789', k=8))
-
-        # Extract parameters
-        age_consideration = params['age_consideration']
-        restricted_age_correlation = params['restricted_age_correlation']
-        shortest_path_search = params['shortest_path_search']
-        
-        # Generate parameter labels
-        if age_consideration:
-            if restricted_age_correlation:
-                age_label = 'restricted_age'
-            else:
-                age_label = 'loose_age'
-        else:
-            age_label = 'no_age'
-        
-        search_label = 'optimal' if shortest_path_search else 'random'
-        combo_id = f"{age_label}_{search_label}"
-        
-        try:        
-            # Run comprehensive DTW analysis with original constraints
-            dtw_results, valid_dtw_pairs, segments_a, segments_b, depth_boundaries_a, depth_boundaries_b, dtw_distance_matrix_full = run_comprehensive_dtw_analysis(
-                log_a, log_b, md_a, md_b,
-                picked_depths_a=all_depths_a_cat1,
-                picked_depths_b=all_depths_b_cat1,
-                independent_dtw=False,
-                pca_for_dependent_dtw=pca_for_dependent_dtw,
-                top_bottom=True,
-                top_depth=0.0,
-                exclude_deadend=True,
-                mute_mode=True,
-                age_consideration=age_consideration,
-                ages_a=pickeddepth_ages_a if age_consideration else None,
-                ages_b=pickeddepth_ages_b if age_consideration else None,
-                restricted_age_correlation=restricted_age_correlation if age_consideration else False,
-                all_constraint_ages_a=age_data_a['in_sequence_ages'] if age_consideration else None,
-                all_constraint_ages_b=age_data_b['in_sequence_ages'] if age_consideration else None,
-                all_constraint_depths_a=age_data_a['in_sequence_depths'] if age_consideration else None,
-                all_constraint_depths_b=age_data_b['in_sequence_depths'] if age_consideration else None,
-                all_constraint_pos_errors_a=age_data_a['in_sequence_pos_errors'] if age_consideration else None,
-                all_constraint_pos_errors_b=age_data_b['in_sequence_pos_errors'] if age_consideration else None,
-                all_constraint_neg_errors_a=age_data_a['in_sequence_neg_errors'] if age_consideration else None,
-                all_constraint_neg_errors_b=age_data_b['in_sequence_neg_errors'] if age_consideration else None
-            )
-            
-            # Find complete core paths
-            temp_mapping_file = f'temp_mappings_{random_suffix}.pkl'
-
-            if shortest_path_search:
-                _ = find_complete_core_paths(
-                    valid_dtw_pairs, segments_a, segments_b, log_a, log_b,
-                    depth_boundaries_a, depth_boundaries_b, dtw_results, dtw_distance_matrix_full,
-                    output_csv=temp_mapping_file,
-                    start_from_top_only=True, batch_size=1000, n_jobs=-1,
-                    shortest_path_search=True, shortest_path_level=2,
-                    max_search_path=100000, mute_mode=True, pca_for_dependent_dtw=pca_for_dependent_dtw
-                )
-            else:
-                _ = find_complete_core_paths(
-                    valid_dtw_pairs, segments_a, segments_b, log_a, log_b,
-                    depth_boundaries_a, depth_boundaries_b, dtw_results, dtw_distance_matrix_full,
-                    output_csv=temp_mapping_file,
-                    start_from_top_only=True, batch_size=1000, n_jobs=-1,
-                    shortest_path_search=False, shortest_path_level=2,
-                    max_search_path=100000, mute_mode=True, pca_for_dependent_dtw=pca_for_dependent_dtw
-                )
-            
-            # Process quality indices
+    # Prepare data for parallel processing
+    phase1_args = [
+        (idx, params, 
+         log_a, log_b, md_a, md_b,
+         all_depths_a_cat1, all_depths_b_cat1,
+         pickeddepth_ages_a, pickeddepth_ages_b,
+         age_data_a, age_data_b,
+         target_quality_indices,
+         output_csv_filenames,
+         pca_for_dependent_dtw,
+         test_age_constraint_removal) 
+        for idx, params in enumerate(parameter_combinations)
+    ]
+    
+    # Run Phase 1 in parallel
+    phase1_results = Parallel(n_jobs=n_jobs, verbose=0)(
+        delayed(_process_single_parameter_combination)(*args) 
+        for args in tqdm(phase1_args, desc="Parameter combinations" if not test_age_constraint_removal else "Original parameter combinations")
+    )
+    
+    # Process Phase 1 results and write to CSV
+    for idx, (success, combo_id, results) in enumerate(phase1_results):
+        if success:
+            # Write results to CSV files
             for quality_index in target_quality_indices:
-                
-                _, _, fit_params = plot_correlation_distribution(
-                    csv_file=f'outputs/{temp_mapping_file}',
-                    quality_index=quality_index,
-                    no_bins=30, save_png=False, pdf_method='normal',
-                    kde_bandwidth=0.05, mute_mode=True
-                )
-                
-                if fit_params is not None:
-                    fit_params_copy = fit_params.copy()
-                    fit_params_copy['combination_id'] = combo_id
-                    fit_params_copy['age_consideration'] = age_consideration
-                    fit_params_copy['restricted_age_correlation'] = restricted_age_correlation
-                    fit_params_copy['shortest_path_search'] = shortest_path_search
-                    
-                    # Add constraint tracking columns
-                    fit_params_copy['core_a_constraints_count'] = len(age_data_a['in_sequence_ages']) if age_consideration else 0
-                    fit_params_copy['core_b_constraints_count'] = len(age_data_b['in_sequence_ages']) if age_consideration else 0
-                    fit_params_copy['constraint_scenario_description'] = 'all_original_constraints_remained' if age_consideration else 'no_age_constraints_used'
-                    
-                    # Save to CSV using user-provided filename
+                if quality_index in results:
+                    fit_params = results[quality_index]
                     master_csv_filename = output_csv_filenames[quality_index]
                     
-                    df_single = pd.DataFrame([fit_params_copy])
+                    df_single = pd.DataFrame([fit_params])
                     if idx == 0:
                         df_single.to_csv(master_csv_filename, mode='w', index=False, header=True)
                     else:
                         df_single.to_csv(master_csv_filename, mode='a', index=False, header=False)
-
-                    del df_single, fit_params_copy
-                
-                del fit_params
-            
-            # Clean up
-            if os.path.exists(f'outputs/{temp_mapping_file}'):
-                os.remove(f'outputs/{temp_mapping_file}')
-            
-            del dtw_results, valid_dtw_pairs, segments_a, segments_b
-            del depth_boundaries_a, depth_boundaries_b, dtw_distance_matrix_full
-            gc.collect()
-            
-        except Exception as e:
-            print(f"✗ Error in {combo_id}: {str(e)}")
-            if os.path.exists(f'outputs/{temp_mapping_file}'):
-                os.remove(f'outputs/{temp_mapping_file}')
-            gc.collect()
-            continue
+                    del df_single
+        else:
+            print(f"✗ Error in {combo_id}: {results}")
 
     print("✓ All original parameter combinations processed" if test_age_constraint_removal else "✓ All parameter combinations processed")
 
@@ -716,201 +942,92 @@ def run_multi_parameter_analysis(
         age_enabled_params = [p for p in parameter_combinations if p['age_consideration']]
         constraint_scenarios_per_param = (2 ** n_constraints_b) - 1  # Exclude empty set
         total_additional_scenarios = len(age_enabled_params) * (constraint_scenarios_per_param - 1)  # Exclude original scenario
-        
+       
         print(f"- Core B has {n_constraints_b} age constraints")
         print(f"- Processing {total_additional_scenarios} additional constraint removal scenarios")
         
-        additional_progress = tqdm(total=total_additional_scenarios, desc="Age constraint removal scenarios")
+        # Get indices of only in-sequence constraints from the original data
+        in_sequence_indices = [i for i, flag in enumerate(age_data_b['in_sequence_flags']) if flag == 1]
+        n_constraints_b = len(in_sequence_indices)  # Count of in-sequence constraints only
+
+        # Generate subsets from in-sequence constraint indices only
+        all_subsets = generate_constraint_subsets(n_constraints_b)
+        constraint_subsets = [subset for subset in all_subsets if 0 < len(subset) < n_constraints_b]
         
+        # Prepare data for Phase 2 parallel processing
+        phase2_args = []
         for param_idx, params in enumerate(age_enabled_params):
-            
-            # Reset and reload parameters correctly for each iteration
-            age_consideration = params['age_consideration']
-            restricted_age_correlation = params['restricted_age_correlation']
-            shortest_path_search = params['shortest_path_search']
-            
-            # Generate parameter labels
-            if restricted_age_correlation:
-                age_label = 'restricted_age'
-            else:
-                age_label = 'loose_age'
-            
-            search_label = 'optimal' if shortest_path_search else 'random'
-            combo_id = f"{age_label}_{search_label}"
-            
-            # Get indices of only in-sequence constraints from the original data
-            in_sequence_indices = [i for i, flag in enumerate(age_data_b['in_sequence_flags']) if flag == 1]
-            n_constraints_b = len(in_sequence_indices)  # Count of in-sequence constraints only
-
-            # Generate subsets from in-sequence constraint indices only
-            all_subsets = generate_constraint_subsets(n_constraints_b)
-            constraint_subsets = [subset for subset in all_subsets if 0 < len(subset) < n_constraints_b]
-
             for constraint_subset in constraint_subsets:
-                
-                # Map subset indices to original constraint indices (in-sequence only)
-                original_indices = [in_sequence_indices[i] for i in constraint_subset]
-                
-                # Create modified age_data_b using original indices
-                age_data_b_current = {
-                    'depths': [age_data_b['depths'][i] for i in original_indices],
-                    'ages': [age_data_b['ages'][i] for i in original_indices],
-                    'pos_errors': [age_data_b['pos_errors'][i] for i in original_indices],
-                    'neg_errors': [age_data_b['neg_errors'][i] for i in original_indices],
-                    'in_sequence_flags': [age_data_b['in_sequence_flags'][i] for i in original_indices],
-                    'in_sequence_depths': [age_data_b['depths'][i] for i in original_indices],  # Same as depths since all are in-sequence
-                    'in_sequence_ages': [age_data_b['ages'][i] for i in original_indices],
-                    'in_sequence_pos_errors': [age_data_b['pos_errors'][i] for i in original_indices],
-                    'in_sequence_neg_errors': [age_data_b['neg_errors'][i] for i in original_indices],
-                    'out_sequence_depths': age_data_b['out_sequence_depths'],
-                    'out_sequence_ages': age_data_b['out_sequence_ages'],
-                    'out_sequence_pos_errors': age_data_b['out_sequence_pos_errors'],
-                    'out_sequence_neg_errors': age_data_b['out_sequence_neg_errors'],
-                    'core': [age_data_b['core'][i] for i in original_indices],
-                    'interpreted_bed': [age_data_b['interpreted_bed'][i] for i in original_indices]
-                }
-                
-                # Recalculate ages for core B with modified constraints
-                pickeddepth_ages_b_current = calculate_interpolated_ages(
-                    picked_depths=all_depths_b_cat1,
-                    age_constraints_depths=age_data_b_current['depths'],
-                    age_constraints_ages=age_data_b_current['ages'],
-                    age_constraints_pos_errors=age_data_b_current['pos_errors'],
-                    age_constraints_neg_errors=age_data_b_current['neg_errors'],
-                    age_constraints_in_sequence_flags=age_data_b_current['in_sequence_flags'],
-                    age_constraint_source_core=age_data_b_current['core'],
-                    top_bottom=True,
-                    top_depth=0.0,
-                    bottom_depth=md_b[-1],
-                    top_age=0,
-                    top_age_pos_error=75,
-                    top_age_neg_error=75,
-                    uncertainty_method=uncertainty_method,
-                    n_monte_carlo=10000,
-                    show_plot=False,
-                    core_name=core_b_name,
-                    export_csv=False,
-                    mute_mode=True
-                )
-                
-                scenario_id = f"{combo_id}_b{len(constraint_subset)}of{n_constraints_b}"
-                
-                try:
-                    # Run DTW analysis with correctly loaded parameters
-                    dtw_results, valid_dtw_pairs, segments_a, segments_b, depth_boundaries_a, depth_boundaries_b, dtw_distance_matrix_full = run_comprehensive_dtw_analysis(
-                        log_a, log_b, md_a, md_b,
-                        picked_depths_a=all_depths_a_cat1,
-                        picked_depths_b=all_depths_b_cat1,
-                        independent_dtw=False,
-                        pca_for_dependent_dtw=pca_for_dependent_dtw,
-                        top_bottom=True,
-                        top_depth=0.0,
-                        exclude_deadend=True,
-                        mute_mode=True,
-                        age_consideration=age_consideration,
-                        ages_a=pickeddepth_ages_a,  # Use original ages for core A
-                        ages_b=pickeddepth_ages_b_current,  # Use modified ages for core B
-                        restricted_age_correlation=restricted_age_correlation,
-                        all_constraint_ages_a=age_data_a['in_sequence_ages'],  # Original constraints for core A
-                        all_constraint_ages_b=age_data_b_current['in_sequence_ages'],  # Modified constraints for core B
-                        all_constraint_depths_a=age_data_a['in_sequence_depths'],  # Original depths for core A
-                        all_constraint_depths_b=age_data_b_current['in_sequence_depths'],  # Modified depths for core B
-                        all_constraint_pos_errors_a=age_data_a['in_sequence_pos_errors'],  # Original errors for core A
-                        all_constraint_pos_errors_b=age_data_b_current['in_sequence_pos_errors'],  # Modified errors for core B
-                        all_constraint_neg_errors_a=age_data_a['in_sequence_neg_errors'],  # Original errors for core A
-                        all_constraint_neg_errors_b=age_data_b_current['in_sequence_neg_errors']  # Modified errors for core B
-                    )
-                    
-                    # Find paths with correct parameters
-                    temp_mapping_file = f'temp_mappings_{random_suffix}.pkl' # Accept *.csv or *.pkl; *.pkl is preferred for temporary files for efficiency
-
-                    if shortest_path_search:
-                        _ = find_complete_core_paths(
-                            valid_dtw_pairs, segments_a, segments_b, log_a, log_b,
-                            depth_boundaries_a, depth_boundaries_b, dtw_results, dtw_distance_matrix_full,
-                            output_csv=temp_mapping_file,
-                            start_from_top_only=True, batch_size=1000, n_jobs=-1,
-                            shortest_path_search=True, shortest_path_level=2,
-                            max_search_path=100000, mute_mode=True, pca_for_dependent_dtw=pca_for_dependent_dtw
-                        )
-                    else:
-                        _ = find_complete_core_paths(
-                            valid_dtw_pairs, segments_a, segments_b, log_a, log_b,
-                            depth_boundaries_a, depth_boundaries_b, dtw_results, dtw_distance_matrix_full,
-                            output_csv=temp_mapping_file,
-                            start_from_top_only=True, batch_size=1000, n_jobs=-1,
-                            shortest_path_search=False, shortest_path_level=2,
-                            max_search_path=100000, mute_mode=True, pca_for_dependent_dtw=pca_for_dependent_dtw
-                        )
-                    
-                    # Process quality indices
-                    for quality_index in target_quality_indices:
-                        
-                        _, _, fit_params = plot_correlation_distribution(
-                            csv_file=f'outputs/{temp_mapping_file}',
-                            quality_index=quality_index,
-                            no_bins=30, save_png=False, pdf_method='normal',
-                            kde_bandwidth=0.05, mute_mode=True
-                        )
-                        
-                        if fit_params is not None:
-                            fit_params_copy = fit_params.copy()
-                            # Store the correct parameter values
-                            fit_params_copy['combination_id'] = combo_id
-                            fit_params_copy['age_consideration'] = age_consideration
-                            fit_params_copy['restricted_age_correlation'] = restricted_age_correlation
-                            fit_params_copy['shortest_path_search'] = shortest_path_search
-                            
-                            # Add constraint tracking with correct counts
-                            fit_params_copy['core_a_constraints_count'] = len(age_data_a['in_sequence_ages'])  # Original count for core A
-                            fit_params_copy['core_b_constraints_count'] = len(constraint_subset)  # Modified count for core B
-                            # Convert 0-based indices to 1-based for constraint description
-                            remaining_indices_1based = [i + 1 for i in sorted(constraint_subset)]
-                            fit_params_copy['constraint_scenario_description'] = f'constraints_{remaining_indices_1based}_remained'
-                            
-                            # Append to CSV with user-provided filename
-                            master_csv_filename = output_csv_filenames[quality_index]
-                            
-                            df_single = pd.DataFrame([fit_params_copy])
-                            df_single.to_csv(master_csv_filename, mode='a', index=False, header=False)
-                            del df_single, fit_params_copy
-                        
-                        del fit_params
-                    
-                    # Clean up temporary files
-                    if os.path.exists(f'outputs/{temp_mapping_file}'):
-                        os.remove(f'outputs/{temp_mapping_file}')
-                    
-                    del dtw_results, valid_dtw_pairs, segments_a, segments_b
-                    del depth_boundaries_a, depth_boundaries_b, dtw_distance_matrix_full
-                    del age_data_b_current, pickeddepth_ages_b_current
-                    gc.collect()
-                    
-                    # Update progress
-                    additional_progress.update(1)
-                    additional_progress.set_description(f"Constraint scenario: {len(constraint_subset)}/{n_constraints_b} constraints")
-                    
-                except Exception as e:
-                    print(f"✗ Error in {scenario_id}: {str(e)}")
-                    if os.path.exists(f'outputs/{temp_mapping_file}'):
-                        os.remove(f'outputs/{temp_mapping_file}')
-                    # Clean up variables in case of error
-                    if 'age_data_b_current' in locals():
-                        del age_data_b_current
-                    if 'pickeddepth_ages_b_current' in locals():
-                        del pickeddepth_ages_b_current
-                    gc.collect()
-                    additional_progress.update(1)
-                    continue
+                phase2_args.append((
+                    param_idx, params, constraint_subset, in_sequence_indices,
+                    log_a, log_b, md_a, md_b,
+                    all_depths_a_cat1, all_depths_b_cat1,
+                    pickeddepth_ages_a, pickeddepth_ages_b,
+                    age_data_a, age_data_b,
+                    uncertainty_method,
+                    target_quality_indices,
+                    pca_for_dependent_dtw
+                ))
         
-        additional_progress.close()
+        # Run Phase 2 in parallel
+        phase2_results = Parallel(n_jobs=n_jobs, verbose=0)(
+            delayed(_process_single_constraint_scenario)(*args) 
+            for args in tqdm(phase2_args, desc="Age constraint removal scenarios")
+        )
+        
+        # Process Phase 2 results and append to CSV
+        for success, scenario_id, results in phase2_results:
+            if success:
+                # Append results to CSV files
+                for quality_index in target_quality_indices:
+                    if quality_index in results:
+                        fit_params = results[quality_index]
+                        master_csv_filename = output_csv_filenames[quality_index]
+                        
+                        df_single = pd.DataFrame([fit_params])
+                        df_single.to_csv(master_csv_filename, mode='a', index=False, header=False)
+                        del df_single
+            else:
+                print(f"✗ Error in {scenario_id}: {results}")
+        
         print("✓ Phase 2 completed: All age constraint removal scenarios processed")
 
-    else:
-        print("\n=== Age constraint removal testing disabled ===")
-
+    # Final summary and CSV sorting
     print(f"\n✓ All processing completed")
-
+    
+    # Sort CSV files to match original sequential order
+    print("Sorting CSV files for consistent ordering...")
+    for quality_index in target_quality_indices:
+        filename = output_csv_filenames[quality_index]
+        
+        try:
+            # Read the CSV file
+            df = pd.read_csv(filename)
+            
+            # Check if we have enough rows and the required columns
+            if len(df) >= 3 and 'core_b_constraints_count' in df.columns and 'constraint_scenario_description' in df.columns:
+                # Separate header rows (first 2 rows) from data rows (3rd row onwards)
+                header_rows = df.iloc[:2].copy()
+                data_rows = df.iloc[2:].copy()
+                
+                # Sort data rows by core_b_constraints_count, then by constraint_scenario_description
+                data_rows_sorted = data_rows.sort_values(
+                    by=['core_b_constraints_count', 'constraint_scenario_description'],
+                    ascending=[True, True]
+                )
+                
+                # Combine header and sorted data
+                df_sorted = pd.concat([header_rows, data_rows_sorted], ignore_index=True)
+                
+                # Write back to CSV
+                df_sorted.to_csv(filename, index=False)
+                print(f"✓ Sorted {filename}")
+            else:
+                print(f"⚠ Skipped sorting {filename} (insufficient rows or missing columns)")
+                
+        except Exception as e:
+            print(f"⚠ Error sorting {filename}: {str(e)}")
+    
     for quality_index in target_quality_indices:
         filename = output_csv_filenames[quality_index]
         print(f"✓ {quality_index} fit_params saved to: {filename}")
