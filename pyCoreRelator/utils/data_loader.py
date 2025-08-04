@@ -305,12 +305,17 @@ def load_age_constraints_from_csv(csv_file_path, data_columns, mute_mode=False):
     
     for standard_col, csv_col in data_columns.items():
         if csv_col in data.columns:
-            # Only keep rows where this column has data
-            valid_mask = data[csv_col].notna()
-            if working_data.empty:
-                working_data = data[valid_mask].copy()
+            # Only keep rows where this column has data (except for interpreted_bed which is optional)
+            if standard_col != 'interpreted_bed':
+                valid_mask = data[csv_col].notna()
+                if working_data.empty:
+                    working_data = data[valid_mask].copy()
+                else:
+                    working_data = working_data[working_data[csv_col].notna()]
             else:
-                working_data = working_data[working_data[csv_col].notna()]
+                # For interpreted_bed, don't filter rows - just mark as available
+                if working_data.empty:
+                    working_data = data.copy()
             available_mappings[standard_col] = csv_col
         else:
             print(f"Warning: Column '{csv_col}' not found in {csv_file_path}")
@@ -335,7 +340,7 @@ def load_age_constraints_from_csv(csv_file_path, data_columns, mute_mode=False):
     result['neg_errors'] = working_data[available_mappings['neg_error']].tolist() if 'neg_error' in available_mappings else [np.nan] * len(working_data)
     result['in_sequence_flags'] = working_data[available_mappings['in_sequence']].tolist() if 'in_sequence' in available_mappings else [np.nan] * len(working_data)
     result['core'] = working_data[available_mappings['core']].tolist() if 'core' in available_mappings else ['Unknown'] * len(working_data)
-    result['interpreted_bed'] = working_data[available_mappings['interpreted_bed']].tolist() if 'interpreted_bed' in available_mappings else ['Unknown'] * len(working_data)
+    result['interpreted_bed'] = working_data[available_mappings['interpreted_bed']].fillna('Unknown').replace('', 'Unknown').tolist() if 'interpreted_bed' in available_mappings else ['Unknown'] * len(working_data)
     
     # Separate in-sequence and out-of-sequence constraints
     for i in range(len(result['in_sequence_flags'])):

@@ -643,8 +643,13 @@ def _process_single_constraint_scenario(
     from ..visualization.plotting import plot_correlation_distribution
     from .age_models import calculate_interpolated_ages
     
-    # Generate a random suffix for temporary files in this iteration
-    random_suffix = ''.join(random.choices('ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789', k=8))
+    # Generate a process-safe random suffix for temporary files using numpy
+    # This avoids conflicts between parallel workers
+    import os
+    process_id = os.getpid()
+    np.random.seed(None)  # Use current time as seed (non-deterministic)
+    chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'
+    random_suffix = ''.join(np.random.choice(list(chars), size=8))
     
     # Initialize temp_mapping_file here to ensure it's always defined
     temp_mapping_file = f'temp_mappings_{random_suffix}.pkl'
@@ -748,6 +753,8 @@ def _process_single_constraint_scenario(
                 max_search_path=100000, mute_mode=True, pca_for_dependent_dtw=pca_for_dependent_dtw
             )
         
+
+
         # Process quality indices
         results = {}
         for quality_index in target_quality_indices:
@@ -820,7 +827,8 @@ def run_multi_parameter_analysis(
     
     # Optional parameter
     pca_for_dependent_dtw=False,
-    n_jobs=-1  # Number of cores used in parallel processing (-1 uses all available cores)
+    n_jobs=-1,  # Number of cores used in parallel processing (-1 uses all available cores)
+    max_search_per_layer=None  # Max scenarios per constraint removal layer
 ):
     """
     Run comprehensive multi-parameter analysis for core correlation.
@@ -858,6 +866,10 @@ def run_multi_parameter_analysis(
     n_jobs : int, default=-1
         Number of parallel jobs to run. -1 means using all available cores.
         Set to 1 for sequential processing (useful for debugging).
+    max_search_per_layer : int or None, default=None
+        Maximum number of scenarios to process per constraint removal layer.
+        If None, processes all scenarios. A layer represents combinations with
+        the same number of remaining age constraints.
     
     Returns:
     --------
@@ -885,7 +897,27 @@ def run_multi_parameter_analysis(
         
         print(f"Age constraint removal testing enabled:")
         print(f"- Core B has {n_constraints_b} age constraints")
-        print(f"- Additional scenarios to process: {total_additional_scenarios}")
+        
+        if max_search_per_layer is None:
+            print(f"- Additional scenarios to process: {total_additional_scenarios}")
+            # Warning for large number of scenarios
+            if total_additional_scenarios > 5000:
+                print(f"⚠️  WARNING: Processing {total_additional_scenarios} scenarios will take very long time and use large memory.")
+                print(f"   Recommend setting max_search_per_layer to about 200-300 (but >= the number of constraints in core B: {n_constraints_b})")
+                print(f"   to reduce the number of scenarios per constraint removal layer to process.")
+                print(f"   When max_search_per_layer is set, scenarios are randomly sampled from each layer.")
+                print(f"   This provides statistical approximation while maintaining computational feasibility.")
+        else:
+            # Calculate how many scenarios will actually be processed
+            # This is an approximation since it depends on the distribution across layers
+            print(f"- Additional {total_additional_scenarios} scenarios exist")
+            print(f"- As max_search_per_layer is defined: {max_search_per_layer} scenarios are randomly sampled from each constraint removal layer")
+            print(f"- ⚠️  WARNING: Due to random sampling, not every run will yield identical results")
+            print(f"-     This just provides statistical approximation while maintaining computational feasibility")
+            # Check if max_search_per_layer is too small
+            if max_search_per_layer < n_constraints_b:
+                print(f"- ⚠️  WARNING: max_search_per_layer ({max_search_per_layer}) is less than the number of constraints ({n_constraints_b})")
+                print(f"-     Recommend setting max_search_per_layer >= {n_constraints_b} to ensure all age constraints are evaluated")
 
     # PHASE 1: Run original parameter combinations
     if test_age_constraint_removal:
@@ -934,6 +966,7 @@ def run_multi_parameter_analysis(
     print("✓ All original parameter combinations processed" if test_age_constraint_removal else "✓ All parameter combinations processed")
 
     # PHASE 2: Run age constraint removal scenarios (if enabled)
+    # Warning for large number of scenarios
     if test_age_constraint_removal:
         print("\n=== PHASE 2: Running age constraint removal scenarios ===")
         
@@ -953,6 +986,35 @@ def run_multi_parameter_analysis(
         # Generate subsets from in-sequence constraint indices only
         all_subsets = generate_constraint_subsets(n_constraints_b)
         constraint_subsets = [subset for subset in all_subsets if 0 < len(subset) < n_constraints_b]
+        
+        # Apply max_search_per_layer limitation if specified
+        if max_search_per_layer is not None:
+            # Group constraint subsets by layer (number of remaining constraints)
+            print(f"max_search_per_layer is defined: randomly sampling up to {max_search_per_layer} scenarios per layer of search")
+            layers = {}
+            for subset in constraint_subsets:
+                layer_size = len(subset)
+                if layer_size not in layers:
+                    layers[layer_size] = []
+                layers[layer_size].append(subset)
+            
+            # Sample from each layer if it exceeds max_search_per_layer
+            limited_constraint_subsets = []
+            for layer_size in sorted(layers.keys()):
+                layer_subsets = layers[layer_size]
+                if len(layer_subsets) > max_search_per_layer:
+                    # Use numpy random to avoid conflicts and ensure no repeats within layer
+                    layer_indices = np.arange(len(layer_subsets))
+                    sampled_indices = np.random.choice(layer_indices, size=max_search_per_layer, replace=False)
+                    sampled_subsets = [layer_subsets[i] for i in sampled_indices]
+                    
+                    limited_constraint_subsets.extend(sampled_subsets)
+                    print(f"- Layer {layer_size} constraints: {len(layer_subsets)} scenarios → {max_search_per_layer} sampled")
+                else:
+                    limited_constraint_subsets.extend(layer_subsets)
+                    print(f"- Layer {layer_size} constraints: {len(layer_subsets)} scenarios (all processed)")
+            
+            constraint_subsets = limited_constraint_subsets
         
         # Prepare data for Phase 2 parallel processing
         phase2_args = []
@@ -989,7 +1051,7 @@ def run_multi_parameter_analysis(
                         del df_single
             else:
                 print(f"✗ Error in {scenario_id}: {results}")
-        
+
         print("✓ Phase 2 completed: All age constraint removal scenarios processed")
 
     # Final summary and CSV sorting
