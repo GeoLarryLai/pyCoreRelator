@@ -2089,33 +2089,27 @@ def plot_quality_distributions(quality_data, target_quality_indices, output_figu
                 }
 
         # Print detailed statistical results BEFORE creating the plot
-        print(f"\n=== DETAILED STATISTICAL ANALYSIS FOR {quality_index} ===")
-        if not debug:
+        if not debug:  # Only show detailed analysis when debug=False (mute_mode=False)
+            print(f"\n=== DETAILED STATISTICAL ANALYSIS FOR {quality_index} ===")
             print(f"Null Hypothesis Distribution:")
             print(f"  Mean: {fitted_mean:.1f}, SD: {fitted_std:.1f}")
             print(f"  Sample size: {len(combined_data)}")
             print(f"  Interpretation: Baseline distribution from synthetic data representing no true correlation")
             print()
 
-        if debug:
+        if not debug:  # Only show optimal search results when debug=False (mute_mode=False)
             print(f"--- Optimal Search Results (Max Constraints Only) ---")
-        else:
-            print(f"--- Optimal Search Results (Max Constraints Only) ---")
-        
-        for combo_key, stats_dict in solid_stats_by_combo.items():
-            # Parse combo_key to get descriptive name
-            if "age_True_restricted_True" in combo_key:
-                desc = "Consider age strictly"
-            elif "age_True_restricted_False" in combo_key:
-                desc = "Consider age loosely"
-            elif "age_False" in combo_key:
-                desc = "Neglect age"
-            else:
-                desc = combo_key
             
-            if debug:
-                print(f"{desc}: Mean={stats_dict['mean']:.1f}, p-value={stats_dict['p_value']:.2g}, Cohen's d={stats_dict['cohens_d']:.1f}")
-            else:
+            for combo_key, stats_dict in solid_stats_by_combo.items():
+                # Parse combo_key to get descriptive name
+                if "age_True_restricted_True" in combo_key:
+                    desc = "Consider age strictly"
+                elif "age_True_restricted_False" in combo_key:
+                    desc = "Consider age loosely"
+                elif "age_False" in combo_key:
+                    desc = "Neglect age"
+                else:
+                    desc = combo_key
                 print(f"{desc}:")
                 print(f"  Mean: {stats_dict['mean']:.1f}, SD: {stats_dict['std']:.1f}")
                 print(f"  t-statistic: {stats_dict['t_stat']:.1f} (measures difference between means relative to variation)")
@@ -2195,8 +2189,10 @@ def plot_quality_distributions(quality_data, target_quality_indices, output_figu
 
         # Save figure
         output_filename = output_figure_filenames[quality_index]
-        print(f"✓ Combined plot saved as: {output_filename}")
-        if not debug:
+        if debug:  # debug=True means mute_mode=True, show essential info only
+            print(f"✓ Distribution plot saved as: {output_filename}")
+        else:  # debug=False means mute_mode=False, show detailed info
+            print(f"✓ Distribution plot saved as: {output_filename}")
             print(f"✓ Analysis complete for {quality_index}!")
 
         # Get display name for quality index
@@ -2262,22 +2258,22 @@ def plot_quality_distributions(quality_data, target_quality_indices, output_figu
             for handle, label in constraint_pairs:
                 constraint_count = int(label.split(': ')[-1])
                 if constraint_count == 0:
-                    # Rename to "without age constraints"
-                    new_label = 'without age constraints'
+                    # Rename to use the core B name
+                    new_label = f'Without {CORE_B}\'s age constraints'
                     filtered_constraint_pairs.append((handle, new_label))
                 elif constraint_count == max_core_b_constraints:
-                    # Rename to "with all age constraints"  
-                    new_label = 'with all age constraints'
+                    # Rename to use the core B name
+                    new_label = f'With all of {CORE_B}\'s age constraints'
                     filtered_constraint_pairs.append((handle, new_label))
             
             # Sort by constraint count (0 first, then max)
-            filtered_constraint_pairs.sort(key=lambda x: 0 if x[1] == 'without age constraints' else 1)
+            filtered_constraint_pairs.sort(key=lambda x: 0 if x[1].startswith('Without') else 1)
             
             for handle, label in filtered_constraint_pairs:
                 legend_elements.append(handle)
                 legend_labels.append(label)
             
-            # Add 3 lines of spacing below 'with all age constraints'
+            # Add 3 lines of spacing below the "with all constraints" label
             legend_elements.append(Line2D([0], [0], color='white', linewidth=0, alpha=0))
             legend_labels.append('')
             legend_elements.append(Line2D([0], [0], color='white', linewidth=0, alpha=0))
@@ -2292,10 +2288,13 @@ def plot_quality_distributions(quality_data, target_quality_indices, output_figu
         for i, label in enumerate(legend_labels):
             if (label.startswith('Null Hypotheses') or 
                 label.startswith('Real Data') or 
-                label.startswith('Age Constraint Levels')):
+                label.startswith('# of')):
                 legend.get_texts()[i].set_weight('bold')
                 legend.get_texts()[i].set_fontsize(10)
                 legend.get_texts()[i].set_ha('left')
+            else:
+                # Make all other legend text smaller too
+                legend.get_texts()[i].set_fontsize(9)
 
         # Add colorbar for age constraint levels (consistent with curve colors)
         # Create a colorbar that matches the distribution curves' color scheme
@@ -2325,7 +2324,7 @@ def plot_quality_distributions(quality_data, target_quality_indices, output_figu
         sm.set_array([])
         
         cbar = plt.colorbar(sm, cax=cax, orientation='horizontal')
-        cbar.set_label('Age Constraint Levels', fontsize=9, fontweight='bold')
+        cbar.set_label(f'Number of {CORE_B} Age Constraints', fontsize=8, fontweight='bold')
         
         # Set ticks to show actual constraint levels
         unique_constraints_sorted = sorted(df_all_params['core_b_constraints_count'].unique())
@@ -2360,6 +2359,38 @@ def plot_quality_distributions(quality_data, target_quality_indices, output_figu
                 'y_min': ax.get_ylim()[0],
                 'y_max': ax.get_ylim()[1]
             }
+
+        # Add horizontal black arrow with 'Better Correlation Quality' text
+        ax_xlim = ax.get_xlim()
+        ax_ylim = ax.get_ylim()
+        
+        # Position arrow in upper left of the plot area
+        arrow_y = ax_ylim[0] + 0.87 * (ax_ylim[1] - ax_ylim[0])  # 87% up from bottom
+        
+        # Determine arrow direction and position based on quality index
+        if quality_index == 'norm_dtw':
+            # For norm_dtw, lower values are better (arrow points left)
+            arrow_start_x = ax_xlim[0] + 0.22 * (ax_xlim[1] - ax_xlim[0])  # Start 22% from left
+            arrow_end_x = ax_xlim[0] + 0.05 * (ax_xlim[1] - ax_xlim[0])    # End 5% from left  
+            text_x = ax_xlim[0] + 0.15 * (ax_xlim[1] - ax_xlim[0])         # Text centered under arrow
+        else:
+            # For corr_coef and other indices, higher values are better (arrow points right)
+            arrow_start_x = ax_xlim[0] + 0.05 * (ax_xlim[1] - ax_xlim[0])  # Start 5% from left
+            arrow_end_x = ax_xlim[0] + 0.22 * (ax_xlim[1] - ax_xlim[0])    # End 22% from left
+            text_x = ax_xlim[0] + 0.15 * (ax_xlim[1] - ax_xlim[0])         # Text centered under arrow
+            
+        # Add horizontal arrow
+        ax.annotate('', 
+                   xy=(arrow_end_x, arrow_y), 
+                   xytext=(arrow_start_x, arrow_y),
+                   arrowprops=dict(arrowstyle='->', color='black', lw=2),
+                   zorder=5)
+        
+        # Add text under the arrow
+        text_y = arrow_y - 0.03 * (ax_ylim[1] - ax_ylim[0])  # 3% below arrow
+        ax.text(text_x, text_y, 'Better Correlation Quality',
+               fontsize=8, ha='center', va='top',
+               color='black', zorder=4)
 
         plt.tight_layout()
         
@@ -2432,7 +2463,8 @@ def plot_t_statistics_vs_constraints(quality_data, target_quality_indices, outpu
         df_all_params = data['df_all_params']
         combined_data = data['combined_data']
         
-        print(f"Processing {quality_index} with {len(df_all_params)} scenarios...")
+        if not debug:  # Only show processing message when debug=False (mute_mode=False)
+            print(f"Processing {quality_index} with {len(df_all_params)} scenarios...")
         
         # Initialize plot_info_dict entry if needed for GIF creation
         if return_plot_info:
@@ -2458,10 +2490,11 @@ def plot_t_statistics_vs_constraints(quality_data, target_quality_indices, outpu
             row_data_list.append((idx, row, row['age_consideration'], row['core_b_constraints_count']))
         
         # Process t-statistics in parallel
-        if n_jobs == -1:
-            print(f"  Calculating t-statistics and Cohen's d using all available cores...")
-        else:
-            print(f"  Calculating t-statistics and Cohen's d using {n_jobs} cores...")
+        if not debug:  # Only show processing message when debug=False (mute_mode=False)
+            if n_jobs == -1:
+                print(f"  Calculating t-statistics and Cohen's d using all available cores...")
+            else:
+                print(f"  Calculating t-statistics and Cohen's d using {n_jobs} cores...")
         
         with tqdm(total=len(row_data_list), desc="  Processing t-statistics", disable=debug) as pbar:
             # Process in batches to manage memory
@@ -2490,7 +2523,8 @@ def plot_t_statistics_vs_constraints(quality_data, target_quality_indices, outpu
             constraint_cohens_d[x_value].append(cohens_d_val)
         
         # Calculate improvement scores in parallel
-        print(f"  Calculating improvement scores...")
+        if not debug:  # Only show message when debug=False (mute_mode=False)
+            print(f"  Calculating improvement scores...")
         sorted_constraints = sorted(constraint_points.keys())
         
         # Prepare data for parallel improvement score calculation
@@ -2535,7 +2569,8 @@ def plot_t_statistics_vs_constraints(quality_data, target_quality_indices, outpu
         # Get dynamic sizing parameters
         sizing = calculate_dynamic_sizes(total_points, total_connections)
         
-        print(f"  Drawing {total_points} points and {total_connections} connections...")
+        if not debug:  # Only show message when debug=False (mute_mode=False)
+            print(f"  Drawing {total_points} points and {total_connections} connections...")
         
         # Move LinearSegmentedColormap import to top of file since we need it
         colors_list = ['#0066CC', '#e3e3e3', '#CC0000']  # Blue -> gray -> Red
@@ -2543,7 +2578,8 @@ def plot_t_statistics_vs_constraints(quality_data, target_quality_indices, outpu
         cmap = LinearSegmentedColormap.from_list('improvement', colors_list, N=n_bins)
         
         # Prepare all line segments and colors for vectorized drawing
-        print(f"  Preparing line segments for vectorized drawing...")
+        if not debug:  # Only show message when debug=False (mute_mode=False)
+            print(f"  Preparing line segments for vectorized drawing...")
         line_segments = []
         line_colors = []
         
@@ -2591,7 +2627,8 @@ def plot_t_statistics_vs_constraints(quality_data, target_quality_indices, outpu
                         })
         
         # Draw all connections at once using LineCollection (much faster than individual plot calls)
-        print(f"  Drawing {len(line_segments)} line segments using vectorized approach...")
+        if not debug:  # Only show message when debug=False (mute_mode=False)
+            print(f"  Drawing {len(line_segments)} line segments using vectorized approach...")
         if line_segments:  # Only draw if we have segments
             lc = LineCollection(line_segments, colors=line_colors, alpha=sizing['alpha'], 
                               linewidths=sizing['line_width'], zorder=1)
@@ -2673,7 +2710,11 @@ def plot_t_statistics_vs_constraints(quality_data, target_quality_indices, outpu
             )
             legend_labels.append(f'{category.capitalize()} effect ({d_range})')
         
-        ax.legend(legend_elements, legend_labels, bbox_to_anchor=(1.02, 0.5), loc='center left')
+        legend = ax.legend(legend_elements, legend_labels, bbox_to_anchor=(1.02, 0.5), loc='center left')
+        
+        # Make legend text smaller
+        for text in legend.get_texts():
+            text.set_fontsize(9)
         
         # Store actual axis limits for GIF creation if requested  
         if return_plot_info:
@@ -2756,7 +2797,7 @@ def plot_t_statistics_vs_constraints(quality_data, target_quality_indices, outpu
         text_x = arrow_x + 0.1  # Slightly to the right of arrow
         text_y = arrow_y_center
         
-        ax.text(text_x, text_y, 'Better Correlation',
+        ax.text(text_x, text_y, 'Better Correlation Quality',
                fontsize=8, ha='left', va='center',
                rotation=90, color='black',
                zorder=4)
@@ -2822,7 +2863,10 @@ def plot_t_statistics_vs_constraints(quality_data, target_quality_indices, outpu
             t_stat_filename = os.path.join('outputs', os.path.basename(t_stat_filename))
         
         plt.savefig(t_stat_filename, dpi=150, bbox_inches='tight')
-        print(f"✓ t-statistics plot saved as: {t_stat_filename}")
+        if debug:  # debug=True means mute_mode=True, show essential info only
+            print(f"✓ t-statistics plot saved as: {t_stat_filename}")
+        else:  # debug=False means mute_mode=False, show detailed info
+            print(f"✓ t-statistics plot saved as: {t_stat_filename}")
         
         # Display the plot - suppress when debug=True (i.e., mute_mode=True)
         if not debug:  # debug=True means mute_mode=True, so suppress display
@@ -2880,8 +2924,7 @@ def calculate_quality_comparison_t_statistics(target_quality_indices, master_csv
     }
     
     for quality_index in target_quality_indices:
-        if not mute_mode:
-            print(f"\nProcessing {quality_index}...")
+        # Suppress verbose processing message when mute_mode=True
         
         # Load master CSV
         master_csv_filename = master_csv_filenames[quality_index]
@@ -3023,7 +3066,7 @@ def calculate_quality_comparison_t_statistics(target_quality_indices, master_csv
         output_filename = os.path.join('outputs', os.path.basename(master_csv_filename))
         df_master_with_stats.to_csv(output_filename, index=False)
         
-        if not mute_mode:
+        if mute_mode:
             print(f"✓ Data appending to CSV is done: {output_filename}")
 
 
@@ -3052,8 +3095,8 @@ def plot_quality_comparison_t_statistics(target_quality_indices, master_csv_file
     CORE_B : str
         Name of core B
     mute_mode : bool, default False
-        If True, show only essential information and suppress figure/gif display.
-        If False, minimize print output but allow figure/gif display.
+        If True, suppress figure/gif display and show only essential progress information.
+        If False, display figures/gifs and show detailed output messages.
     save_fig : bool, default True
         If True, save figures to files
     output_figure_filenames : dict, optional
@@ -3114,22 +3157,19 @@ def plot_quality_comparison_t_statistics(target_quality_indices, master_csv_file
                 print(f"Skipping {quality_index} - no data available")
             continue
         
-        if mute_mode:
-            print(f"\n{'='*60}")
-            print(f"PLOTTING RESULTS FOR {quality_index}")
-            print(f"{'='*60}")
+        # Skip verbose header output when mute_mode=True (keep it simple)
         
         # Create static plots and optionally get plot info for gif creation
         if save_gif and output_gif_filenames and quality_index in output_gif_filenames:
             # Get plot info for gif creation while creating static plots
             distribution_plot_info = plot_quality_distributions(
                 quality_data, [quality_index], output_figure_filenames if save_fig else {}, 
-                CORE_A, CORE_B, mute_mode, return_plot_info=True
+                CORE_A, CORE_B, debug=mute_mode, return_plot_info=True
             )
             
             tstat_plot_info = plot_t_statistics_vs_constraints(
                 quality_data, [quality_index], output_figure_filenames if save_fig else {},
-                CORE_A, CORE_B, mute_mode, return_plot_info=True
+                CORE_A, CORE_B, debug=mute_mode, return_plot_info=True
             )
             
             # Create gifs using the plot info
@@ -3146,18 +3186,15 @@ def plot_quality_comparison_t_statistics(target_quality_indices, master_csv_file
             # Just create static plots
             plot_quality_distributions(
                 quality_data, [quality_index], output_figure_filenames if save_fig else {}, 
-                CORE_A, CORE_B, mute_mode, return_plot_info=False
+                CORE_A, CORE_B, debug=mute_mode, return_plot_info=False
             )
             
             plot_t_statistics_vs_constraints(
                 quality_data, [quality_index], output_figure_filenames if save_fig else {},
-                CORE_A, CORE_B, mute_mode, return_plot_info=False
+                CORE_A, CORE_B, debug=mute_mode, return_plot_info=False
             )
     
-    if mute_mode:
-        print(f"\n{'='*80}")
-        print(f"ALL QUALITY INDICES PROCESSING COMPLETED")
-        print(f"{'='*80}")
+    # Skip verbose completion message when mute_mode=True
 
 
 def _create_distribution_gif(plot_info, gif_filename, mute_mode, max_frames=50):
@@ -3165,13 +3202,7 @@ def _create_distribution_gif(plot_info, gif_filename, mute_mode, max_frames=50):
     Create distribution comparison gif using plot info from plot_quality_distributions.
     """
     
-    if mute_mode:
-        print(f"Creating distribution comparison gif for {plot_info['quality_index']}...")
-    
     unique_constraints = plot_info['unique_constraints']
-    
-    if mute_mode:
-        print(f"Found {len(unique_constraints)} constraint levels: {unique_constraints}")
     
     # Create temporary directory for frame images
     temp_dir = tempfile.mkdtemp()
@@ -3219,10 +3250,13 @@ def _create_distribution_gif(plot_info, gif_filename, mute_mode, max_frames=50):
             for i, label in enumerate(plot_info['legend_labels']):
                 if (label.startswith('Null Hypotheses') or 
                     label.startswith('Real Data') or 
-                    label.startswith('Age Constraint Levels')):
+                    label.startswith('# of')):
                     legend.get_texts()[i].set_weight('bold')
                     legend.get_texts()[i].set_fontsize(10)
                     legend.get_texts()[i].set_ha('left')
+                else:
+                    # Make all other legend text smaller too
+                    legend.get_texts()[i].set_fontsize(9)
                     
             # Add colorbar for age constraint levels (same as static plot)
             min_core_b = plot_info['min_core_b']
@@ -3264,6 +3298,39 @@ def _create_distribution_gif(plot_info, gif_filename, mute_mode, max_frames=50):
         
         ax.grid(True, alpha=0.3)
         
+        # Add horizontal black arrow with 'Better Correlation Quality' text (same as static plot)
+        ax_xlim = ax.get_xlim()
+        ax_ylim = ax.get_ylim()
+        
+        # Position arrow in upper left of the plot area
+        arrow_y = ax_ylim[0] + 0.87 * (ax_ylim[1] - ax_ylim[0])  # 87% up from bottom
+        
+        # Determine arrow direction and position based on quality index
+        quality_index = plot_info['quality_index']
+        if quality_index == 'norm_dtw':
+            # For norm_dtw, lower values are better (arrow points left)
+            arrow_start_x = ax_xlim[0] + 0.22 * (ax_xlim[1] - ax_xlim[0])  # Start 22% from left
+            arrow_end_x = ax_xlim[0] + 0.05 * (ax_xlim[1] - ax_xlim[0])    # End 5% from left  
+            text_x = ax_xlim[0] + 0.15 * (ax_xlim[1] - ax_xlim[0])         # Text centered under arrow
+        else:
+            # For corr_coef and other indices, higher values are better (arrow points right)
+            arrow_start_x = ax_xlim[0] + 0.05 * (ax_xlim[1] - ax_xlim[0])  # Start 5% from left
+            arrow_end_x = ax_xlim[0] + 0.22 * (ax_xlim[1] - ax_xlim[0])    # End 22% from left
+            text_x = ax_xlim[0] + 0.15 * (ax_xlim[1] - ax_xlim[0])         # Text centered under arrow
+            
+        # Add horizontal arrow
+        ax.annotate('', 
+                   xy=(arrow_end_x, arrow_y), 
+                   xytext=(arrow_start_x, arrow_y),
+                   arrowprops=dict(arrowstyle='->', color='black', lw=2),
+                   zorder=5)
+        
+        # Add text under the arrow
+        text_y = arrow_y - 0.03 * (ax_ylim[1] - ax_ylim[0])  # 3% below arrow
+        ax.text(text_x, text_y, 'Better Correlation Quality',
+               fontsize=8, ha='center', va='top',
+               color='black', zorder=4)
+        
         frame_file = os.path.join(temp_dir, f'frame_000.png')
         plt.tight_layout()
         plt.savefig(frame_file, dpi=100, bbox_inches='tight', facecolor='white')
@@ -3275,8 +3342,6 @@ def _create_distribution_gif(plot_info, gif_filename, mute_mode, max_frames=50):
         
         if not individual_curves:
             # Fallback to old method if individual curves not available
-            if mute_mode:
-                print("No individual curves found, skipping progressive frames")
             return
         
         # Calculate grouping based on max_frames limit
@@ -3295,11 +3360,10 @@ def _create_distribution_gif(plot_info, gif_filename, mute_mode, max_frames=50):
             # Calculate actual number of frames needed
             num_frames = math.ceil(total_curves / curves_per_frame)
         
-        if mute_mode:
-            print(f"  Distribution GIF: {total_curves} curves, {curves_per_frame} curves/frame, {num_frames} frames")
+        # Skip verbose GIF frame info when mute_mode=True
         
         # Create frames with progress bar
-        with tqdm(total=num_frames, desc="  Creating distribution GIF frames", disable=(not mute_mode)) as pbar:
+        with tqdm(total=num_frames, desc="  Creating distribution GIF frames", disable=mute_mode) as pbar:
             for frame_idx in range(num_frames):
                 # Calculate which curves to show up to this frame
                 curves_to_show = min((frame_idx + 1) * curves_per_frame, total_curves)
@@ -3363,6 +3427,9 @@ def _create_distribution_gif(plot_info, gif_filename, mute_mode, max_frames=50):
                             legend.get_texts()[i].set_weight('bold')
                             legend.get_texts()[i].set_fontsize(10)
                             legend.get_texts()[i].set_ha('left')
+                        else:
+                            # Make all other legend text smaller too
+                            legend.get_texts()[i].set_fontsize(9)
                             
                     # Add colorbar for age constraint levels (same as static plot)
                     min_core_b = plot_info['min_core_b']
@@ -3391,7 +3458,7 @@ def _create_distribution_gif(plot_info, gif_filename, mute_mode, max_frames=50):
                     sm.set_array([])
                     
                     cbar = plt.colorbar(sm, cax=cax, orientation='horizontal')
-                    cbar.set_label('Age Constraint Levels', fontsize=9, fontweight='bold')
+                    cbar.set_label(f'# of {plot_info["CORE_B"]} Age Constraints', fontsize=9, fontweight='bold')
                     
                     # Set ticks to show actual constraint levels
                     unique_constraints = plot_info['unique_constraints']
@@ -3403,6 +3470,39 @@ def _create_distribution_gif(plot_info, gif_filename, mute_mode, max_frames=50):
                     ax.legend(bbox_to_anchor=(1.02, 1), loc='upper left')
                 
                 ax.grid(True, alpha=0.3)
+                
+                # Add horizontal black arrow with 'Better Correlation Quality' text (same as static plot)
+                ax_xlim = ax.get_xlim()
+                ax_ylim = ax.get_ylim()
+                
+                # Position arrow in upper left of the plot area
+                arrow_y = ax_ylim[0] + 0.87 * (ax_ylim[1] - ax_ylim[0])  # 87% up from bottom
+                
+                # Determine arrow direction and position based on quality index
+                quality_index = plot_info['quality_index']
+                if quality_index == 'norm_dtw':
+                    # For norm_dtw, lower values are better (arrow points left)
+                    arrow_start_x = ax_xlim[0] + 0.22 * (ax_xlim[1] - ax_xlim[0])  # Start 22% from left
+                    arrow_end_x = ax_xlim[0] + 0.05 * (ax_xlim[1] - ax_xlim[0])    # End 5% from left  
+                    text_x = ax_xlim[0] + 0.15 * (ax_xlim[1] - ax_xlim[0])         # Text centered under arrow
+                else:
+                    # For corr_coef and other indices, higher values are better (arrow points right)
+                    arrow_start_x = ax_xlim[0] + 0.05 * (ax_xlim[1] - ax_xlim[0])  # Start 5% from left
+                    arrow_end_x = ax_xlim[0] + 0.22 * (ax_xlim[1] - ax_xlim[0])    # End 22% from left
+                    text_x = ax_xlim[0] + 0.15 * (ax_xlim[1] - ax_xlim[0])         # Text centered under arrow
+                    
+                # Add horizontal arrow
+                ax.annotate('', 
+                           xy=(arrow_end_x, arrow_y), 
+                           xytext=(arrow_start_x, arrow_y),
+                           arrowprops=dict(arrowstyle='->', color='black', lw=2),
+                           zorder=5)
+                
+                # Add text under the arrow
+                text_y = arrow_y - 0.03 * (ax_ylim[1] - ax_ylim[0])  # 3% below arrow
+                ax.text(text_x, text_y, 'Better Correlation Quality',
+                       fontsize=8, ha='center', va='top',
+                       color='black', zorder=4)
                 
                 # Save frame
                 frame_file = os.path.join(temp_dir, f'frame_{frame_idx + 1:03d}.png')
@@ -3416,8 +3516,7 @@ def _create_distribution_gif(plot_info, gif_filename, mute_mode, max_frames=50):
         
         # Create gif from frames
         if frame_files:
-            if not mute_mode:
-                print(f"Combining {len(frame_files)} frames into distribution gif...")
+            # Skip verbose frame combining message
             
             images = []
             target_size = None
@@ -3459,8 +3558,8 @@ def _create_distribution_gif(plot_info, gif_filename, mute_mode, max_frames=50):
                 except:
                     pass  # Silent failure when mute_mode=False
         else:
-            if mute_mode:
-                print("No frames created for distribution - skipping gif generation")
+            # Skip verbose error message
+            pass
     
     finally:
         shutil.rmtree(temp_dir, ignore_errors=True)
@@ -3471,13 +3570,7 @@ def _create_tstat_gif(plot_info, gif_filename, mute_mode, max_frames=50):
     Create t-statistics gif using plot info from plot_t_statistics_vs_constraints.
     """
     
-    if mute_mode:
-        print(f"Creating t-statistics gif for {plot_info['quality_index']}...")
-    
     unique_constraints = plot_info['unique_constraints']
-    
-    if mute_mode:
-        print(f"Found {len(unique_constraints)} constraint levels: {unique_constraints}")
     
     # Create temporary directory for frame images
     temp_dir = tempfile.mkdtemp()
@@ -3541,7 +3634,11 @@ def _create_tstat_gif(plot_info, gif_filename, mute_mode, max_frames=50):
             )
             legend_labels.append(f'{category.capitalize()} effect ({d_range})')
         
-        ax.legend(legend_elements, legend_labels, bbox_to_anchor=(1.02, 0.5), loc='center left')
+        legend = ax.legend(legend_elements, legend_labels, bbox_to_anchor=(1.02, 0.5), loc='center left')
+        
+        # Make legend text smaller
+        for text in legend.get_texts():
+            text.set_fontsize(9)
         
         # Add colorbar (same as static plot)
         sm = plt.cm.ScalarMappable(cmap=plot_info['cmap'], norm=plt.Normalize(vmin=-plot_info['max_abs_score'], vmax=plot_info['max_abs_score']))
@@ -3550,6 +3647,71 @@ def _create_tstat_gif(plot_info, gif_filename, mute_mode, max_frames=50):
         cbar.set_label('Change in Correlation Quality', labelpad=10)
         cbar.set_ticks([-plot_info['max_abs_score'], 0, plot_info['max_abs_score']])
         cbar.set_ticklabels(['Deterioration', 'No Change', 'Improvement'])
+        
+        # Add "Better Correlation Quality" arrow (same as static plot)
+        ax_xlim = ax.get_xlim()
+        ax_ylim = ax.get_ylim()
+        
+        # Position arrow to the left of x=0
+        arrow_x = -0.35  # Left of x=0
+        arrow_y_center = (ax_ylim[0] + ax_ylim[1]) / 2  # Center vertically
+        
+        # Determine arrow direction based on quality index
+        quality_index = plot_info['quality_index']
+        if quality_index == 'norm_dtw':
+            # For norm_dtw, lower values are better (downward arrow)
+            arrow_y_start = arrow_y_center + 0.2 * (ax_ylim[1] - ax_ylim[0])
+            arrow_y_end = arrow_y_center - 0.2 * (ax_ylim[1] - ax_ylim[0])  
+        else:
+            # For other quality indices, higher values are better (upward arrow)
+            arrow_y_start = arrow_y_center - 0.2 * (ax_ylim[1] - ax_ylim[0])
+            arrow_y_end = arrow_y_center + 0.2 * (ax_ylim[1] - ax_ylim[0]) 
+            
+        # Create gradient arrow using LineCollection
+        n_segments = 100
+        y_vals = np.linspace(arrow_y_start, arrow_y_end, n_segments + 1)
+        x_vals = np.full_like(y_vals, arrow_x)
+        
+        # Create line segments for gradient effect - exclude the last segment to leave space for arrowhead
+        points = np.array([x_vals[:-1], y_vals[:-1]]).T.reshape(-1, 1, 2)
+        segments = np.concatenate([points[:-1], points[1:]], axis=1)
+        
+        # Create colors for each segment - full spectrum of colormap
+        colors_gradient = [plot_info['cmap'](i / (n_segments - 1)) for i in range(n_segments - 1)]
+        
+        # Create the gradient line
+        lc = LineCollection(segments, colors=colors_gradient, linewidths=3, zorder=4)
+        ax.add_collection(lc)
+        
+        # Add arrowhead at the end, positioned to start from where the colored bar ends
+        if quality_index == 'norm_dtw':
+            # Downward arrow, use color from end of gradient
+            arrow_color = plot_info['cmap'](1.0)
+            # Position arrowhead to start where the gradient line ends
+            arrowhead_start_y = y_vals[-2]  # Second to last point of the gradient
+            arrowhead_end_y = arrow_y_end
+        else:
+            # Upward arrow, use color from end of gradient
+            arrow_color = plot_info['cmap'](1.0)
+            # Position arrowhead to start where the gradient line ends
+            arrowhead_start_y = y_vals[-2]  # Second to last point of the gradient
+            arrowhead_end_y = arrow_y_end
+        
+        # Add just the arrowhead
+        ax.annotate('', 
+                   xy=(arrow_x, arrowhead_end_y), 
+                   xytext=(arrow_x, arrowhead_start_y),
+                   arrowprops=dict(arrowstyle='->', color=arrow_color, lw=4),
+                   zorder=5)
+        
+        # Add text next to the arrow
+        text_x = arrow_x + 0.1  # Slightly to the right of arrow
+        text_y = arrow_y_center
+        
+        ax.text(text_x, text_y, 'Better Correlation Quality',
+               fontsize=8, ha='left', va='center',
+               rotation=90, color='black',
+               zorder=4)
         
         frame_file = os.path.join(temp_dir, f'frame_000.png')
         plt.tight_layout()
@@ -3563,8 +3725,6 @@ def _create_tstat_gif(plot_info, gif_filename, mute_mode, max_frames=50):
         
         if not individual_points:
             # Fallback - no individual points available
-            if mute_mode:
-                print("No individual points found, skipping progressive frames")
             return
         
         # Group points by constraint level
@@ -3600,11 +3760,10 @@ def _create_tstat_gif(plot_info, gif_filename, mute_mode, max_frames=50):
             # Calculate actual number of frames needed
             num_frames = math.ceil(total_points / points_per_frame)
         
-        if mute_mode:
-            print(f"  T-statistics GIF: {total_points} points, {points_per_frame} points/frame, {num_frames} frames")
+        # Skip verbose GIF frame info when mute_mode=True
         
         # Create frames with progress bar
-        with tqdm(total=num_frames, desc="  Creating t-stat GIF frames", disable=(not mute_mode)) as pbar:
+        with tqdm(total=num_frames, desc="  Creating t-stat GIF frames", disable=mute_mode) as pbar:
             for frame_idx in range(num_frames):
                 # Calculate which points to show up to this frame
                 points_to_show = min((frame_idx + 1) * points_per_frame, total_points)
@@ -3688,7 +3847,11 @@ def _create_tstat_gif(plot_info, gif_filename, mute_mode, max_frames=50):
                     )
                     legend_labels.append(f'{category.capitalize()} effect ({d_range})')
                 
-                ax.legend(legend_elements, legend_labels, bbox_to_anchor=(1.02, 0.5), loc='center left')
+                legend = ax.legend(legend_elements, legend_labels, bbox_to_anchor=(1.02, 0.5), loc='center left')
+                
+                # Make legend text smaller
+                for text in legend.get_texts():
+                    text.set_fontsize(9)
                 
                 # Add horizontal colorbar for improvement/deterioration
                 sm = plt.cm.ScalarMappable(cmap=plot_info['cmap'], norm=plt.Normalize(vmin=-plot_info['max_abs_score'], vmax=plot_info['max_abs_score']))
@@ -3697,6 +3860,71 @@ def _create_tstat_gif(plot_info, gif_filename, mute_mode, max_frames=50):
                 cbar.set_label('Change in Correlation Quality', labelpad=10)
                 cbar.set_ticks([-plot_info['max_abs_score'], 0, plot_info['max_abs_score']])
                 cbar.set_ticklabels(['Deterioration', 'No Change', 'Improvement'])
+                
+                # Add "Better Correlation Quality" arrow (same as static plot)
+                ax_xlim = ax.get_xlim()
+                ax_ylim = ax.get_ylim()
+                
+                # Position arrow to the left of x=0
+                arrow_x = -0.35  # Left of x=0
+                arrow_y_center = (ax_ylim[0] + ax_ylim[1]) / 2  # Center vertically
+                
+                # Determine arrow direction based on quality index
+                quality_index = plot_info['quality_index']
+                if quality_index == 'norm_dtw':
+                    # For norm_dtw, lower values are better (downward arrow)
+                    arrow_y_start = arrow_y_center + 0.2 * (ax_ylim[1] - ax_ylim[0])
+                    arrow_y_end = arrow_y_center - 0.2 * (ax_ylim[1] - ax_ylim[0])  
+                else:
+                    # For other quality indices, higher values are better (upward arrow)
+                    arrow_y_start = arrow_y_center - 0.2 * (ax_ylim[1] - ax_ylim[0])
+                    arrow_y_end = arrow_y_center + 0.2 * (ax_ylim[1] - ax_ylim[0]) 
+                    
+                # Create gradient arrow using LineCollection
+                n_segments = 100
+                y_vals = np.linspace(arrow_y_start, arrow_y_end, n_segments + 1)
+                x_vals = np.full_like(y_vals, arrow_x)
+                
+                # Create line segments for gradient effect - exclude the last segment to leave space for arrowhead
+                points = np.array([x_vals[:-1], y_vals[:-1]]).T.reshape(-1, 1, 2)
+                segments = np.concatenate([points[:-1], points[1:]], axis=1)
+                
+                # Create colors for each segment - full spectrum of colormap
+                colors_gradient = [plot_info['cmap'](i / (n_segments - 1)) for i in range(n_segments - 1)]
+                
+                # Create the gradient line
+                lc = LineCollection(segments, colors=colors_gradient, linewidths=3, zorder=4)
+                ax.add_collection(lc)
+                
+                # Add arrowhead at the end, positioned to start from where the colored bar ends
+                if quality_index == 'norm_dtw':
+                    # Downward arrow, use color from end of gradient
+                    arrow_color = plot_info['cmap'](1.0)
+                    # Position arrowhead to start where the gradient line ends
+                    arrowhead_start_y = y_vals[-2]  # Second to last point of the gradient
+                    arrowhead_end_y = arrow_y_end
+                else:
+                    # Upward arrow, use color from end of gradient
+                    arrow_color = plot_info['cmap'](1.0)
+                    # Position arrowhead to start where the gradient line ends
+                    arrowhead_start_y = y_vals[-2]  # Second to last point of the gradient
+                    arrowhead_end_y = arrow_y_end
+                
+                # Add just the arrowhead
+                ax.annotate('', 
+                           xy=(arrow_x, arrowhead_end_y), 
+                           xytext=(arrow_x, arrowhead_start_y),
+                           arrowprops=dict(arrowstyle='->', color=arrow_color, lw=4),
+                           zorder=5)
+                
+                # Add text next to the arrow
+                text_x = arrow_x + 0.1  # Slightly to the right of arrow
+                text_y = arrow_y_center
+                
+                ax.text(text_x, text_y, 'Better Correlation Quality',
+                       fontsize=8, ha='left', va='center',
+                       rotation=90, color='black',
+                       zorder=4)
                 
                 # Save frame
                 frame_file = os.path.join(temp_dir, f'frame_{frame_idx + 1:03d}.png')
@@ -3710,8 +3938,7 @@ def _create_tstat_gif(plot_info, gif_filename, mute_mode, max_frames=50):
         
         # Create gif from frames
         if frame_files:
-            if not mute_mode:
-                print(f"Combining {len(frame_files)} frames into t-statistics gif...")
+            # Skip verbose frame combining message
             
             images = []
             target_size = None
@@ -3753,8 +3980,8 @@ def _create_tstat_gif(plot_info, gif_filename, mute_mode, max_frames=50):
                 except:
                     pass  # Silent failure when mute_mode=False
         else:
-            if mute_mode:
-                print("No frames created for t-statistics - skipping gif generation")
+            # Skip verbose error message
+            pass
     
     finally:
         shutil.rmtree(temp_dir, ignore_errors=True)
