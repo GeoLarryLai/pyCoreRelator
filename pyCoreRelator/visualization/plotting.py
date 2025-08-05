@@ -15,6 +15,9 @@ ML-processed core data.
 """
 
 import os
+import math
+import tempfile
+import shutil
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
@@ -29,8 +32,9 @@ import matplotlib.colors as colors
 from scipy import stats
 from tqdm import tqdm
 from joblib import Parallel, delayed
-from IPython.display import display
+from IPython.display import display, Image as IPImage
 from PIL import Image
+import imageio
 from ..utils.path_processing import combine_segment_dtw_results
 from ..visualization.matrix_plots import plot_dtw_matrix_with_paths
 from ..utils.data_loader import load_and_prepare_quality_data, reconstruct_raw_data_from_histogram
@@ -1567,10 +1571,189 @@ def plot_correlation_distribution(csv_file, target_mapping_id=None, quality_inde
     else:
         # In mute mode, just return fit_params
         return None, None, fit_params
+    
+def process_single_row_parallel(row_data, combined_data, debug=False):
+    """
+    Helper function to process a single row for t-statistic and Cohen's d calculation in parallel.
+    
+    Parameters:
+    -----------
+    row_data : tuple
+        (idx, row, age_consideration, core_b_constraints_count)
+    combined_data : array-like
+        Reference data for t-test calculation
+    debug : bool
+        Whether to print debug information
+    
+    Returns:
+    --------
+    tuple : (x_value, t_stat, cohens_d, effect_size_category, success)
+    """
+    idx, row, age_consideration, core_b_constraints_count = row_data
+    
+    # Determine constraint mapping for x-axis
+    if age_consideration:
+        x_value = core_b_constraints_count
+    else:
+        x_value = 0
+    
+    # Calculate t-statistic and Cohen's d for this row
+    has_histogram = ('bins' in row and 'hist' in row and 'n_points' in row and 
+                   pd.notna(row['bins']) and pd.notna(row['hist']) and pd.notna(row['n_points']))
+    
+    if has_histogram:
+        try:
+            # Reconstruct raw data from histogram
+            bins = np.fromstring(row['bins'].strip('[]'), sep=' ')
+            hist_percentages = np.fromstring(row['hist'].strip('[]'), sep=' ')
+            n_points = row['n_points']
+            
+            raw_data_points = reconstruct_raw_data_from_histogram(bins, hist_percentages, n_points)
+            
+            # Calculate t-statistic and Cohen's d
+            if len(raw_data_points) > 1:
+                t_stat, _ = stats.ttest_ind(raw_data_points, combined_data)
+                # Calculate Cohen's d
+                cohens_d_value = cohens_d(raw_data_points, combined_data)
+            elif len(raw_data_points) == 1:
+                # Single point: use z-score as approximation for t-stat
+                combined_mean = np.mean(combined_data)
+                combined_std = np.std(combined_data)
+                t_stat = (raw_data_points[0] - combined_mean) / combined_std if combined_std > 0 else 0.0
+                # Calculate Cohen's d for single point vs distribution
+                cohens_d_value = cohens_d(raw_data_points, combined_data)
+            else:
+                t_stat = 0.0  # No data
+                cohens_d_value = 0.0
+            
+            # Categorize effect size based on Cohen's d
+            abs_cohens_d = abs(cohens_d_value)
+            if abs_cohens_d < 0.2:
+                effect_size_category = "negligible"
+            elif abs_cohens_d < 0.5:
+                effect_size_category = "small"
+            elif abs_cohens_d < 0.8:
+                effect_size_category = "medium"
+            else:
+                effect_size_category = "large"
+                
+            return x_value, t_stat, cohens_d_value, effect_size_category, True
+            
+        except Exception as e:
+            if debug:
+                print(f"Error processing row {idx}: {e}")
+            return x_value, 0.0, 0.0, "negligible", False
+    else:
+        return x_value, 0.0, 0.0, "negligible", False
+
+
+def calculate_improvement_scores_parallel(constraint_data, quality_index):
+    """
+    Helper function to calculate improvement scores in parallel.
+    
+    Parameters:
+    -----------
+    constraint_data : tuple
+        (current_constraint, next_constraint, current_t_stats, next_t_stats)
+    quality_index : str
+        Quality index name for determining improvement direction
+    
+    Returns:
+    --------
+    list : List of improvement scores
+    """
+    current_constraint, next_constraint, current_t_stats, next_t_stats = constraint_data
+    improvement_scores = []
+    
+    for curr_t in current_t_stats:
+        for next_t in next_t_stats:
+            t_change = next_t - curr_t
+            
+            # Determine improvement/deterioration based on quality index
+            if quality_index == 'norm_dtw':
+                improvement_score = -t_change  # Negative change is improvement
+            else:
+                improvement_score = t_change   # Positive change is improvement
+            
+            improvement_scores.append(improvement_score)
+    
+    return improvement_scores
+
+
+def get_effect_size_color(effect_size_category):
+    """
+    Get color for effect size category using light gray to green scheme.
+    
+    Parameters:
+    -----------
+    effect_size_category : str
+        Effect size category ('negligible', 'small', 'medium', 'large')
+    
+    Returns:
+    --------
+    str : Color code for the category
+    """
+    color_map = {
+        'negligible': '#D3D3D3',  # Light gray
+        'small': '#FFFFFF',       # White
+        'medium': '#cee072',      # Light yellow-green  
+        'large': '#3fd445'        # Green
+    }
+    return color_map.get(effect_size_category, '#D3D3D3')
+
+def calculate_dynamic_sizes(total_points, total_connections):
+    """
+    Calculate dynamic sizes for plot elements based on data volume.
+    
+    Parameters:
+    -----------
+    total_points : int
+        Total number of data points
+    total_connections : int
+        Total number of connections/lines
+    
+    Returns:
+    --------
+    dict : Dictionary with sizing parameters
+    """
+    # Base sizes
+    base_dot_size = 60
+    base_line_width = 1.0
+    base_alpha = 0.8
+    
+    # Dynamic scaling based on data volume
+    # Reduce sizes as data volume increases
+    if total_points <= 50:
+        dot_size = base_dot_size
+        line_width = base_line_width
+        alpha = base_alpha
+    elif total_points <= 200:
+        dot_size = max(40, base_dot_size * 0.8)
+        line_width = max(0.7, base_line_width * 0.8)
+        alpha = max(0.6, base_alpha * 0.8)
+    elif total_points <= 500:
+        dot_size = max(30, base_dot_size * 0.6)
+        line_width = max(0.5, base_line_width * 0.6)
+        alpha = max(0.4, base_alpha * 0.6)
+    else:
+        dot_size = max(20, base_dot_size * 0.4)
+        line_width = max(0.3, base_line_width * 0.4)
+        alpha = max(0.3, base_alpha * 0.4)
+    
+    # Further adjust based on connection density
+    if total_connections > 1000:
+        alpha *= 0.7
+        line_width *= 0.8
+    
+    return {
+        'dot_size': dot_size,
+        'line_width': line_width,
+        'alpha': alpha
+    }
 
 
 def plot_quality_distributions(quality_data, target_quality_indices, output_figure_filenames, 
-                               CORE_A, CORE_B, debug=True):
+                               CORE_A, CORE_B, debug=True, return_plot_info=False):
     """
     Plot quality index distributions comparing real data vs synthetic null hypothesis.
     
@@ -1591,12 +1774,17 @@ def plot_quality_distributions(quality_data, target_quality_indices, output_figu
         Name of core B
     debug : bool, default True
         If True, only print essential messages. If False, print all detailed messages.
+    return_plot_info : bool, default False
+        If True, return plotting information for gif creation
     
     Returns:
     --------
-    None
-        Plots are displayed and saved to specified output files
+    dict or None
+        If return_plot_info=True, returns plotting information for gif creation
     """
+    
+    # Initialize plot info dictionary for gif creation (ONLY NEW ADDITION)
+    plot_info_dict = {}
     
     # Loop through all quality indices
     for quality_index in target_quality_indices:
@@ -1617,6 +1805,81 @@ def plot_quality_distributions(quality_data, target_quality_indices, output_figu
         x_fitted = np.linspace(combined_data.min(), combined_data.max(), 1000)
         y_fitted = stats.norm.pdf(x_fitted, fitted_mean, fitted_std)
 
+        # Extract plot info for gif creation (ONLY NEW ADDITION)
+        if return_plot_info:
+            constraint_col = 'core_b_constraints_count'
+            unique_constraints = sorted(df_all_params[constraint_col].unique())
+            curves_by_constraint = {}
+            
+            for n_constraints in unique_constraints:
+                constraint_data = df_all_params[df_all_params[constraint_col] == n_constraints]
+                curves_by_constraint[n_constraints] = []
+                
+                for idx, row in constraint_data.iterrows():
+                    if 'x_range' in row and 'y_values' in row and pd.notna(row['x_range']) and pd.notna(row['y_values']):
+                        try:
+                            x_range = np.fromstring(row['x_range'].strip('[]'), sep=' ')
+                            y_values = np.fromstring(row['y_values'].strip('[]'), sep=' ')
+                            
+                            if len(x_range) > 0 and len(y_values) > 0:
+                                curves_by_constraint[n_constraints].append({
+                                    'x_range': x_range,
+                                    'y_values': y_values,
+                                    'constraint_count': row[constraint_col],
+                                    'is_max_constraints': (row['core_a_constraints_count'] == max_core_a_constraints and 
+                                                          row['core_b_constraints_count'] == max_core_b_constraints),
+                                    'age_consideration': row['age_consideration'],
+                                    'restricted_age_correlation': row['restricted_age_correlation'],
+                                    'shortest_path_search': row['shortest_path_search']
+                                })
+                        except:
+                            continue
+            
+            # Create combo_stats_by_constraint structure for GIF creation
+            combo_stats_by_constraint = {}
+            for n_constraints in unique_constraints:
+                combo_stats_by_constraint[n_constraints] = {}
+                constraint_curves = curves_by_constraint[n_constraints]
+                
+                # Group curves by combination type
+                for curve in constraint_curves:
+                    combo_key = f"age_{curve['age_consideration']}_restricted_{curve['restricted_age_correlation']}"
+                    if combo_key not in combo_stats_by_constraint[n_constraints]:
+                        combo_stats_by_constraint[n_constraints][combo_key] = {'curves': []}
+                    combo_stats_by_constraint[n_constraints][combo_key]['curves'].append(curve)
+            
+            # Store plot info
+            plot_info_dict[quality_index] = {
+                'quality_index': quality_index,
+                'CORE_A': CORE_A,
+                'CORE_B': CORE_B,
+                'unique_constraints': unique_constraints,
+                'curves_by_constraint': curves_by_constraint,
+                'combo_stats_by_constraint': combo_stats_by_constraint,
+                'x_fitted': x_fitted,
+                'y_fitted': y_fitted,
+                'x_synth': x_fitted,  # Add missing key - same as x_fitted
+                'y_synth': y_fitted,  # Add missing key - same as y_fitted  
+                'fitted_mean': fitted_mean,
+                'fitted_std': fitted_std,
+                'combined_data': combined_data,
+                'n_bins': 30,
+                'max_core_a_constraints': max_core_a_constraints,
+                'max_core_b_constraints': max_core_b_constraints,
+                'unique_combinations': unique_combinations,
+                'min_core_b': df_all_params['core_b_constraints_count'].min(),
+                'max_core_b': df_all_params['core_b_constraints_count'].max(),
+                'plot_limits': {  # Add missing plot_limits
+                    'x_min': 0 if quality_index == 'norm_dtw' else x_fitted.min(),
+                    'x_max': x_fitted.max(),
+                    'y_min': 0,
+                    'y_max': y_fitted.max() * 1.1  # Add some headroom
+                },
+                'legend_elements': None,  # Will be populated after legend creation
+                'legend_labels': None,
+                'individual_curves': []  # Will store all individual curves for row-by-row animation
+            }
+
         # Create combined plot
         fig, ax = plt.subplots(figsize=(10, 4.5))
 
@@ -1636,57 +1899,7 @@ def plot_quality_distributions(quality_data, target_quality_indices, output_figu
         cmap = cm.get_cmap('Spectral_r')
         norm = colors.Normalize(vmin=min_core_b, vmax=max_core_b)
 
-        # Separate combinations by search method and collect mean values for max constraint cases only
-        optimal_combinations = []
-        random_combinations = []
-
-        solid_mean_values = []
-        dash_mean_values = []
-
-        for combo in unique_combinations:
-            combo_data = df_all_params[
-                (df_all_params['age_consideration'] == combo['age_consideration']) &
-                (df_all_params['restricted_age_correlation'] == combo['restricted_age_correlation']) &
-                (df_all_params['shortest_path_search'] == combo['shortest_path_search'])
-            ]
-            
-            combo_mean_values = []
-            for idx, row in combo_data.iterrows():
-                if 'mean' in row and pd.notna(row['mean']):
-                    # Only collect means for max constraint cases
-                    if (row['core_a_constraints_count'] == max_core_a_constraints and 
-                        row['core_b_constraints_count'] == max_core_b_constraints):
-                        combo_mean_values.append(row['mean'])
-            
-            # Determine which search method group this combination belongs to
-            if combo['shortest_path_search']:
-                optimal_combinations.append(combo)
-                solid_mean_values.extend(combo_mean_values)
-            else:
-                random_combinations.append(combo)
-                dash_mean_values.extend(combo_mean_values)
-
-        # Plot vertical lines for each search method group with text labels (max constraints only)
-        solid_mean_plotted = False
-        dash_mean_plotted = False
-
-        if solid_mean_values:
-            for mean_val in solid_mean_values:
-                label = 'Optimal-Search PDF Means' if not solid_mean_plotted else ""
-                ax.axvline(x=mean_val, color='brown', alpha=0.5, linewidth=4, label=label)
-                # Add text label for mean value
-                ax.text(mean_val, ax.get_ylim()[1] * 0.95, f'{mean_val:.3f}', 
-                        rotation=90, ha='right', va='top', color='brown', fontweight='bold')
-                solid_mean_plotted = True
-
-        if dash_mean_values:
-            for mean_val in dash_mean_values:
-                label = 'Random-Search PDF Means' if not dash_mean_plotted else ""
-                ax.axvline(x=mean_val, color='green', alpha=0.5, linewidth=4, label=label)
-                # Add text label for mean value
-                ax.text(mean_val, ax.get_ylim()[1] * 0.95, f'{mean_val:.3f}', 
-                        rotation=90, ha='right', va='top', color='green', fontweight='bold')
-                dash_mean_plotted = True
+        # PDF mean values plotting removed per user request
 
         # Collect real data for statistical tests - separate by individual distributions
         solid_real_data_by_combo = {}
@@ -1766,7 +1979,7 @@ def plot_quality_distributions(quality_data, target_quality_indices, output_figu
                         else:
                             line_style = '--'
                             linewidth = 1
-                            alpha = 0.6
+                            alpha = 0.9
                             zorder = 1  # Lower zorder for dashed lines
                             constraint_label = f'{CORE_B} age constraints: {core_b_constraints}'
                             if core_b_constraints not in plotted_constraint_levels:
@@ -1782,6 +1995,21 @@ def plot_quality_distributions(quality_data, target_quality_indices, output_figu
                                linewidth=linewidth, alpha=alpha,
                                zorder=zorder,
                                label=label)
+                        
+                        # Store individual curve data for GIF creation if requested
+                        if return_plot_info:
+                            plot_info_dict[quality_index]['individual_curves'].append({
+                                'x_range': x_range,
+                                'y_values': y_values,
+                                'color': color,
+                                'linestyle': line_style,
+                                'linewidth': linewidth,
+                                'alpha': alpha,
+                                'zorder': zorder,
+                                'label': label,
+                                'constraint_count': core_b_constraints,
+                                'is_max_constraints': is_max_constraints
+                            })
                 
                 except Exception as e:
                     if not debug:
@@ -1971,10 +2199,26 @@ def plot_quality_distributions(quality_data, target_quality_indices, output_figu
         if not debug:
             print(f"✓ Analysis complete for {quality_index}!")
 
+        # Get display name for quality index
+        def get_quality_display_name(quality_index):
+            if quality_index == 'corr_coef':
+                return "Pearson's r"
+            elif quality_index == 'norm_dtw':
+                return "Normalized DTW Distance"
+            else:
+                return quality_index
+        
+        display_name = get_quality_display_name(quality_index)
+        
+        # Set x-axis range for norm_dtw to start from 0
+        if quality_index == 'norm_dtw':
+            current_xlim = ax.get_xlim()
+            ax.set_xlim(0, current_xlim[1])
+        
         # Formatting
-        ax.set_xlabel(f"{quality_index}")
+        ax.set_xlabel(f"{display_name}")
         ax.set_ylabel('Probability Density (%)')
-        ax.set_title(f'{quality_index} Distribution Comparison\n{CORE_A} vs {CORE_B}')
+        ax.set_title(f'{display_name} Distribution Comparison\n{CORE_A} vs {CORE_B}')
 
         # Create grouped legend
         handles, labels = ax.get_legend_handles_labels()
@@ -1984,8 +2228,6 @@ def plot_quality_distributions(quality_data, target_quality_indices, output_figu
         synthetic_labels = []
         constraint_handles = []
         constraint_labels = []
-        mean_handles = []
-        mean_labels = []
 
         for handle, label in zip(handles, labels):
             if 'Null' in label or 'Synthetic' in label:
@@ -1994,9 +2236,6 @@ def plot_quality_distributions(quality_data, target_quality_indices, output_figu
             elif 'age constraints' in label:
                 constraint_handles.append(handle)
                 constraint_labels.append(label)
-            elif 'PDF Means' in label:
-                mean_handles.append(handle)
-                mean_labels.append(label)
 
         # Create grouped legend with titles
         legend_elements = []
@@ -2014,25 +2253,37 @@ def plot_quality_distributions(quality_data, target_quality_indices, output_figu
         # Add constraint level group
         if constraint_handles:
             legend_elements.append(Line2D([0], [0], color='white', linewidth=0, alpha=0))
-            legend_labels.append('Real Data by Age Constraints')
+            legend_labels.append('Real Data')
             
-            # Sort constraint handles and labels by constraint count
+            # Filter to only show constraint 0 and max constraint
+            filtered_constraint_pairs = []
             constraint_pairs = list(zip(constraint_handles, constraint_labels))
-            constraint_pairs.sort(key=lambda x: int(x[1].split(': ')[-1]))
             
             for handle, label in constraint_pairs:
+                constraint_count = int(label.split(': ')[-1])
+                if constraint_count == 0:
+                    # Rename to "without age constraints"
+                    new_label = 'without age constraints'
+                    filtered_constraint_pairs.append((handle, new_label))
+                elif constraint_count == max_core_b_constraints:
+                    # Rename to "with all age constraints"  
+                    new_label = 'with all age constraints'
+                    filtered_constraint_pairs.append((handle, new_label))
+            
+            # Sort by constraint count (0 first, then max)
+            filtered_constraint_pairs.sort(key=lambda x: 0 if x[1] == 'without age constraints' else 1)
+            
+            for handle, label in filtered_constraint_pairs:
                 legend_elements.append(handle)
                 legend_labels.append(label)
             
+            # Add 3 lines of spacing below 'with all age constraints'
             legend_elements.append(Line2D([0], [0], color='white', linewidth=0, alpha=0))
             legend_labels.append('')
-
-        # Add mean lines group
-        if mean_handles:
             legend_elements.append(Line2D([0], [0], color='white', linewidth=0, alpha=0))
-            legend_labels.append('PDF Mean Values')
-            legend_elements.extend(mean_handles)
-            legend_labels.extend(mean_labels)
+            legend_labels.append('')
+            legend_elements.append(Line2D([0], [0], color='white', linewidth=0, alpha=0))
+            legend_labels.append('')
 
         # Apply legend with grouping
         legend = ax.legend(legend_elements, legend_labels, bbox_to_anchor=(1.02, 1), loc='upper left')
@@ -2040,208 +2291,105 @@ def plot_quality_distributions(quality_data, target_quality_indices, output_figu
         # Style the group title labels
         for i, label in enumerate(legend_labels):
             if (label.startswith('Null Hypotheses') or 
-                label.startswith('Real Data by Age Constraints') or 
-                label.startswith('PDF Mean Values')):
+                label.startswith('Real Data') or 
+                label.startswith('Age Constraint Levels')):
                 legend.get_texts()[i].set_weight('bold')
                 legend.get_texts()[i].set_fontsize(10)
                 legend.get_texts()[i].set_ha('left')
 
+        # Add colorbar for age constraint levels (consistent with curve colors)
+        # Create a colorbar that matches the distribution curves' color scheme
+        # Apply same darkening as used for the curves
+        cmap_darkened = cm.get_cmap('Spectral_r')
+        
+        # Create a custom colorbar with darkened colors to match the curves
+        
+        # Position colorbar directly under the legend box
+        # First render the plot to get accurate legend positioning
+        plt.draw()
+        
+        # Get legend position in figure coordinates
+        legend_bbox = legend.get_window_extent()
+        legend_bbox_axes = legend_bbox.transformed(fig.transFigure.inverted())
+        
+        # Position colorbar directly below legend
+        colorbar_height = 0.025
+        colorbar_width = legend_bbox_axes.width * 0.9  # Slightly smaller than legend
+        colorbar_x = legend_bbox_axes.x0 - legend_bbox_axes.width *.77  # Center it
+        colorbar_y = legend_bbox_axes.y0 - colorbar_height + 0.13  # Below legend with gap
+        
+        cax = fig.add_axes([colorbar_x, colorbar_y, colorbar_width, colorbar_height])
+        
+        # Create a colorbar with the same normalization as the curves
+        sm = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
+        sm.set_array([])
+        
+        cbar = plt.colorbar(sm, cax=cax, orientation='horizontal')
+        cbar.set_label('Age Constraint Levels', fontsize=9, fontweight='bold')
+        
+        # Set ticks to show actual constraint levels
+        unique_constraints_sorted = sorted(df_all_params['core_b_constraints_count'].unique())
+        cbar.set_ticks([min_core_b + (max_core_b - min_core_b) * i / (len(unique_constraints_sorted) - 1) 
+                       for i in range(len(unique_constraints_sorted))])
+        cbar.set_ticklabels([str(level) for level in unique_constraints_sorted])
+        cbar.ax.tick_params(labelsize=8)
+
+        # Store legend information for GIF creation if requested
+        if return_plot_info:
+            plot_info_dict[quality_index]['legend_elements'] = legend_elements
+            plot_info_dict[quality_index]['legend_labels'] = legend_labels
+            # Store actual plot limits after all adjustments
+            plot_info_dict[quality_index]['actual_plot_limits'] = {
+                'x_min': ax.get_xlim()[0],
+                'x_max': ax.get_xlim()[1], 
+                'y_min': ax.get_ylim()[0],
+                'y_max': ax.get_ylim()[1]
+            }
+            # Store display name for GIF titles
+            plot_info_dict[quality_index]['display_name'] = display_name
+
         ax.grid(True, alpha=0.3)
         if quality_index == 'corr_coef':
             ax.set_xlim(0, 1.0)
+            
+        # Store actual axis limits for GIF creation if requested
+        if return_plot_info:
+            plot_info_dict[quality_index]['actual_plot_limits'] = {
+                'x_min': ax.get_xlim()[0],
+                'x_max': ax.get_xlim()[1],
+                'y_min': ax.get_ylim()[0],
+                'y_max': ax.get_ylim()[1]
+            }
 
         plt.tight_layout()
         
+        # Ensure output is saved to 'outputs' subfolder
+        if not output_filename.startswith('outputs/') and not os.path.isabs(output_filename):
+            # Create outputs directory if it doesn't exist
+            os.makedirs('outputs', exist_ok=True)
+            # Prepend 'outputs/' to filename
+            output_filename = os.path.join('outputs', os.path.basename(output_filename))
+        
         plt.savefig(output_filename, dpi=150, bbox_inches='tight')
         
-        # Show plot AFTER all printed texts
-        plt.show()
+        # Show plot AFTER all printed texts - suppress when debug=True (i.e., mute_mode=True)
+        if not debug:  # debug=True means mute_mode=True, so suppress display
+            plt.show()
 
     if not debug:
         print(f"\n{'='*80}")
         print(f"ALL QUALITY INDICES PROCESSING COMPLETED")
         print(f"{'='*80}")
-
-def process_single_row_parallel(row_data, combined_data, debug=False):
-    """
-    Helper function to process a single row for t-statistic and Cohen's d calculation in parallel.
     
-    Parameters:
-    -----------
-    row_data : tuple
-        (idx, row, age_consideration, core_b_constraints_count)
-    combined_data : array-like
-        Reference data for t-test calculation
-    debug : bool
-        Whether to print debug information
-    
-    Returns:
-    --------
-    tuple : (x_value, t_stat, cohens_d, effect_size_category, success)
-    """
-    idx, row, age_consideration, core_b_constraints_count = row_data
-    
-    # Determine constraint mapping for x-axis
-    if age_consideration:
-        x_value = core_b_constraints_count
+    # Return plot info if requested (ONLY NEW ADDITION)
+    if return_plot_info:
+        return plot_info_dict
     else:
-        x_value = 0
-    
-    # Calculate t-statistic and Cohen's d for this row
-    has_histogram = ('bins' in row and 'hist' in row and 'n_points' in row and 
-                   pd.notna(row['bins']) and pd.notna(row['hist']) and pd.notna(row['n_points']))
-    
-    if has_histogram:
-        try:
-            # Reconstruct raw data from histogram
-            bins = np.fromstring(row['bins'].strip('[]'), sep=' ')
-            hist_percentages = np.fromstring(row['hist'].strip('[]'), sep=' ')
-            n_points = row['n_points']
-            
-            raw_data_points = reconstruct_raw_data_from_histogram(bins, hist_percentages, n_points)
-            
-            # Calculate t-statistic and Cohen's d
-            if len(raw_data_points) > 1:
-                t_stat, _ = stats.ttest_ind(raw_data_points, combined_data)
-                # Calculate Cohen's d
-                cohens_d_value = cohens_d(raw_data_points, combined_data)
-            elif len(raw_data_points) == 1:
-                # Single point: use z-score as approximation for t-stat
-                combined_mean = np.mean(combined_data)
-                combined_std = np.std(combined_data)
-                t_stat = (raw_data_points[0] - combined_mean) / combined_std if combined_std > 0 else 0.0
-                # Calculate Cohen's d for single point vs distribution
-                cohens_d_value = cohens_d(raw_data_points, combined_data)
-            else:
-                t_stat = 0.0  # No data
-                cohens_d_value = 0.0
-            
-            # Categorize effect size based on Cohen's d
-            abs_cohens_d = abs(cohens_d_value)
-            if abs_cohens_d < 0.2:
-                effect_size_category = "negligible"
-            elif abs_cohens_d < 0.5:
-                effect_size_category = "small"
-            elif abs_cohens_d < 0.8:
-                effect_size_category = "medium"
-            else:
-                effect_size_category = "large"
-                
-            return x_value, t_stat, cohens_d_value, effect_size_category, True
-            
-        except Exception as e:
-            if debug:
-                print(f"Error processing row {idx}: {e}")
-            return x_value, 0.0, 0.0, "negligible", False
-    else:
-        return x_value, 0.0, 0.0, "negligible", False
+        return None
 
-
-def calculate_improvement_scores_parallel(constraint_data, quality_index):
-    """
-    Helper function to calculate improvement scores in parallel.
-    
-    Parameters:
-    -----------
-    constraint_data : tuple
-        (current_constraint, next_constraint, current_t_stats, next_t_stats)
-    quality_index : str
-        Quality index name for determining improvement direction
-    
-    Returns:
-    --------
-    list : List of improvement scores
-    """
-    current_constraint, next_constraint, current_t_stats, next_t_stats = constraint_data
-    improvement_scores = []
-    
-    for curr_t in current_t_stats:
-        for next_t in next_t_stats:
-            t_change = next_t - curr_t
-            
-            # Determine improvement/deterioration based on quality index
-            if quality_index == 'norm_dtw':
-                improvement_score = -t_change  # Negative change is improvement
-            else:
-                improvement_score = t_change   # Positive change is improvement
-            
-            improvement_scores.append(improvement_score)
-    
-    return improvement_scores
-
-
-def get_effect_size_color(effect_size_category):
-    """
-    Get color for effect size category using light gray to green scheme.
-    
-    Parameters:
-    -----------
-    effect_size_category : str
-        Effect size category ('negligible', 'small', 'medium', 'large')
-    
-    Returns:
-    --------
-    str : Color code for the category
-    """
-    color_map = {
-        'negligible': '#D3D3D3',  # Light gray
-        'small': '#FFFFFF',       # White
-        'medium': '#cee072',      # Light yellow-green  
-        'large': '#3fd445'        # Green
-    }
-    return color_map.get(effect_size_category, '#D3D3D3')
-def calculate_dynamic_sizes(total_points, total_connections):
-    """
-    Calculate dynamic sizes for plot elements based on data volume.
-    
-    Parameters:
-    -----------
-    total_points : int
-        Total number of data points
-    total_connections : int
-        Total number of connections/lines
-    
-    Returns:
-    --------
-    dict : Dictionary with sizing parameters
-    """
-    # Base sizes
-    base_dot_size = 60
-    base_line_width = 1.0
-    base_alpha = 0.8
-    
-    # Dynamic scaling based on data volume
-    # Reduce sizes as data volume increases
-    if total_points <= 50:
-        dot_size = base_dot_size
-        line_width = base_line_width
-        alpha = base_alpha
-    elif total_points <= 200:
-        dot_size = max(40, base_dot_size * 0.8)
-        line_width = max(0.7, base_line_width * 0.8)
-        alpha = max(0.6, base_alpha * 0.8)
-    elif total_points <= 500:
-        dot_size = max(30, base_dot_size * 0.6)
-        line_width = max(0.5, base_line_width * 0.6)
-        alpha = max(0.4, base_alpha * 0.6)
-    else:
-        dot_size = max(20, base_dot_size * 0.4)
-        line_width = max(0.3, base_line_width * 0.4)
-        alpha = max(0.3, base_alpha * 0.4)
-    
-    # Further adjust based on connection density
-    if total_connections > 1000:
-        alpha *= 0.7
-        line_width *= 0.8
-    
-    return {
-        'dot_size': dot_size,
-        'line_width': line_width,
-        'alpha': alpha
-    }
 
 def plot_t_statistics_vs_constraints(quality_data, target_quality_indices, output_figure_filenames,
-                                     CORE_A, CORE_B, debug=True, n_jobs=-1, batch_size=None):
+                                     CORE_A, CORE_B, debug=True, n_jobs=-1, batch_size=None, return_plot_info=False):
     """
     Plot t-statistics vs number of age constraints for each quality index.
     OPTIMIZED with parallel processing and dynamic sizing.
@@ -2264,12 +2412,16 @@ def plot_t_statistics_vs_constraints(quality_data, target_quality_indices, outpu
         Number of parallel jobs to run. -1 means using all available cores.
     batch_size : int, optional
         Batch size for parallel processing. If None, automatically determined.
+    return_plot_info : bool, default False
+        If True, return plotting information for gif creation
     
     Returns:
     --------
-    None
-        Plots are displayed and saved to specified output files
+    dict or None
+        If return_plot_info=True, returns plotting information for gif creation
     """
+    
+    plot_info_dict = {}
     
     for quality_index in target_quality_indices:
         if quality_index not in quality_data:
@@ -2281,6 +2433,13 @@ def plot_t_statistics_vs_constraints(quality_data, target_quality_indices, outpu
         combined_data = data['combined_data']
         
         print(f"Processing {quality_index} with {len(df_all_params)} scenarios...")
+        
+        # Initialize plot_info_dict entry if needed for GIF creation
+        if return_plot_info:
+            plot_info_dict[quality_index] = {
+                'individual_points': [],  # Will store all individual points for row-by-row animation
+                'individual_segments': []  # Will store all individual segments for row-by-row animation
+            }
         
         # Create plot
         fig, ax = plt.subplots(figsize=(9.5, 5))
@@ -2377,7 +2536,6 @@ def plot_t_statistics_vs_constraints(quality_data, target_quality_indices, outpu
         sizing = calculate_dynamic_sizes(total_points, total_connections)
         
         print(f"  Drawing {total_points} points and {total_connections} connections...")
-        # print(f"  Using dynamic sizing: dots={sizing['dot_size']:.1f}, lines={sizing['line_width']:.1f}, alpha={sizing['alpha']:.2f}")
         
         # Move LinearSegmentedColormap import to top of file since we need it
         colors_list = ['#0066CC', '#e3e3e3', '#CC0000']  # Blue -> gray -> Red
@@ -2421,6 +2579,16 @@ def plot_t_statistics_vs_constraints(quality_data, target_quality_indices, outpu
                     # Store line segment and color
                     line_segments.append([[current_constraint, curr_t], [next_constraint, next_t]])
                     line_colors.append(color)
+                    
+                    # Store individual segment data for GIF creation if requested
+                    if return_plot_info:
+                        plot_info_dict[quality_index]['individual_segments'].append({
+                            'segment': [[current_constraint, curr_t], [next_constraint, next_t]],
+                            'color': color,
+                            'alpha': sizing['alpha'],
+                            'linewidth': sizing['line_width'],
+                            'zorder': 1
+                        })
         
         # Draw all connections at once using LineCollection (much faster than individual plot calls)
         print(f"  Drawing {len(line_segments)} line segments using vectorized approach...")
@@ -2441,6 +2609,19 @@ def plot_t_statistics_vs_constraints(quality_data, target_quality_indices, outpu
                 # Plot individual point colored by effect size with black outline
                 ax.scatter(x_constraint, t_stat, color=dot_color, edgecolor='black', 
                           linewidth=max(0.5, sizing['line_width']), s=sizing['dot_size'], zorder=3)
+                
+                # Store individual point data for GIF creation if requested
+                if return_plot_info:
+                    plot_info_dict[quality_index]['individual_points'].append({
+                        'x': x_constraint,
+                        'y': t_stat,
+                        'color': dot_color,
+                        'effect_size': effect_size,
+                        'edgecolor': 'black',
+                        'linewidth': max(0.5, sizing['line_width']),
+                        'size': sizing['dot_size'],
+                        'zorder': 3
+                    })
         
         # Add null hypothesis line
         ax.axhline(y=0, color='darkgray', linestyle='--', alpha=0.7, linewidth=2, 
@@ -2455,7 +2636,17 @@ def plot_t_statistics_vs_constraints(quality_data, target_quality_indices, outpu
         # Format plot
         ax.set_xlabel(f'Number of {CORE_B} Age Constraints')
         ax.set_ylabel('t-statistic')
-        ax.set_title(f't-statistics vs Age Constraints for {quality_index}\n{CORE_A} vs {CORE_B}')
+        # Get display name for quality index
+        def get_quality_display_name(quality_index):
+            if quality_index == 'corr_coef':
+                return "Pearson's r"
+            elif quality_index == 'norm_dtw':
+                return "Normalized DTW Distance"
+            else:
+                return quality_index
+        
+        display_name = get_quality_display_name(quality_index)
+        ax.set_title(f't-statistics vs Age Constraints for {display_name}\n{CORE_A} vs {CORE_B}')
         ax.grid(True, alpha=0.3, zorder=0)
         
         # Create legend for static elements and effect sizes
@@ -2483,6 +2674,17 @@ def plot_t_statistics_vs_constraints(quality_data, target_quality_indices, outpu
             legend_labels.append(f'{category.capitalize()} effect ({d_range})')
         
         ax.legend(legend_elements, legend_labels, bbox_to_anchor=(1.02, 0.5), loc='center left')
+        
+        # Store actual axis limits for GIF creation if requested  
+        if return_plot_info:
+            plot_info_dict[quality_index]['actual_plot_limits'] = {
+                'x_min': ax.get_xlim()[0],
+                'x_max': ax.get_xlim()[1], 
+                'y_min': ax.get_ylim()[0],
+                'y_max': ax.get_ylim()[1]
+            }
+            # Store display name for GIF titles
+            plot_info_dict[quality_index]['display_name'] = display_name
         
         # Add horizontal colorbar for improvement/deterioration
         sm = plt.cm.ScalarMappable(cmap=cmap, norm=plt.Normalize(vmin=-max_abs_score, vmax=max_abs_score))
@@ -2561,15 +2763,76 @@ def plot_t_statistics_vs_constraints(quality_data, target_quality_indices, outpu
         
         plt.tight_layout()
         
+        # Store plot info for gif creation if requested
+        if return_plot_info:
+            # Calculate axis limits for gif consistency
+            if constraint_points:
+                all_t_values = []
+                for t_stats_list in constraint_points.values():
+                    all_t_values.extend(t_stats_list)
+                t_range = max(abs(min(all_t_values)), abs(max(all_t_values)))
+                y_plot_min, y_plot_max = -t_range * 1.2, t_range * 1.2
+            else:
+                y_plot_min, y_plot_max = -5, 5
+            
+            # Get unique constraints
+            unique_constraints = sorted(df_all_params['core_b_constraints_count'].unique())
+            
+            # Create constraint_t_stats mapping (use mean t-statistic for each constraint level)
+            constraint_t_stats = {}
+            for n_constraints in unique_constraints:
+                if n_constraints in constraint_points:
+                    # Use mean t-statistic for this constraint level
+                    constraint_t_stats[n_constraints] = np.mean(constraint_points[n_constraints])
+                else:
+                    constraint_t_stats[n_constraints] = 0.0
+            
+            # Update the existing plot_info_dict entry (preserve individual_points and individual_segments)
+            plot_info_dict[quality_index].update({
+                'quality_index': quality_index,
+                'CORE_A': CORE_A,
+                'CORE_B': CORE_B,
+                'unique_constraints': unique_constraints,
+                'constraint_points': constraint_points,
+                'constraint_effect_sizes': constraint_effect_sizes,
+                'constraint_cohens_d': constraint_cohens_d,
+                'constraint_t_stats': constraint_t_stats,
+                'line_segments': line_segments,
+                'line_colors': line_colors,
+                'sizing': sizing,
+                'max_abs_score': max_abs_score,
+                'cmap': cmap,
+                'plot_limits': {
+                    'x_min': -0.5,
+                    'x_max': x_max + 0.5,
+                    'y_min': y_plot_min,
+                    'y_max': y_plot_max
+                }
+            })
+        
         # Save figure
         base_filename = output_figure_filenames[quality_index]
         t_stat_filename = base_filename.replace('.png', '_tstat.png').replace('.jpg', '_tstat.jpg')
+        
+        # Ensure output is saved to 'outputs' subfolder
+        if not t_stat_filename.startswith('outputs/') and not os.path.isabs(t_stat_filename):
+            # Create outputs directory if it doesn't exist
+            os.makedirs('outputs', exist_ok=True)
+            # Prepend 'outputs/' to filename
+            t_stat_filename = os.path.join('outputs', os.path.basename(t_stat_filename))
+        
         plt.savefig(t_stat_filename, dpi=150, bbox_inches='tight')
         print(f"✓ t-statistics plot saved as: {t_stat_filename}")
         
-        # Display the plot
-        plt.show()
-
+        # Display the plot - suppress when debug=True (i.e., mute_mode=True)
+        if not debug:  # debug=True means mute_mode=True, so suppress display
+            plt.show()
+    
+    # Return plot info if requested
+    if return_plot_info:
+        return plot_info_dict
+    else:
+        return None
 
 def calculate_quality_comparison_t_statistics(target_quality_indices, master_csv_filenames, 
                                                synthetic_csv_filenames, CORE_A, CORE_B, 
@@ -2766,7 +3029,8 @@ def calculate_quality_comparison_t_statistics(target_quality_indices, master_csv
 
 def plot_quality_comparison_t_statistics(target_quality_indices, master_csv_filenames, 
                                         synthetic_csv_filenames, CORE_A, CORE_B, 
-                                        mute_mode=False, save_fig=True, output_figure_filenames=None):
+                                        mute_mode=False, save_fig=True, output_figure_filenames=None,
+                                        save_gif=False, output_gif_filenames=None, max_frames=50):
     """
     Plot quality index distributions comparing real data vs synthetic null hypothesis
     AND t-statistics vs age constraints using pre-calculated statistics from CSV files.
@@ -2788,67 +3052,43 @@ def plot_quality_comparison_t_statistics(target_quality_indices, master_csv_file
     CORE_B : str
         Name of core B
     mute_mode : bool, default False
-        If True, suppress progress bars and print statements
+        If True, show only essential information and suppress figure/gif display.
+        If False, minimize print output but allow figure/gif display.
     save_fig : bool, default True
         If True, save figures to files
     output_figure_filenames : dict, optional
         Dictionary mapping quality_index to output figure filename paths. Only used when save_fig=True.
-        Default: {quality_index}_comparison_log_{CORE_A}_{CORE_B}.png
-    
+    save_gif : bool, default False
+        If True, create animated gif showing progressive addition of age constraints
+    output_gif_filenames : dict, optional
+        Dictionary mapping quality_index to gif filename paths. Only used when save_gif=True.
+        Expected format: {'quality_index': 'distribution_filename.gif'} for distribution gifs
+        For t-statistics gifs, will automatically create filenames with '_tstat' suffix.
+    max_frames : int, default 50
+        Maximum number of frames for GIF animations. When there are more data points than
+        available frames, the function automatically groups multiple data points per frame
+        to keep the total animation length under this limit.
+        
     Returns:
     --------
     None
-        Plots are displayed and saved to specified output files
+        Creates static plots and/or animated gifs based on parameters
     """
-    # Create outputs directory if it doesn't exist
-    if save_fig:
-        os.makedirs('outputs', exist_ok=True)
-        
-        # Set default output figure filenames if not provided
-        if output_figure_filenames is None:
-            output_figure_filenames = {}
-            for quality_index in target_quality_indices:
-                filename = f"{quality_index}_comparison_log_{CORE_A}_{CORE_B}.png"
-                output_figure_filenames[quality_index] = os.path.join('outputs', filename)
-        else:
-            # Ensure provided filenames are placed in outputs folder
-            modified_output_figure_filenames = {}
-            for quality_index, filename in output_figure_filenames.items():
-                outputs_figure_filename = os.path.join('outputs', os.path.basename(filename))
-                modified_output_figure_filenames[quality_index] = outputs_figure_filename
-            output_figure_filenames = modified_output_figure_filenames
     
-    # Check for required columns in master CSV files
-    required_columns = ['t_statistic', 'cohens_d', 'effect_size_category']
-    
+    # Check for required statistical analysis files
     for quality_index in target_quality_indices:
-        master_csv_filename = master_csv_filenames[quality_index]
-        
-        # Check if file exists in outputs folder
-        outputs_filename = os.path.join('outputs', os.path.basename(master_csv_filename))
-        if os.path.exists(outputs_filename):
-            csv_to_check = outputs_filename
-        else:
-            csv_to_check = master_csv_filename
-            
-        if not os.path.exists(csv_to_check):
-            error_msg = f"Error: CSV file not found: {csv_to_check}"
-            if not mute_mode:
-                print(error_msg)
-            raise FileNotFoundError(error_msg)
-        
+        csv_to_check = master_csv_filenames[quality_index]
         try:
-            df_check = pd.read_csv(csv_to_check)
-            missing_columns = [col for col in required_columns if col not in df_check.columns]
-            if missing_columns:
-                error_msg = (f"Error: Required columns {missing_columns} not found in {csv_to_check}. "
-                           f"Please run calculate_quality_comparison_t_statistics first.")
-                if not mute_mode:
+            temp_df = pd.read_csv(csv_to_check)
+            if not {'t_statistic', 'cohens_d', 'effect_size_category'}.issubset(temp_df.columns):
+                error_msg = (f"Required statistics columns not found in {csv_to_check}. "
+                            f"Please run calculate_quality_comparison_t_statistics first.")
+                if mute_mode:
                     print(error_msg)
                 raise ValueError(error_msg)
         except Exception as e:
             error_msg = f"Error reading {csv_to_check}: {str(e)}"
-            if not mute_mode:
+            if mute_mode:
                 print(error_msg)
             raise
     
@@ -2864,34 +3104,657 @@ def plot_quality_comparison_t_statistics(target_quality_indices, master_csv_file
     # Load and prepare data for all quality indices
     quality_data = load_and_prepare_quality_data(
         target_quality_indices, modified_master_csv_filenames, synthetic_csv_filenames, 
-        CORE_A, CORE_B, not mute_mode
+        CORE_A, CORE_B, mute_mode
     )
     
     # Process each quality index: distribution plot followed by t-statistics plot
     for quality_index in target_quality_indices:
         if quality_index not in quality_data:
-            if not mute_mode:
+            if mute_mode:
                 print(f"Skipping {quality_index} - no data available")
             continue
         
-        if not mute_mode:
+        if mute_mode:
             print(f"\n{'='*60}")
             print(f"PLOTTING RESULTS FOR {quality_index}")
             print(f"{'='*60}")
         
-        # Create distribution plot for this quality index
-        plot_quality_distributions(
-            quality_data, [quality_index], output_figure_filenames if save_fig else {}, 
-            CORE_A, CORE_B, not mute_mode
-        )
-        
-        # Create t-statistics plot using pre-calculated values
-        plot_t_statistics_vs_constraints(
-            quality_data, [quality_index], output_figure_filenames if save_fig else {},
-            CORE_A, CORE_B, not mute_mode
-        )
+        # Create static plots and optionally get plot info for gif creation
+        if save_gif and output_gif_filenames and quality_index in output_gif_filenames:
+            # Get plot info for gif creation while creating static plots
+            distribution_plot_info = plot_quality_distributions(
+                quality_data, [quality_index], output_figure_filenames if save_fig else {}, 
+                CORE_A, CORE_B, mute_mode, return_plot_info=True
+            )
+            
+            tstat_plot_info = plot_t_statistics_vs_constraints(
+                quality_data, [quality_index], output_figure_filenames if save_fig else {},
+                CORE_A, CORE_B, mute_mode, return_plot_info=True
+            )
+            
+            # Create gifs using the plot info
+            distribution_gif_filename = output_gif_filenames[quality_index]
+            tstat_gif_filename = distribution_gif_filename.replace('.gif', '_tstat.gif')
+            
+            # Create distribution gif
+            _create_distribution_gif(distribution_plot_info[quality_index], distribution_gif_filename, mute_mode, max_frames)
+
+            # Create t-statistics gif  
+            _create_tstat_gif(tstat_plot_info[quality_index], tstat_gif_filename, mute_mode, max_frames)
+            
+        else:
+            # Just create static plots
+            plot_quality_distributions(
+                quality_data, [quality_index], output_figure_filenames if save_fig else {}, 
+                CORE_A, CORE_B, mute_mode, return_plot_info=False
+            )
+            
+            plot_t_statistics_vs_constraints(
+                quality_data, [quality_index], output_figure_filenames if save_fig else {},
+                CORE_A, CORE_B, mute_mode, return_plot_info=False
+            )
     
-    if not mute_mode:
+    if mute_mode:
         print(f"\n{'='*80}")
         print(f"ALL QUALITY INDICES PROCESSING COMPLETED")
         print(f"{'='*80}")
+
+
+def _create_distribution_gif(plot_info, gif_filename, mute_mode, max_frames=50):
+    """
+    Create distribution comparison gif using plot info from plot_quality_distributions.
+    """
+    
+    if mute_mode:
+        print(f"Creating distribution comparison gif for {plot_info['quality_index']}...")
+    
+    unique_constraints = plot_info['unique_constraints']
+    
+    if mute_mode:
+        print(f"Found {len(unique_constraints)} constraint levels: {unique_constraints}")
+    
+    # Create temporary directory for frame images
+    temp_dir = tempfile.mkdtemp()
+    frame_files = []
+    
+    try:
+        # Frame 0: Just null hypothesis
+        fig, ax = plt.subplots(figsize=(10, 4.5))  # Match static plot size
+        
+        # Plot null hypothesis with exact same styling as static plot
+        ax.hist(plot_info['combined_data'], bins=plot_info['n_bins'], alpha=0.3, color='gray', density=True, label='Synthetic Data')
+        ax.plot(plot_info['x_synth'], plot_info['y_synth'], color='gray', linestyle=':', linewidth=2, alpha=0.8, label='Null Hypothesis PDFs')
+        
+        # Apply exact same styling as static plot (fixed axis ranges)
+        quality_index = plot_info['quality_index']
+        if 'actual_plot_limits' in plot_info:
+            # Use actual axis limits from static plot
+            ax.set_xlim(plot_info['actual_plot_limits']['x_min'], plot_info['actual_plot_limits']['x_max'])
+            ax.set_ylim(plot_info['actual_plot_limits']['y_min'], plot_info['actual_plot_limits']['y_max'])
+        else:
+            # Fallback to calculated limits
+            if quality_index == 'corr_coef':
+                ax.set_xlim(0, 1.0)
+            else:
+                ax.set_xlim(plot_info['plot_limits']['x_min'], plot_info['plot_limits']['x_max'])
+            ax.set_ylim(0, plot_info['plot_limits']['y_max'])
+        # Get display name from plot_info or create it
+        display_name = plot_info.get('display_name', quality_index)
+        if not display_name or display_name == quality_index:
+            if quality_index == 'corr_coef':
+                display_name = "Pearson's r"
+            elif quality_index == 'norm_dtw':
+                display_name = "Normalized DTW Distance"
+            else:
+                display_name = quality_index
+        
+        ax.set_xlabel(f'{display_name}')
+        ax.set_ylabel('Probability Density (%)')
+        ax.set_title(f'{display_name} Distribution Comparison\n{plot_info["CORE_A"]} vs {plot_info["CORE_B"]}')  # Same title as PNG
+        # Create complete legend (same as static plot)
+        if plot_info['legend_elements'] and plot_info['legend_labels']:
+            legend = ax.legend(plot_info['legend_elements'], plot_info['legend_labels'], bbox_to_anchor=(1.02, 1), loc='upper left')
+            
+            # Style the group title labels (same as static plot)
+            for i, label in enumerate(plot_info['legend_labels']):
+                if (label.startswith('Null Hypotheses') or 
+                    label.startswith('Real Data') or 
+                    label.startswith('Age Constraint Levels')):
+                    legend.get_texts()[i].set_weight('bold')
+                    legend.get_texts()[i].set_fontsize(10)
+                    legend.get_texts()[i].set_ha('left')
+                    
+            # Add colorbar for age constraint levels (same as static plot)
+            min_core_b = plot_info['min_core_b']
+            max_core_b = plot_info['max_core_b']
+            cmap = cm.get_cmap('Spectral_r')
+            norm = colors.Normalize(vmin=min_core_b, vmax=max_core_b)
+            
+            # Position colorbar directly under the legend box
+            # First render the plot to get accurate legend positioning
+            plt.draw()
+            
+            # Get legend position in figure coordinates
+            legend_bbox = legend.get_window_extent()
+            legend_bbox_axes = legend_bbox.transformed(fig.transFigure.inverted())
+            
+            # Position colorbar directly below legend
+            colorbar_height = 0.025
+            colorbar_width = legend_bbox_axes.width * 0.9  # Slightly smaller than legend
+            colorbar_x = legend_bbox_axes.x0 - legend_bbox_axes.width *.77  # Center it
+            colorbar_y = legend_bbox_axes.y0 - colorbar_height + 0.13  # Below legend with gap
+            
+            cax = fig.add_axes([colorbar_x, colorbar_y, colorbar_width, colorbar_height])
+            
+            # Create a colorbar with the same normalization as the curves
+            sm = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
+            sm.set_array([])
+            
+            cbar = plt.colorbar(sm, cax=cax, orientation='horizontal')
+            cbar.set_label('Age Constraint Levels', fontsize=9, fontweight='bold')
+            
+            # Set ticks to show actual constraint levels
+            unique_constraints = plot_info['unique_constraints']
+            cbar.set_ticks([min_core_b + (max_core_b - min_core_b) * i / (len(unique_constraints) - 1) 
+                           for i in range(len(unique_constraints))])
+            cbar.set_ticklabels([str(level) for level in sorted(unique_constraints)])
+            cbar.ax.tick_params(labelsize=8)
+        else:
+            ax.legend(bbox_to_anchor=(1.02, 1), loc='upper left')
+        
+        ax.grid(True, alpha=0.3)
+        
+        frame_file = os.path.join(temp_dir, f'frame_000.png')
+        plt.tight_layout()
+        plt.savefig(frame_file, dpi=100, bbox_inches='tight', facecolor='white')
+        plt.close()
+        frame_files.append(frame_file)
+        
+        # Progressive frames: Add individual curves one by one
+        individual_curves = plot_info.get('individual_curves', [])
+        
+        if not individual_curves:
+            # Fallback to old method if individual curves not available
+            if mute_mode:
+                print("No individual curves found, skipping progressive frames")
+            return
+        
+        # Calculate grouping based on max_frames limit
+        total_curves = len(individual_curves)
+        # Use max_frames for animation - pause frames are added after
+        target_animation_frames = max_frames
+        
+        if total_curves <= target_animation_frames:
+            # No grouping needed - one curve per frame
+            curves_per_frame = 1
+            num_frames = total_curves
+        else:
+            # Calculate how many curves per frame to stay close to max_frames
+            # We want: num_frames ≈ target_animation_frames, so curves_per_frame = ceil(total_curves / target_animation_frames)
+            curves_per_frame = math.ceil(total_curves / target_animation_frames)
+            # Calculate actual number of frames needed
+            num_frames = math.ceil(total_curves / curves_per_frame)
+        
+        if mute_mode:
+            print(f"  Distribution GIF: {total_curves} curves, {curves_per_frame} curves/frame, {num_frames} frames")
+        
+        # Create frames with progress bar
+        with tqdm(total=num_frames, desc="  Creating distribution GIF frames", disable=(not mute_mode)) as pbar:
+            for frame_idx in range(num_frames):
+                # Calculate which curves to show up to this frame
+                curves_to_show = min((frame_idx + 1) * curves_per_frame, total_curves)
+                
+                # Create frame with exact same styling as static plot
+                fig, ax = plt.subplots(figsize=(10, 4.5))  # Match static plot size
+            
+                # Plot null hypothesis first (same as static plot)
+                ax.hist(plot_info['combined_data'], bins=plot_info['n_bins'], alpha=0.3, color='gray', density=True, label='Synthetic Data')
+                ax.plot(plot_info['x_synth'], plot_info['y_synth'], color='gray', linestyle=':', linewidth=2, alpha=0.8, label='Null Hypothesis PDFs')
+                
+                # Plot all curves up to current frame (same styling as static plot)
+                plotted_constraint_levels = set()
+                
+                for curve_idx in range(curves_to_show):
+                    curve = individual_curves[curve_idx]
+                    
+                    # Use the exact same styling as stored from static plot
+                    label = curve['label']
+                    constraint_count = curve['constraint_count']
+                    
+                    # Only show label if this constraint level hasn't been labeled yet
+                    if constraint_count in plotted_constraint_levels:
+                        label = None
+                    else:
+                        plotted_constraint_levels.add(constraint_count)
+                    
+                    ax.plot(curve['x_range'], curve['y_values'], 
+                           color=curve['color'], 
+                           linestyle=curve['linestyle'],
+                           linewidth=curve['linewidth'], 
+                           alpha=curve['alpha'],
+                           zorder=curve['zorder'],
+                           label=label)
+                
+                # Apply exact same styling as static plot (fixed axis ranges)
+                quality_index = plot_info['quality_index']
+                if 'actual_plot_limits' in plot_info:
+                    # Use actual axis limits from static plot
+                    ax.set_xlim(plot_info['actual_plot_limits']['x_min'], plot_info['actual_plot_limits']['x_max'])
+                    ax.set_ylim(plot_info['actual_plot_limits']['y_min'], plot_info['actual_plot_limits']['y_max'])
+                else:
+                    # Fallback to calculated limits
+                    if quality_index == 'corr_coef':
+                        ax.set_xlim(0, 1.0)
+                    else:
+                        ax.set_xlim(plot_info['plot_limits']['x_min'], plot_info['plot_limits']['x_max'])
+                    ax.set_ylim(0, plot_info['plot_limits']['y_max'])
+                ax.set_xlabel(f'{display_name}')
+                ax.set_ylabel('Probability Density (%)')
+                ax.set_title(f'{display_name} Distribution Comparison\n{plot_info["CORE_A"]} vs {plot_info["CORE_B"]}')  # Same title as PNG
+                # Create complete legend (same as static plot)
+                if plot_info['legend_elements'] and plot_info['legend_labels']:
+                    legend = ax.legend(plot_info['legend_elements'], plot_info['legend_labels'], bbox_to_anchor=(1.02, 1), loc='upper left')
+                    
+                    # Style the group title labels (same as static plot)
+                    for i, label in enumerate(plot_info['legend_labels']):
+                        if (label.startswith('Null Hypotheses') or 
+                            label.startswith('Real Data') or 
+                            label.startswith('Age Constraint Levels')):
+                            legend.get_texts()[i].set_weight('bold')
+                            legend.get_texts()[i].set_fontsize(10)
+                            legend.get_texts()[i].set_ha('left')
+                            
+                    # Add colorbar for age constraint levels (same as static plot)
+                    min_core_b = plot_info['min_core_b']
+                    max_core_b = plot_info['max_core_b']
+                    cmap = cm.get_cmap('Spectral_r')
+                    norm = colors.Normalize(vmin=min_core_b, vmax=max_core_b)
+                    
+                    # Position colorbar directly under the legend box
+                    # First render the plot to get accurate legend positioning
+                    plt.draw()
+                    
+                    # Get legend position in figure coordinates
+                    legend_bbox = legend.get_window_extent()
+                    legend_bbox_axes = legend_bbox.transformed(fig.transFigure.inverted())
+                    
+                    # Position colorbar directly below legend
+                    colorbar_height = 0.025
+                    colorbar_width = legend_bbox_axes.width * 0.9  # Slightly smaller than legend
+                    colorbar_x = legend_bbox_axes.x0 - legend_bbox_axes.width * 0.77  # Center it
+                    colorbar_y = legend_bbox_axes.y0 - colorbar_height + 0.13  # Below legend with gap
+                    
+                    cax = fig.add_axes([colorbar_x, colorbar_y, colorbar_width, colorbar_height])
+                    
+                    # Create a colorbar with the same normalization as the curves
+                    sm = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
+                    sm.set_array([])
+                    
+                    cbar = plt.colorbar(sm, cax=cax, orientation='horizontal')
+                    cbar.set_label('Age Constraint Levels', fontsize=9, fontweight='bold')
+                    
+                    # Set ticks to show actual constraint levels
+                    unique_constraints = plot_info['unique_constraints']
+                    cbar.set_ticks([min_core_b + (max_core_b - min_core_b) * i / (len(unique_constraints) - 1) 
+                                   for i in range(len(unique_constraints))])
+                    cbar.set_ticklabels([str(level) for level in sorted(unique_constraints)])
+                    cbar.ax.tick_params(labelsize=8)
+                else:
+                    ax.legend(bbox_to_anchor=(1.02, 1), loc='upper left')
+                
+                ax.grid(True, alpha=0.3)
+                
+                # Save frame
+                frame_file = os.path.join(temp_dir, f'frame_{frame_idx + 1:03d}.png')
+                plt.tight_layout()
+                plt.savefig(frame_file, dpi=100, bbox_inches='tight', facecolor='white')
+                plt.close()
+                frame_files.append(frame_file)
+                
+                # Update progress bar
+                pbar.update(1)
+        
+        # Create gif from frames
+        if frame_files:
+            if not mute_mode:
+                print(f"Combining {len(frame_files)} frames into distribution gif...")
+            
+            images = []
+            target_size = None
+            
+            for frame_file in frame_files:
+                img = imageio.imread(frame_file)
+                if target_size is None:
+                    target_size = img.shape[:2]
+                elif img.shape[:2] != target_size:
+                    pil_img = Image.fromarray(img)
+                    pil_img = pil_img.resize((target_size[1], target_size[0]), Image.Resampling.LANCZOS)
+                    img = np.array(pil_img)
+                images.append(img)
+            
+            # Add frames to make final frame stay for 2 seconds
+            if images:
+                final_frame = images[-1]
+                fps = 10  # imageio default fps
+                frames_for_2_seconds = fps * 2  # 2 seconds = fps * 2 frames
+                for _ in range(frames_for_2_seconds):
+                    images.append(final_frame)
+            
+            # Ensure GIF is saved to 'outputs' subfolder
+            if not gif_filename.startswith('outputs/') and not os.path.isabs(gif_filename):
+                # Create outputs directory if it doesn't exist
+                os.makedirs('outputs', exist_ok=True)
+                # Prepend 'outputs/' to filename
+                gif_filename = os.path.join('outputs', os.path.basename(gif_filename))
+            
+            imageio.mimsave(gif_filename, images, fps=fps, loop=3)
+            
+            if mute_mode:
+                print(f"✓ Distribution gif saved as: {gif_filename}")
+                
+            # Display the gif only when mute_mode=False (suppress when mute_mode=True)
+            if not mute_mode:
+                try:
+                    display(IPImage(filename=gif_filename))
+                except:
+                    pass  # Silent failure when mute_mode=False
+        else:
+            if mute_mode:
+                print("No frames created for distribution - skipping gif generation")
+    
+    finally:
+        shutil.rmtree(temp_dir, ignore_errors=True)
+
+
+def _create_tstat_gif(plot_info, gif_filename, mute_mode, max_frames=50):
+    """
+    Create t-statistics gif using plot info from plot_t_statistics_vs_constraints.
+    """
+    
+    if mute_mode:
+        print(f"Creating t-statistics gif for {plot_info['quality_index']}...")
+    
+    unique_constraints = plot_info['unique_constraints']
+    
+    if mute_mode:
+        print(f"Found {len(unique_constraints)} constraint levels: {unique_constraints}")
+    
+    # Create temporary directory for frame images
+    temp_dir = tempfile.mkdtemp()
+    frame_files = []
+    
+    try:
+        # Frame 0: Empty t-statistics plot (match static plot exactly)
+        fig, ax = plt.subplots(figsize=(9.5, 5))
+        
+        # Add null hypothesis line (same as static plot)
+        ax.axhline(y=0, color='darkgray', linestyle='--', alpha=0.7, linewidth=2, 
+                  label='Null hypothesis (t=0)', zorder=2)
+        
+        # Set fixed axis ranges for all frames (use actual limits from static plot)
+        if 'actual_plot_limits' in plot_info:
+            ax.set_xlim(plot_info['actual_plot_limits']['x_min'], plot_info['actual_plot_limits']['x_max'])
+            ax.set_ylim(plot_info['actual_plot_limits']['y_min'], plot_info['actual_plot_limits']['y_max'])
+        else:
+            ax.set_xlim(plot_info['plot_limits']['x_min'], plot_info['plot_limits']['x_max'])
+            ax.set_ylim(plot_info['plot_limits']['y_min'], plot_info['plot_limits']['y_max'])
+        ax.set_xticks(range(0, int(plot_info['plot_limits']['x_max']) + 1))
+        
+        # Format plot (same as static plot)
+        ax.set_xlabel(f'Number of {plot_info["CORE_B"]} Age Constraints')
+        ax.set_ylabel('t-statistic')
+        # Get display name from plot_info or create it
+        quality_index = plot_info['quality_index']
+        display_name = plot_info.get('display_name', quality_index)
+        if not display_name or display_name == quality_index:
+            if quality_index == 'corr_coef':
+                display_name = "Pearson's r"
+            elif quality_index == 'norm_dtw':
+                display_name = "Normalized DTW Distance"
+            else:
+                display_name = quality_index
+        
+        ax.set_title(f't-statistics vs Age Constraints for {display_name}\n{plot_info["CORE_A"]} vs {plot_info["CORE_B"]}')
+        ax.grid(True, alpha=0.3, zorder=0)
+        
+        # Create complete legend (same as static plot)
+        legend_elements = [
+            ax.plot([], [], color='darkgray', linestyle='--', alpha=0.7, linewidth=2)[0],
+        ]
+        legend_labels = [
+            'Null hypothesis (t=0)', 
+        ]
+        
+        # Add effect size legend elements with Cohen's d ranges
+        effect_size_info = [
+            ('negligible', '|d| < 0.2'),
+            ('small', '0.2 ≤ |d| < 0.5'),
+            ('medium', '0.5 ≤ |d| < 0.8'),
+            ('large', '|d| ≥ 0.8')
+        ]
+        
+        for category, d_range in effect_size_info:
+            color = get_effect_size_color(category)
+            legend_elements.append(
+                ax.scatter([], [], color=color, edgecolor='black', 
+                          linewidth=max(0.5, plot_info['sizing']['line_width']), s=plot_info['sizing']['dot_size'])
+            )
+            legend_labels.append(f'{category.capitalize()} effect ({d_range})')
+        
+        ax.legend(legend_elements, legend_labels, bbox_to_anchor=(1.02, 0.5), loc='center left')
+        
+        # Add colorbar (same as static plot)
+        sm = plt.cm.ScalarMappable(cmap=plot_info['cmap'], norm=plt.Normalize(vmin=-plot_info['max_abs_score'], vmax=plot_info['max_abs_score']))
+        sm.set_array([])
+        cbar = plt.colorbar(sm, ax=ax, orientation='horizontal', shrink=0.6, aspect=20, pad=0.12)
+        cbar.set_label('Change in Correlation Quality', labelpad=10)
+        cbar.set_ticks([-plot_info['max_abs_score'], 0, plot_info['max_abs_score']])
+        cbar.set_ticklabels(['Deterioration', 'No Change', 'Improvement'])
+        
+        frame_file = os.path.join(temp_dir, f'frame_000.png')
+        plt.tight_layout()
+        plt.savefig(frame_file, dpi=100, bbox_inches='tight', facecolor='white')
+        plt.close()
+        frame_files.append(frame_file)
+        
+        # Progressive frames: Add points by constraint level, then by individual points within level
+        individual_points = plot_info.get('individual_points', [])
+        individual_segments = plot_info.get('individual_segments', [])
+        
+        if not individual_points:
+            # Fallback - no individual points available
+            if mute_mode:
+                print("No individual points found, skipping progressive frames")
+            return
+        
+        # Group points by constraint level
+        points_by_constraint = {}
+        for i, point in enumerate(individual_points):
+            constraint_level = point['x']
+            if constraint_level not in points_by_constraint:
+                points_by_constraint[constraint_level] = []
+            points_by_constraint[constraint_level].append((i, point))
+        
+        # Sort constraint levels
+        sorted_constraint_levels = sorted(points_by_constraint.keys())
+        
+        # Create ordered list of points to plot (by constraint level, then within level)
+        ordered_points = []
+        for constraint_level in sorted_constraint_levels:
+            for original_idx, point in points_by_constraint[constraint_level]:
+                ordered_points.append((original_idx, point))
+        
+        # Calculate grouping based on max_frames limit
+        total_points = len(ordered_points)
+        # Use max_frames for animation - pause frames are added after
+        target_animation_frames = max_frames
+        
+        if total_points <= target_animation_frames:
+            # No grouping needed - one point per frame
+            points_per_frame = 1
+            num_frames = total_points
+        else:
+            # Calculate how many points per frame to stay close to max_frames
+            # We want: num_frames ≈ target_animation_frames, so points_per_frame = ceil(total_points / target_animation_frames)
+            points_per_frame = math.ceil(total_points / target_animation_frames)
+            # Calculate actual number of frames needed
+            num_frames = math.ceil(total_points / points_per_frame)
+        
+        if mute_mode:
+            print(f"  T-statistics GIF: {total_points} points, {points_per_frame} points/frame, {num_frames} frames")
+        
+        # Create frames with progress bar
+        with tqdm(total=num_frames, desc="  Creating t-stat GIF frames", disable=(not mute_mode)) as pbar:
+            for frame_idx in range(num_frames):
+                # Calculate which points to show up to this frame
+                points_to_show = min((frame_idx + 1) * points_per_frame, total_points)
+                # Create frame with exact same styling as static plot
+                fig, ax = plt.subplots(figsize=(9.5, 5))
+                
+                # Add null hypothesis line (same as static plot)
+                ax.axhline(y=0, color='darkgray', linestyle='--', alpha=0.7, linewidth=2, 
+                          label='Null hypothesis (t=0)', zorder=2)
+                
+                # Plot all points up to current frame
+                shown_points = set()
+                for i in range(points_to_show):
+                    original_idx, point = ordered_points[i]
+                    ax.scatter(point['x'], point['y'], 
+                             color=point['color'], 
+                             edgecolor=point['edgecolor'],
+                             linewidth=point['linewidth'], 
+                             s=point['size'], 
+                             zorder=point['zorder'])
+                    shown_points.add((point['x'], point['y']))
+                
+                # Plot ALL segments where BOTH endpoints have been shown
+                frame_segments = []
+                frame_colors = []
+                
+                for segment in individual_segments:
+                    seg_data = segment['segment']
+                    start_x, start_y = seg_data[0]
+                    end_x, end_y = seg_data[1]
+                    
+                    # Show segment if both start and end points have been plotted
+                    if (start_x, start_y) in shown_points and (end_x, end_y) in shown_points:
+                        frame_segments.append(seg_data)
+                        frame_colors.append(segment['color'])
+                
+                # Draw all segments at once using LineCollection
+                if frame_segments:
+                    lc = LineCollection(frame_segments, colors=frame_colors, 
+                                      alpha=individual_segments[0]['alpha'] if individual_segments else 0.8, 
+                                      linewidths=individual_segments[0]['linewidth'] if individual_segments else 1, 
+                                      zorder=1)
+                    ax.add_collection(lc)
+            
+                # Set fixed axis ranges for all frames (use actual limits from static plot)
+                if 'actual_plot_limits' in plot_info:
+                    ax.set_xlim(plot_info['actual_plot_limits']['x_min'], plot_info['actual_plot_limits']['x_max'])
+                    ax.set_ylim(plot_info['actual_plot_limits']['y_min'], plot_info['actual_plot_limits']['y_max'])
+                else:
+                    ax.set_xlim(plot_info['plot_limits']['x_min'], plot_info['plot_limits']['x_max'])
+                    ax.set_ylim(plot_info['plot_limits']['y_min'], plot_info['plot_limits']['y_max'])
+                ax.set_xticks(range(0, int(plot_info['plot_limits']['x_max']) + 1))
+                
+                # Format plot (same as static plot)
+                ax.set_xlabel(f'Number of {plot_info["CORE_B"]} Age Constraints')
+                ax.set_ylabel('t-statistic')
+                ax.set_title(f't-statistics vs Age Constraints for {display_name}\n{plot_info["CORE_A"]} vs {plot_info["CORE_B"]}')
+                ax.grid(True, alpha=0.3, zorder=0)
+                
+                # Create legend for static elements and effect sizes
+                legend_elements = [
+                    ax.plot([], [], color='darkgray', linestyle='--', alpha=0.7, linewidth=2)[0],
+                ]
+                legend_labels = [
+                    'Null hypothesis (t=0)', 
+                ]
+                
+                # Add effect size legend elements with Cohen's d ranges
+                effect_size_info = [
+                    ('negligible', '|d| < 0.2'),
+                    ('small', '0.2 ≤ |d| < 0.5'),
+                    ('medium', '0.5 ≤ |d| < 0.8'),
+                    ('large', '|d| ≥ 0.8')
+                ]
+                
+                for category, d_range in effect_size_info:
+                    color = get_effect_size_color(category)
+                    legend_elements.append(
+                        ax.scatter([], [], color=color, edgecolor='black', 
+                                  linewidth=max(0.5, plot_info['sizing']['line_width']), s=plot_info['sizing']['dot_size'])
+                    )
+                    legend_labels.append(f'{category.capitalize()} effect ({d_range})')
+                
+                ax.legend(legend_elements, legend_labels, bbox_to_anchor=(1.02, 0.5), loc='center left')
+                
+                # Add horizontal colorbar for improvement/deterioration
+                sm = plt.cm.ScalarMappable(cmap=plot_info['cmap'], norm=plt.Normalize(vmin=-plot_info['max_abs_score'], vmax=plot_info['max_abs_score']))
+                sm.set_array([])
+                cbar = plt.colorbar(sm, ax=ax, orientation='horizontal', shrink=0.6, aspect=20, pad=0.12)
+                cbar.set_label('Change in Correlation Quality', labelpad=10)
+                cbar.set_ticks([-plot_info['max_abs_score'], 0, plot_info['max_abs_score']])
+                cbar.set_ticklabels(['Deterioration', 'No Change', 'Improvement'])
+                
+                # Save frame
+                frame_file = os.path.join(temp_dir, f'frame_{frame_idx + 1:03d}.png')
+                plt.tight_layout()
+                plt.savefig(frame_file, dpi=100, bbox_inches='tight', facecolor='white')
+                plt.close()
+                frame_files.append(frame_file)
+                
+                # Update progress bar
+                pbar.update(1)
+        
+        # Create gif from frames
+        if frame_files:
+            if not mute_mode:
+                print(f"Combining {len(frame_files)} frames into t-statistics gif...")
+            
+            images = []
+            target_size = None
+            
+            for frame_file in frame_files:
+                img = imageio.imread(frame_file)
+                if target_size is None:
+                    target_size = img.shape[:2]
+                elif img.shape[:2] != target_size:
+                    pil_img = Image.fromarray(img)
+                    pil_img = pil_img.resize((target_size[1], target_size[0]), Image.Resampling.LANCZOS)
+                    img = np.array(pil_img)
+                images.append(img)
+            
+            # Add frames to make final frame stay for 2 seconds
+            if images:
+                final_frame = images[-1]
+                fps = 10  # imageio default fps
+                frames_for_2_seconds = fps * 2  # 2 seconds = fps * 2 frames
+                for _ in range(frames_for_2_seconds):
+                    images.append(final_frame)
+            
+            # Ensure GIF is saved to 'outputs' subfolder
+            if not gif_filename.startswith('outputs/') and not os.path.isabs(gif_filename):
+                # Create outputs directory if it doesn't exist
+                os.makedirs('outputs', exist_ok=True)
+                # Prepend 'outputs/' to filename
+                gif_filename = os.path.join('outputs', os.path.basename(gif_filename))
+            
+            imageio.mimsave(gif_filename, images, fps=fps, loop=3)
+            
+            if mute_mode:
+                print(f"✓ T-statistics gif saved as: {gif_filename}")
+                
+            # Display the gif only when mute_mode=False (suppress when mute_mode=True)
+            if not mute_mode:
+                try:
+                    display(IPImage(filename=gif_filename))
+                except:
+                    pass  # Silent failure when mute_mode=False
+        else:
+            if mute_mode:
+                print("No frames created for t-statistics - skipping gif generation")
+    
+    finally:
+        shutil.rmtree(temp_dir, ignore_errors=True)
