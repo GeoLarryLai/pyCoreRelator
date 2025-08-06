@@ -3285,7 +3285,7 @@ def _create_distribution_gif(plot_info, gif_filename, mute_mode, max_frames=50):
             sm.set_array([])
             
             cbar = plt.colorbar(sm, cax=cax, orientation='horizontal')
-            cbar.set_label('Age Constraint Levels', fontsize=9, fontweight='bold')
+            cbar.set_label(f'# of {plot_info["CORE_B"]} Age Constraints', fontsize=9, fontweight='bold')
             
             # Set ticks to show actual constraint levels
             unique_constraints = plot_info['unique_constraints']
@@ -3423,7 +3423,7 @@ def _create_distribution_gif(plot_info, gif_filename, mute_mode, max_frames=50):
                     for i, label in enumerate(plot_info['legend_labels']):
                         if (label.startswith('Null Hypotheses') or 
                             label.startswith('Real Data') or 
-                            label.startswith('Age Constraint Levels')):
+                            label.startswith('# of')):
                             legend.get_texts()[i].set_weight('bold')
                             legend.get_texts()[i].set_fontsize(10)
                             legend.get_texts()[i].set_ha('left')
