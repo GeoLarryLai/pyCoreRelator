@@ -41,6 +41,7 @@ import gc
 from joblib import Parallel, delayed
 import itertools
 from scipy import stats
+from IPython.display import Image as IPImage
 
 # Import from other modules
 from .quality_metrics import compute_quality_indicators, calculate_age_overlap_percentage
@@ -1602,7 +1603,6 @@ def run_comprehensive_dtw_analysis(log_a, log_b, md_a, md_b, picked_depths_a=Non
 
         # Display only if created
         if gif_output_file:
-            from IPython.display import Image as IPImage
             display(IPImage(filename=gif_output_file))
 
     # Clean up memory before returning
