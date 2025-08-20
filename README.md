@@ -8,7 +8,7 @@
 
 ## License
 
-**pyCoreRelator** is licensed under the GNU Affero General Public License 3.0. See [LICENSE](LICENSE) for details.
+**pyCoreRelator** is licensed under the [GNU Affero General Public License 3.0](LICENSE).
 
 ## Key Features
 
