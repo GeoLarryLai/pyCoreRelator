@@ -158,4 +158,4 @@ Detailed function documentation is available in [FUNCTION_DOCUMENTATION.md](FUNC
 
 ## License
 
-**pyCoreRelator** is licensed under the Apache License 2.0. See [LICENSE](LICENSE) for details.
+**pyCoreRelator** is licensed under the Apache License 2.0 with Commons Clause License Condition 1.0. See [LICENSE](LICENSE) for details.
