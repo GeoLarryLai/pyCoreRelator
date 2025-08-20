@@ -4,11 +4,11 @@
   <img src="pyCoreRelator_logo_ani.gif" alt="pyCoreRelator Logo" width="200"/>
 </div>
 
-**pyCoreRelator** is a source-available Python package for quantitative stratigraphic correlation between geological core data, leveraging Dynamic Time Warping (DTW) algorithms for automatic signal alignment and considering stratigraphic principles (e.g., superposition, age succession, pinchouts, etc.). The package performs segment-based correlation analysis with age model constraints and comprehensive quality assessment for geological core correlation workflows.
+**pyCoreRelator** is a Python package for quantitative stratigraphic correlation between geological core data, leveraging Dynamic Time Warping (DTW) algorithms for automatic signal alignment and considering stratigraphic principles (e.g., superposition, age succession, pinchouts, etc.). The package performs segment-based correlation analysis with age model constraints and comprehensive quality assessment for geological core correlation workflows.
 
 ## License
 
-**pyCoreRelator** is licensed under the Apache License 2.0 with Commons Clause License Condition 1.0. See [LICENSE](LICENSE) for details.
+**pyCoreRelator** is licensed under the GNU Affero General Public License 3.0. See [LICENSE](LICENSE) for details.
 
 ## Key Features
 
