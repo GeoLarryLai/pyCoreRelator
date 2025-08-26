@@ -58,6 +58,7 @@ def preprocess_core_data(data_config):
         - input_file_paths: Dictionary of input file paths by data type
         - clean_file_paths: Dictionary of output file paths by data type
         - core_length: Target core length for scaling
+        - target_depth_resolution: (optional) Target depth resolution for resampling
         
     Returns
     -------
@@ -68,6 +69,8 @@ def preprocess_core_data(data_config):
     -----
     The function validates threshold conditions and processes different data types
     based on their configuration structure (single column, multi-column, or nested).
+    If target_depth_resolution is specified, data will be resampled to uniform depth
+    grid after cleaning and scaling operations.
     """
     # Get primary depth column from config
     depth_col = data_config['depth_column']
@@ -197,6 +200,14 @@ def preprocess_core_data(data_config):
                 depth_scale = data_config['core_length'] / data[depth_col].max()
                 data[depth_col] = data[depth_col] * depth_scale
                 
+                # Apply resampling if target_depth_resolution is specified
+                if 'target_depth_resolution' in data_config:
+                    target_resolution = data_config['target_depth_resolution']
+                    # Validate target_resolution is a positive number
+                    if isinstance(target_resolution, (int, float)) and target_resolution > 0:
+                        print(f"Resampling {data_type} data to {target_resolution} depth resolution...")
+                        data = _resample_to_target_resolution(data, depth_col, target_resolution)
+                
                 # Use direct file path from config
                 output_path = data_config['mother_dir'] + data_config['clean_output_folder'] + clean_paths[data_type]
                 data.to_csv(output_path, index=False)
@@ -205,6 +216,49 @@ def preprocess_core_data(data_config):
             print(f"Raw file not found for {data_type}: {data_path}")
     
     print("Data preprocessing completed.") 
+
+
+def _resample_to_target_resolution(data, depth_col, target_resolution):
+    """
+    Resample data to a target depth resolution using linear interpolation.
+    
+    This function resamples all data columns to a uniform depth grid with the
+    specified resolution, using linear interpolation for missing values.
+    
+    Parameters
+    ----------
+    data : pandas.DataFrame
+        Input data containing depth and other columns
+    depth_col : str
+        Name of the depth column
+    target_resolution : float
+        Target depth resolution (spacing between consecutive depth points)
+        
+    Returns
+    -------
+    pandas.DataFrame
+        Resampled data with uniform depth grid
+        
+    Notes
+    -----
+    Creates a new depth grid from minimum to maximum depth with the specified
+    resolution, then interpolates all other columns to this grid.
+    """
+    # Create new depth grid with target resolution
+    min_depth = data[depth_col].min()
+    max_depth = data[depth_col].max()
+    new_depth_grid = np.arange(min_depth, max_depth + target_resolution, target_resolution)
+    
+    # Create new dataframe with the uniform depth grid
+    resampled_data = pd.DataFrame({depth_col: new_depth_grid})
+    
+    # Interpolate all other columns to the new depth grid
+    for col in data.columns:
+        if col != depth_col:
+            # Use linear interpolation, with extrapolation for values outside the original range
+            resampled_data[col] = np.interp(new_depth_grid, data[depth_col], data[col])
+    
+    return resampled_data.astype('float32')
 
 
 def plot_core_logs(data_config, file_type='clean', title=None):
