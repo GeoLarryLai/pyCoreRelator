@@ -327,8 +327,14 @@ def plot_rgb_profile(depths, r, g, b, r_std, g_std, b_std, lum, lum_std, img,
     # Set x-axis limits based on RGB value range only
     rgb_min = np.nanmin([r, g, b])
     rgb_max = np.nanmax([r, g, b])
-    padding = (rgb_max - rgb_min) * 0.15  # Add 15% padding
-    ax2.set_xlim(rgb_min - padding, rgb_max + padding)
+    
+    # Handle case where all values are NaN
+    if np.isnan(rgb_min) or np.isnan(rgb_max):
+        # Set default limits when no valid data is available
+        ax2.set_xlim(0, 255)
+    else:
+        padding = (rgb_max - rgb_min) * 0.15  # Add 15% padding
+        ax2.set_xlim(rgb_min - padding, rgb_max + padding)
 
     ax2.invert_yaxis()  # Invert y-axis to match image orientation
     ax2.set_ylim(max(depths), min(depths))  # Invert y-axis limits
