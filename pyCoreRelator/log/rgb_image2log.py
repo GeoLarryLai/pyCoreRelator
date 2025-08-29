@@ -308,7 +308,7 @@ def plot_rgb_profile(depths, r, g, b, r_std, g_std, b_std, lum, lum_std, img,
     )
 
     # Plot the image on the left subplot
-    img_normalized = img / 255.0  # Normalize image data to [0,1] range
+    img_normalized = np.clip(img / 255.0, 0, 1)  # Normalize and clip image data to [0,1] range
     ax1.imshow(img_normalized)
     ax1.set_xticks([])  # Remove x-axis ticks
     ax1.set_ylabel('Depth (pixels)')
@@ -325,16 +325,21 @@ def plot_rgb_profile(depths, r, g, b, r_std, g_std, b_std, lum, lum_std, img,
     ax2.plot(lum, depths, 'k--', label='Relative\\nLuminance', linewidth=1)
 
     # Set x-axis limits based on RGB value range only
-    rgb_min = np.nanmin([r, g, b])
-    rgb_max = np.nanmax([r, g, b])
+    rgb_values = np.concatenate([r[~np.isnan(r)], g[~np.isnan(g)], b[~np.isnan(b)]])
     
-    # Handle case where all values are NaN
-    if np.isnan(rgb_min) or np.isnan(rgb_max):
+    # Handle case where all values are NaN or no valid data
+    if len(rgb_values) == 0:
         # Set default limits when no valid data is available
         ax2.set_xlim(0, 255)
     else:
-        padding = (rgb_max - rgb_min) * 0.15  # Add 15% padding
-        ax2.set_xlim(rgb_min - padding, rgb_max + padding)
+        rgb_min = np.min(rgb_values)
+        rgb_max = np.max(rgb_values)
+        if rgb_min == rgb_max:
+            # Handle case where all valid values are the same
+            ax2.set_xlim(rgb_min - 10, rgb_max + 10)
+        else:
+            padding = (rgb_max - rgb_min) * 0.15  # Add 15% padding
+            ax2.set_xlim(rgb_min - padding, rgb_max + padding)
 
     ax2.invert_yaxis()  # Invert y-axis to match image orientation
     ax2.set_ylim(max(depths), min(depths))  # Invert y-axis limits
@@ -458,6 +463,81 @@ def stitch_core_sections(core_structure, mother_dir, stitchbuffer=10,
     # Process each file
     for file_name, params in core_structure.items():
         print(f"\nProcessing {file_name}...")
+        
+        # Check if this is an empty segment
+        if params.get('scans') is None and 'rgb_pxlength' in params and 'rgb_pxwidth' in params:
+            print(f"Creating empty RGB segment for {file_name}")
+            
+            # Get target dimensions
+            target_height = params['rgb_pxlength']
+            target_width = params['rgb_pxwidth']
+            
+            # Create empty image (RGB with 3 channels, filled with white)
+            empty_image = np.full((target_height, target_width, 3), 255.0, dtype=np.float64)
+            
+            # Create depth array with bin_size=10 (default from extract_rgb_profile)
+            bin_size = 10
+            num_bins = target_height // bin_size
+            if target_height % bin_size != 0:
+                num_bins += 1
+                
+            # Create empty RGB curves with NaN values
+            depths = np.arange(bin_size//2, target_height, bin_size)
+            if len(depths) < num_bins:
+                depths = np.append(depths, target_height - bin_size//2)
+                
+            r = np.full(num_bins, np.nan)
+            g = np.full(num_bins, np.nan)
+            b = np.full(num_bins, np.nan)
+            r_std = np.full(num_bins, np.nan)
+            g_std = np.full(num_bins, np.nan)
+            b_std = np.full(num_bins, np.nan)
+            lum = np.full(num_bins, np.nan)
+            lum_std = np.full(num_bins, np.nan)
+            
+            # Plot empty segment
+            core_name = f"{file_name} (empty)"
+            plot_rgb_profile(depths, r, g, b, r_std, g_std, b_std, lum, lum_std, empty_image, core_name=core_name)
+            
+            # Adjust depths to continue from previous section
+            adjusted_depths = depths + current_depth
+            current_depth = adjusted_depths[-1]
+            print(f"\nEmpty segment length {target_height} (pixels), width {target_width} (pixels)")
+            
+            # Keep track of the maximum width
+            if target_width > max_width:
+                max_width = target_width
+            
+            # Handle stitching for empty segments
+            if len(all_depths) > 0:  # Not the first section
+                # Set last buffer rows of previous section to nan
+                for lst in [all_r, all_g, all_b, all_r_std, all_g_std, all_b_std, all_lum, all_lum_std]:
+                    lst[-stitchbuffer:] = [np.nan] * stitchbuffer
+                
+                # Skip first buffer rows of current section
+                all_depths.extend(adjusted_depths[stitchbuffer:])
+                all_r.extend(r[stitchbuffer:])
+                all_g.extend(g[stitchbuffer:])
+                all_b.extend(b[stitchbuffer:])
+                all_r_std.extend(r_std[stitchbuffer:])
+                all_g_std.extend(g_std[stitchbuffer:])
+                all_b_std.extend(b_std[stitchbuffer:])
+                all_lum.extend(lum[stitchbuffer:])
+                all_lum_std.extend(lum_std[stitchbuffer:])
+            else:  # First section
+                all_depths.extend(adjusted_depths)
+                all_r.extend(r)
+                all_g.extend(g)
+                all_b.extend(b)
+                all_r_std.extend(r_std)
+                all_g_std.extend(g_std)
+                all_b_std.extend(b_std)
+                all_lum.extend(lum)
+                all_lum_std.extend(lum_std)
+            
+            all_images.append(empty_image)
+            continue
+        
         image_path = f"{mother_dir}/{file_name}"
         core_name = file_name.split('-image')[0].upper()
         

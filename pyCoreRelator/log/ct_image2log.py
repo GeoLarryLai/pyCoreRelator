@@ -1316,6 +1316,36 @@ def process_and_stitch_segments(core_structure, mother_dir, width_start_pct=0.25
     for segment, segment_data in core_structure.items():
         print(f"Processing {segment}")
         
+        # Check if this is an empty segment
+        if segment_data.get('scans') is None and 'rgb_pxlength' in segment_data and 'rgb_pxwidth' in segment_data:
+            print(f"Creating empty segment for {segment}")
+            
+            # Get target dimensions
+            target_height = segment_data['rgb_pxlength']
+            target_width = segment_data['rgb_pxwidth']
+            
+            # Create empty slice (filled with zeros or a background value)
+            empty_slice = np.zeros((target_height, target_width), dtype=np.float64)
+            
+            # Create empty brightness and stddev curves with NaN values
+            empty_brightness = np.full(target_height, np.nan)
+            empty_stddev = np.full(target_height, np.nan)
+            
+            stitched_segments[segment] = {
+                'brightness': empty_brightness,
+                'stddev': empty_stddev,
+                'depth': np.arange(target_height),  # Use pixel units
+                'slice': empty_slice,
+                'px_spacing': (1, 1)  # Use pixel units
+            }
+            
+            # Display empty slice
+            display_slice_bt_std(empty_slice, empty_brightness, empty_stddev,
+                               pixel_spacing=(1, 1),
+                               core_name=f"{segment} (empty segment - {target_height} x {target_width}px)")
+            
+            continue
+        
         if 'suffixes' not in segment_data:  # Regular segments with one or two scans
             if len(segment_data['scans']) == 1:  # Single scan
                 data_dir = f"{mother_dir}/{segment}/{segment_data['scans'][0]}"
