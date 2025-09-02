@@ -1263,17 +1263,26 @@ def process_and_stitch_segments(core_structure, mother_dir, width_start_pct=0.25
     (with A, B, C suffixes), then combines all segments into a final stitched core.
     Each segment is rescaled to match RGB image dimensions and can be inverted if needed.
     
+    Multiple 'empty' segments are automatically numbered as 'empty_1', 'empty_2', etc.,
+    while preserving their order in the core structure.
+    
     Parameters
     ----------
-    core_structure : dict
-        Dictionary defining the core structure with segment names as keys and
-        segment data as values. Each segment data contains:
+    core_structure : dict or list
+        Core structure definition in one of two formats:
+        1. Dictionary format: {segment_name: segment_data, ...}
+        2. List format: [(segment_name, segment_data), ...]
+        
+        Each segment_data contains:
         - 'scans': list of scan names
         - 'params': processing parameters for each scan
         - 'rgb_pxlength': target pixel length for rescaling
         - 'rgb_pxwidth': target pixel width for rescaling  
         - 'upside_down': boolean indicating if segment should be inverted
         - 'suffixes': optional list of section suffixes (A, B, C)
+        
+        Note: Multiple 'empty' segments will be automatically numbered as 'empty_1', 'empty_2', etc.
+        For dictionaries, use unique keys like 'empty_1', 'empty_2' or use list format for duplicates.
     mother_dir : str
         Base directory path containing all segment subdirectories
     width_start_pct : float, default=0.25
@@ -1309,11 +1318,46 @@ def process_and_stitch_segments(core_structure, mother_dir, width_start_pct=0.25
     ... }
     >>> result = process_and_stitch_segments(core_structure, '/path/to/data')
     """
+    # Process core structure in order and handle multiple 'empty' segments
+    # Handle both dictionary and list formats
+    if isinstance(core_structure, dict):
+        # Dictionary format - convert to list of tuples
+        processed_segments = []
+        empty_counter = 1
+        
+        for segment, segment_data in core_structure.items():
+            if segment == 'empty':
+                # Automatically number empty segments
+                if empty_counter == 1:
+                    processed_segment_name = 'empty_1'
+                else:
+                    processed_segment_name = f'empty_{empty_counter}'
+                empty_counter += 1
+                processed_segments.append((processed_segment_name, segment_data))
+            else:
+                processed_segments.append((segment, segment_data))
+    else:
+        # List format - already in correct format, just number empty segments
+        processed_segments = []
+        empty_counter = 1
+        
+        for segment, segment_data in core_structure:
+            if segment == 'empty':
+                # Automatically number empty segments
+                if empty_counter == 1:
+                    processed_segment_name = 'empty_1'
+                else:
+                    processed_segment_name = f'empty_{empty_counter}'
+                empty_counter += 1
+                processed_segments.append((processed_segment_name, segment_data))
+            else:
+                processed_segments.append((segment, segment_data))
+    
     # Dictionary to store stitched results for each core segment
     stitched_segments = {}
     
     # Process each segment
-    for segment, segment_data in core_structure.items():
+    for segment, segment_data in processed_segments:
         print(f"Processing {segment}")
         
         # Check if this is an empty segment
@@ -1614,7 +1658,7 @@ def process_and_stitch_segments(core_structure, mother_dir, width_start_pct=0.25
                                    core_name=core_name)
     
     # Stack all segments together (from top to bottom)
-    segment_order = list(core_structure.keys())
+    segment_order = [segment for segment, _ in processed_segments]
     print(f"Stitching all core segments together: {', '.join(segment_order)}")
     final_slices = []
     final_brightness = []

@@ -6,6 +6,7 @@ Included Functions:
 - extract_rgb_profile: Extract RGB color profiles along the y-axis of an image file
 - plot_rgb_profile: Create visualization plots of RGB analysis results
 - stitch_core_sections: Stitch multiple core sections together by processing RGB profiles
+  (supports multiple empty segments with automatic numbering)
 
 This module provides comprehensive tools for processing RGB images of geological cores,
 extracting color profiles, and creating visualizations for core analysis.
@@ -401,17 +402,30 @@ def stitch_core_sections(core_structure, mother_dir, stitchbuffer=10,
     continuous profile, and combines the images and data arrays. Buffer zones at section
     boundaries are handled to avoid artifacts at stitching points.
     
+    Multiple 'empty' segments are automatically numbered as 'empty_1', 'empty_2', etc.,
+    while preserving their order in the core structure.
+    
     Parameters
     ----------
-    core_structure : dict
-        Dictionary containing parameters for each core section file.
-        Keys are filenames, values are dictionaries with processing parameters:
+    core_structure : dict or list
+        Core structure definition in one of two formats:
+        1. Dictionary format: {section_name: section_params, ...}
+        2. List format: [(section_name, section_params), ...]
+        
+        Each section_params contains processing parameters:
         - upper_rgb_threshold: Upper RGB threshold for filtering
         - lower_rgb_threshold: Lower RGB threshold for filtering
         - buffer: Buffer size for filtering
         - top_trim: Pixels to trim from top
         - bottom_trim: Pixels to trim from bottom
         - target_luminance: Target luminance for normalization
+        
+        For empty segments, use:
+        - rgb_pxlength: Height in pixels
+        - rgb_pxwidth: Width in pixels
+        
+        Note: Multiple 'empty' segments will be automatically numbered as 'empty_1', 'empty_2', etc.
+        For dictionaries, use unique keys like 'empty_1', 'empty_2' or use list format for duplicates.
     mother_dir : str
         Base directory path containing the core section image files
     stitchbuffer : int, default=10
@@ -440,12 +454,48 @@ def stitch_core_sections(core_structure, mother_dir, stitchbuffer=10,
     -------
     >>> core_structure = {
     ...     'section1.bmp': {'upper_rgb_threshold': 120, 'buffer': 30, 'top_trim': 50, ...},
+    ...     'empty_1': {'rgb_pxlength': 1000, 'rgb_pxwidth': 500},
     ...     'section2.bmp': {'upper_rgb_threshold': 110, 'buffer': 40, 'top_trim': 60, ...}
     ... }
     >>> depths, r, g, b, r_std, g_std, b_std, lum, lum_std, img = stitch_core_sections(
     ...     core_structure, '/path/to/images/', stitchbuffer=15
     ... )
     """
+    # Process core structure in order and handle multiple 'empty' segments
+    # Handle both dictionary and list formats
+    if isinstance(core_structure, dict):
+        # Dictionary format - convert to list of tuples
+        processed_segments = []
+        empty_counter = 1
+        
+        for section_name, section_params in core_structure.items():
+            if section_name == 'empty':
+                # Automatically number empty segments
+                if empty_counter == 1:
+                    processed_section_name = 'empty_1'
+                else:
+                    processed_section_name = f'empty_{empty_counter}'
+                empty_counter += 1
+                processed_segments.append((processed_section_name, section_params))
+            else:
+                processed_segments.append((section_name, section_params))
+    else:
+        # List format - already in correct format, just number empty segments
+        processed_segments = []
+        empty_counter = 1
+        
+        for section_name, section_params in core_structure:
+            if section_name == 'empty':
+                # Automatically number empty segments
+                if empty_counter == 1:
+                    processed_section_name = 'empty_1'
+                else:
+                    processed_section_name = f'empty_{empty_counter}'
+                empty_counter += 1
+                processed_segments.append((processed_section_name, section_params))
+            else:
+                processed_segments.append((section_name, section_params))
+
     # Initialize lists to store data for stitching
     all_depths = []
     all_r = []
@@ -460,8 +510,8 @@ def stitch_core_sections(core_structure, mother_dir, stitchbuffer=10,
     current_depth = 0
     max_width = 0  # Track the maximum width of all images
 
-    # Process each file
-    for file_name, params in core_structure.items():
+    # Process each section
+    for file_name, params in processed_segments:
         print(f"\nProcessing {file_name}...")
         
         # Check if this is an empty segment
