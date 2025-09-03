@@ -34,6 +34,8 @@ from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 from sklearn.feature_selection import SelectKBest, f_regression
 from sklearn.ensemble import RandomForestRegressor, HistGradientBoostingRegressor
+from sklearn.model_selection import cross_val_predict, KFold
+from sklearn.linear_model import Ridge
 import xgboost as xgb
 import lightgbm as lgb
 from joblib import Parallel, delayed
@@ -1204,10 +1206,11 @@ def _apply_xgboost(X_train, y_train, X_pred, data_config):
 
 def _apply_xgboost_lightgbm(X_train, y_train, X_pred, data_config):
     """
-    Apply XGBoost + LightGBM ensemble method with configurable feature weights.
+    Apply XGBoost + LightGBM stacking ensemble method with configurable feature weights.
     
-    This function trains both XGBoost and LightGBM models and ensembles their
-    predictions by averaging. Uses polynomial features and feature selection.
+    This function trains both XGBoost and LightGBM models as base learners and uses
+    a Ridge regression meta-learner to optimally combine their predictions through
+    stacking with cross-validation.
     
     Parameters
     ----------
@@ -1223,12 +1226,13 @@ def _apply_xgboost_lightgbm(X_train, y_train, X_pred, data_config):
     Returns
     -------
     numpy.array
-        Ensemble predictions from XGBoost and LightGBM
+        Stacked ensemble predictions from XGBoost and LightGBM
         
     Notes
     -----
-    Applies feature weights, creates polynomial features with limited selection,
-    and trains both models with warnings suppressed for cleaner output.
+    Uses stacking with 5-fold cross-validation to generate out-of-fold predictions
+    for training the meta-learner. The meta-learner (Ridge regression) learns
+    optimal weights for combining base model predictions.
     """
     # Apply feature weights BEFORE processing
     X_train_weighted = apply_feature_weights(X_train, data_config)
@@ -1256,54 +1260,84 @@ def _apply_xgboost_lightgbm(X_train, y_train, X_pred, data_config):
     X_pred_processed = X_pred_processed.astype('float32')
     y_train = y_train.astype('float32')
 
-    # Initialize models
+    # Initialize base models
     xgb_model = xgb.XGBRegressor(
-        n_estimators=3000,
-        learning_rate=0.003,
-        max_depth=10,
+        n_estimators=2000,  # Reduced for faster CV
+        learning_rate=0.005,
+        max_depth=8,
         min_child_weight=5,
-        subsample=0.75,
-        colsample_bytree=0.75,
-        gamma=0.2,
-        reg_alpha=0.3,
-        reg_lambda=3.0,
+        subsample=0.8,
+        colsample_bytree=0.8,
+        gamma=0.1,
+        reg_alpha=0.2,
+        reg_lambda=2.0,
         random_state=42,
         n_jobs=-1,
     )
 
     lgb_model = lgb.LGBMRegressor(
-        n_estimators=3000,
-        learning_rate=0.003,
-        max_depth=6,
-        num_leaves=20,
-        min_child_samples=50,
+        n_estimators=2000,  # Reduced for faster CV
+        learning_rate=0.005,
+        max_depth=5,
+        num_leaves=15,
+        min_child_samples=40,
         subsample=0.9,
         colsample_bytree=0.9,
-        reg_alpha=0.3,
-        reg_lambda=3.0,
+        reg_alpha=0.2,
+        reg_lambda=2.0,
         random_state=42,
         n_jobs=-1,
         force_col_wise=True,
         verbose=-1
     )
 
-    # Train both models with warnings suppressed
+    # Set up cross-validation for stacking
+    cv_folds = min(5, len(y_train) // 20)  # Use fewer folds for small datasets
+    if cv_folds < 3:
+        cv_folds = 3
+    
+    kfold = KFold(n_splits=cv_folds, shuffle=True, random_state=42)
+
+    # Generate out-of-fold predictions for meta-learner training
     import warnings
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        
+        # Get cross-validated predictions from base models
+        xgb_oof_preds = cross_val_predict(
+            xgb_model, X_train_processed, y_train, 
+            cv=kfold, method='predict', n_jobs=1  # Use n_jobs=1 to avoid nested parallelism
+        ).astype('float32')
+        
+        lgb_oof_preds = cross_val_predict(
+            lgb_model, X_train_processed, y_train, 
+            cv=kfold, method='predict', n_jobs=1
+        ).astype('float32')
+
+    # Create meta-features from out-of-fold predictions
+    meta_features = np.column_stack([xgb_oof_preds, lgb_oof_preds])
+    
+    # Train meta-learner (Ridge regression)
+    meta_learner = Ridge(alpha=0.1, random_state=42)
+    meta_learner.fit(meta_features, y_train)
+
+    # Train base models on full training data and make predictions
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         xgb_model.fit(X_train_processed, y_train)
         lgb_model.fit(X_train_processed, y_train, feature_name='auto')
+        
+        # Generate base model predictions on test data
+        xgb_test_preds = xgb_model.predict(X_pred_processed).astype('float32')
+        lgb_test_preds = lgb_model.predict(X_pred_processed).astype('float32')
 
-    # Make predictions with both models
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore")
-        xgb_predictions = xgb_model.predict(X_pred_processed).astype('float32')
-        lgb_predictions = lgb_model.predict(X_pred_processed).astype('float32')
+    # Create meta-features for test predictions
+    test_meta_features = np.column_stack([xgb_test_preds, lgb_test_preds])
+    
+    # Generate final stacked predictions using meta-learner
+    stacked_predictions = meta_learner.predict(test_meta_features).astype('float32')
 
-    # Ensemble predictions (simple average)
-    predictions = (xgb_predictions + lgb_predictions) / 2
-
-    return predictions 
+    return stacked_predictions 
 
 
 def _generate_output_filename(target_log, data_config):
@@ -1424,7 +1458,7 @@ def fill_gaps_with_ml(target_log, All_logs, data_config, output_csv=True,
     Notes
     -----
     Supports four ML methods: Random Forest ('rf'), Random Forest with Trend
-    Constraints ('rftc'), XGBoost ('xgb'), and XGBoost+LightGBM ensemble ('xgblgbm').
+    Constraints ('rftc'), XGBoost ('xgb'), and XGBoost+LightGBM stacking ('xgblgbm').
     """
     # Input validation
     if target_log is None or All_logs is None or data_config is None:
@@ -1445,6 +1479,17 @@ def fill_gaps_with_ml(target_log, All_logs, data_config, output_csv=True,
 
     # Identify gaps in target data
     gap_mask = target_data[target_log].isna()
+    
+    # Check if target column has any valid data for training
+    valid_target_data = target_data[target_log].dropna()
+    if len(valid_target_data) == 0:
+        print(f"Skipping {target_log} - no valid training data available (0 samples)")
+        if output_csv:
+            # Generate output filename based on target_log and data_config
+            output_filename = _generate_output_filename(target_log, data_config)
+            output_path = mother_dir + filled_output_folder + output_filename
+            target_data_filled.to_csv(output_path, index=False)
+        return target_data_filled, gap_mask
     
     # If no gaps exist, save to CSV if requested and return original data
     if not gap_mask.any():
@@ -1469,6 +1514,16 @@ def fill_gaps_with_ml(target_log, All_logs, data_config, output_csv=True,
     X_train = X[~gap_mask]
     y_train = y[~gap_mask]
     X_pred = X[gap_mask]
+    
+    # Final check: ensure we have sufficient training data after feature preparation
+    if len(y_train.dropna()) == 0:
+        print(f"Skipping {target_log} - no valid training samples after feature preparation")
+        if output_csv:
+            # Generate output filename based on target_log and data_config
+            output_filename = _generate_output_filename(target_log, data_config)
+            output_path = mother_dir + filled_output_folder + output_filename
+            target_data_filled.to_csv(output_path, index=False)
+        return target_data_filled, gap_mask
 
     # Apply specific ML method
     if ml_method == 'rf':
@@ -1563,12 +1618,20 @@ def process_and_fill_logs(data_config, ml_method='xgblgbm'):
             if 'data_col' in type_config:
                 data_col = type_config['data_col']
                 if data_col in data_dict[data_type].columns:
-                    feature_data[data_type] = (data_dict[data_type], [depth_col, data_col])
+                    # Check if column has valid data for features
+                    col_data = data_dict[data_type][data_col]
+                    if not col_data.isna().all() and len(col_data.dropna()) > 0:
+                        feature_data[data_type] = (data_dict[data_type], [depth_col, data_col])
             
             # Handle multi-column data types
             elif 'data_cols' in type_config:
-                valid_cols = [depth_col] + [col for col in type_config['data_cols'] 
-                                           if col in data_dict[data_type].columns]
+                valid_cols = [depth_col]
+                for col in type_config['data_cols']:
+                    if col in data_dict[data_type].columns:
+                        # Check if column has valid data for features
+                        col_data = data_dict[data_type][col]
+                        if not col_data.isna().all() and len(col_data.dropna()) > 0:
+                            valid_cols.append(col)
                 if len(valid_cols) > 1:
                     feature_data[data_type] = (data_dict[data_type], valid_cols)
             
@@ -1579,7 +1642,10 @@ def process_and_fill_logs(data_config, ml_method='xgblgbm'):
                     if isinstance(sub_config, dict) and 'data_col' in sub_config:
                         data_col = sub_config['data_col']
                         if data_col in data_dict[data_type].columns:
-                            data_cols.append(data_col)
+                            # Check if column has valid data for features
+                            col_data = data_dict[data_type][data_col]
+                            if not col_data.isna().all() and len(col_data.dropna()) > 0:
+                                data_cols.append(data_col)
                 if len(data_cols) > 1:
                     feature_data[data_type] = (data_dict[data_type], data_cols)
 
@@ -1592,7 +1658,7 @@ def process_and_fill_logs(data_config, ml_method='xgblgbm'):
         'rf': 'Random Forest', 
         'rftc': 'Random Forest with Trend Constraints',
         'xgb': 'XGBoost', 
-        'xgblgbm': 'XGBoost + LightGBM'
+        'xgblgbm': 'XGBoost + LightGBM Stacking'
     }
 
     # Helper function to get additional feature support for multi-column data types
@@ -1624,13 +1690,23 @@ def process_and_fill_logs(data_config, ml_method='xgblgbm'):
             if 'data_cols' in type_config:
                 for col in type_config['data_cols']:
                     if col in data_dict[data_type].columns:
-                        target_logs.append((col, data_type))
+                        # Check if column has valid non-empty data for ML training
+                        col_data = data_dict[data_type][col]
+                        if not col_data.isna().all() and len(col_data.dropna()) > 0:
+                            target_logs.append((col, data_type))
+                        else:
+                            print(f"Skipping {col} - column is empty (0 samples)")
             
             # Handle single column data types
             elif 'data_col' in type_config:
                 col = type_config['data_col']
                 if col in data_dict[data_type].columns:
-                    target_logs.append((col, data_type))
+                    # Check if column has valid non-empty data for ML training
+                    col_data = data_dict[data_type][col]
+                    if not col_data.isna().all() and len(col_data.dropna()) > 0:
+                        target_logs.append((col, data_type))
+                    else:
+                        print(f"Skipping {col} - column is empty (0 samples)")
             
             # Handle nested configurations
             else:
@@ -1638,7 +1714,12 @@ def process_and_fill_logs(data_config, ml_method='xgblgbm'):
                     if isinstance(sub_config, dict) and 'data_col' in sub_config:
                         col = sub_config['data_col']
                         if col in data_dict[data_type].columns:
-                            target_logs.append((col, data_type))
+                            # Check if column has valid non-empty data for ML training
+                            col_data = data_dict[data_type][col]
+                            if not col_data.isna().all() and len(col_data.dropna()) > 0:
+                                target_logs.append((col, data_type))
+                            else:
+                                print(f"Skipping {col} - column is empty (0 samples)")
 
     # Process each target log
     data_type_results = {}  # Store results by data type for consolidation
