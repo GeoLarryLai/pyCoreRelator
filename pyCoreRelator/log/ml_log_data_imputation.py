@@ -34,8 +34,6 @@ from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 from sklearn.feature_selection import SelectKBest, f_regression
 from sklearn.ensemble import RandomForestRegressor, HistGradientBoostingRegressor
-from sklearn.model_selection import cross_val_predict, KFold
-from sklearn.linear_model import Ridge
 import xgboost as xgb
 import lightgbm as lgb
 from joblib import Parallel, delayed
@@ -813,7 +811,8 @@ def apply_feature_weights(X, data_config):
     Apply feature weights using configurable parameters from data_config.
     
     This function multiplies feature columns by their configured weights to
-    adjust their relative importance in machine learning models.
+    adjust their relative importance in machine learning models. Weights for
+    empty or non-existent columns are ignored.
     
     Parameters
     ----------
@@ -830,10 +829,23 @@ def apply_feature_weights(X, data_config):
     Notes
     -----
     Processes different configuration structures (single column, multi-column, nested)
-    and applies weights to matching columns in the feature dataframe.
+    and applies weights to matching columns in the feature dataframe. Ignores weights
+    for columns that don't exist or are empty in the feature dataframe.
     """
     X_weighted = X.copy()
     column_configs = data_config['column_configs']
+    
+    def _has_valid_data(col_name):
+        """Check if column exists and has valid (non-empty, non-all-NaN) data."""
+        matching_cols = [x_col for x_col in X_weighted.columns if col_name in x_col]
+        if not matching_cols:
+            return False
+        
+        for x_col in matching_cols:
+            # Check if column has any non-NaN values
+            if not X_weighted[x_col].isna().all() and len(X_weighted[x_col].dropna()) > 0:
+                return True
+        return False
     
     # Process each data type in column_configs
     for data_type, type_config in column_configs.items():
@@ -843,21 +855,27 @@ def apply_feature_weights(X, data_config):
                 data_cols = type_config['data_cols']
                 weights = type_config['feature_weights']
                 
-                # Apply weights to each column
+                # Apply weights to each column that exists and has valid data
                 for col, weight in zip(data_cols, weights):
-                    matching_cols = [x_col for x_col in X_weighted.columns if col in x_col]
-                    for x_col in matching_cols:
-                        X_weighted[x_col] = (X_weighted[x_col] * weight).astype('float32')
+                    if _has_valid_data(col):
+                        matching_cols = [x_col for x_col in X_weighted.columns if col in x_col]
+                        for x_col in matching_cols:
+                            # Additional check for the specific column
+                            if not X_weighted[x_col].isna().all() and len(X_weighted[x_col].dropna()) > 0:
+                                X_weighted[x_col] = (X_weighted[x_col] * weight).astype('float32')
             
             # Handle single column data types with feature_weight
             elif 'data_col' in type_config and 'feature_weight' in type_config:
                 data_col = type_config['data_col']
                 weight = type_config['feature_weight']
                 
-                # Find matching columns in X that contain this data column name
-                matching_cols = [x_col for x_col in X_weighted.columns if data_col in x_col]
-                for x_col in matching_cols:
-                    X_weighted[x_col] = (X_weighted[x_col] * weight).astype('float32')
+                # Apply weight only if column exists and has valid data
+                if _has_valid_data(data_col):
+                    matching_cols = [x_col for x_col in X_weighted.columns if data_col in x_col]
+                    for x_col in matching_cols:
+                        # Additional check for the specific column
+                        if not X_weighted[x_col].isna().all() and len(X_weighted[x_col].dropna()) > 0:
+                            X_weighted[x_col] = (X_weighted[x_col] * weight).astype('float32')
             
             # Handle nested configurations (with multiple sub-types)
             else:
@@ -866,10 +884,13 @@ def apply_feature_weights(X, data_config):
                         data_col = sub_config['data_col']
                         weight = sub_config['feature_weight']
                         
-                        # Find matching columns in X that contain this data column name
-                        matching_cols = [x_col for x_col in X_weighted.columns if data_col in x_col]
-                        for x_col in matching_cols:
-                            X_weighted[x_col] = (X_weighted[x_col] * weight).astype('float32')
+                        # Apply weight only if column exists and has valid data
+                        if _has_valid_data(data_col):
+                            matching_cols = [x_col for x_col in X_weighted.columns if data_col in x_col]
+                            for x_col in matching_cols:
+                                # Additional check for the specific column
+                                if not X_weighted[x_col].isna().all() and len(X_weighted[x_col].dropna()) > 0:
+                                    X_weighted[x_col] = (X_weighted[x_col] * weight).astype('float32')
     
     return X_weighted
 
@@ -982,12 +1003,12 @@ def train_model(model):
     return train_wrapper 
 
 
-def _apply_random_forest(X_train, y_train, X_pred):
+def _apply_random_forest(X_train, y_train, X_pred, data_config):
     """
     Apply Random Forest method.
     
     This function trains an ensemble of Random Forest and Histogram Gradient Boosting
-    models to predict missing values, with outlier removal using IQR method.
+    models to predict missing values, with feature weights applied.
     
     Parameters
     ----------
@@ -997,6 +1018,8 @@ def _apply_random_forest(X_train, y_train, X_pred):
         Training target values
     X_pred : pandas.DataFrame or numpy.array
         Feature data for prediction
+    data_config : dict
+        Configuration containing feature weights and other parameters
         
     Returns
     -------
@@ -1005,21 +1028,15 @@ def _apply_random_forest(X_train, y_train, X_pred):
         
     Notes
     -----
-    Removes outliers using 2.5% quantile cutoff and IQR method before training.
-    Uses parallel processing for model training and averages predictions.
+    Applies feature weights before training and uses parallel processing for model training.
     """
-    # Handle outliers using IQR method
-    quantile_cutoff = 0.025
-    Q1 = y_train.quantile(quantile_cutoff)
-    Q3 = y_train.quantile(1 - quantile_cutoff)
-    IQR = Q3 - Q1
-    outlier_mask = (y_train >= Q1 - 1.5 * IQR) & (y_train <= Q3 + 1.5 * IQR)
-    X_train = X_train[outlier_mask]
-    y_train = y_train[outlier_mask]
+    # Apply feature weights BEFORE processing
+    X_train_weighted = apply_feature_weights(X_train, data_config)
+    X_pred_weighted = apply_feature_weights(X_pred, data_config)
 
     def train_model(model):
-        model.fit(X_train, y_train)
-        return model.predict(X_pred)
+        model.fit(X_train_weighted, y_train)
+        return model.predict(X_pred_weighted)
 
     # Initialize two ensemble models
     models = [
@@ -1053,8 +1070,9 @@ def _apply_random_forest_with_trend_constraints(X_train, y_train, X_pred, merged
     """
     Apply Random Forest with trend constraints method.
     
-    This function trains Random Forest and Histogram Gradient Boosting models and
-    then applies trend constraints by blending predictions with linear interpolation.
+    This function trains Random Forest and Histogram Gradient Boosting models with
+    feature weights applied and then applies trend constraints by blending predictions 
+    with linear interpolation.
     
     Parameters
     ----------
@@ -1080,21 +1098,16 @@ def _apply_random_forest_with_trend_constraints(X_train, y_train, X_pred, merged
         
     Notes
     -----
-    Uses a higher outlier cutoff (15%) and applies trend constraints using the
+    Applies feature weights before training and uses trend constraints with the
     adjust_gap_predictions helper function.
     """
-    # Handle outliers using IQR method
-    quantile_cutoff = 0.15
-    Q1 = y_train.quantile(quantile_cutoff)
-    Q3 = y_train.quantile(1 - quantile_cutoff)
-    IQR = Q3 - Q1
-    outlier_mask = (y_train >= Q1 - 1.5 * IQR) & (y_train <= Q3 + 1.5 * IQR)
-    X_train = X_train[outlier_mask]
-    y_train = y_train[outlier_mask]
+    # Apply feature weights BEFORE processing
+    X_train_weighted = apply_feature_weights(X_train, data_config)
+    X_pred_weighted = apply_feature_weights(X_pred, data_config)
     
     def train_model(model):
-        model.fit(X_train, y_train)
-        return model.predict(X_pred)
+        model.fit(X_train_weighted, y_train)
+        return model.predict(X_pred_weighted)
     
     # Initialize two ensemble models
     models = [
@@ -1156,15 +1169,6 @@ def _apply_xgboost(X_train, y_train, X_pred, data_config):
     # Apply feature weights BEFORE processing
     X_train_weighted = apply_feature_weights(X_train, data_config)
     X_pred_weighted = apply_feature_weights(X_pred, data_config)
-    
-    # Handle outliers using IQR method
-    quantile_cutoff = 0.025
-    Q1 = y_train.quantile(quantile_cutoff)
-    Q3 = y_train.quantile(1 - quantile_cutoff)
-    IQR = Q3 - Q1
-    outlier_mask = (y_train >= Q1 - 1.5 * IQR) & (y_train <= Q3 + 1.5 * IQR)
-    X_train_weighted = X_train_weighted[outlier_mask]
-    y_train = y_train[outlier_mask]
 
     # Create feature pipeline
     feature_pipeline = Pipeline([
@@ -1206,11 +1210,10 @@ def _apply_xgboost(X_train, y_train, X_pred, data_config):
 
 def _apply_xgboost_lightgbm(X_train, y_train, X_pred, data_config):
     """
-    Apply XGBoost + LightGBM stacking ensemble method with configurable feature weights.
+    Apply XGBoost + LightGBM weighted-average ensemble method with configurable feature weights.
     
-    This function trains both XGBoost and LightGBM models as base learners and uses
-    a Ridge regression meta-learner to optimally combine their predictions through
-    stacking with cross-validation.
+    This function trains both XGBoost and LightGBM models and combines their predictions
+    using a simple weighted average.
     
     Parameters
     ----------
@@ -1226,13 +1229,11 @@ def _apply_xgboost_lightgbm(X_train, y_train, X_pred, data_config):
     Returns
     -------
     numpy.array
-        Stacked ensemble predictions from XGBoost and LightGBM
+        Weighted-average ensemble predictions from XGBoost and LightGBM
         
     Notes
     -----
-    Uses stacking with 5-fold cross-validation to generate out-of-fold predictions
-    for training the meta-learner. The meta-learner (Ridge regression) learns
-    optimal weights for combining base model predictions.
+    Uses a simple weighted average (0.6 XGBoost + 0.4 LightGBM) to combine predictions.
     """
     # Apply feature weights BEFORE processing
     X_train_weighted = apply_feature_weights(X_train, data_config)
@@ -1260,9 +1261,9 @@ def _apply_xgboost_lightgbm(X_train, y_train, X_pred, data_config):
     X_pred_processed = X_pred_processed.astype('float32')
     y_train = y_train.astype('float32')
 
-    # Initialize base models
+    # Initialize base models with enhanced parameters for final training
     xgb_model = xgb.XGBRegressor(
-        n_estimators=2000,  # Reduced for faster CV
+        n_estimators=3000,  # Increased since no CV overhead
         learning_rate=0.005,
         max_depth=8,
         min_child_weight=5,
@@ -1276,7 +1277,7 @@ def _apply_xgboost_lightgbm(X_train, y_train, X_pred, data_config):
     )
 
     lgb_model = lgb.LGBMRegressor(
-        n_estimators=2000,  # Reduced for faster CV
+        n_estimators=3000,  # Increased since no CV overhead
         learning_rate=0.005,
         max_depth=5,
         num_leaves=15,
@@ -1291,53 +1292,24 @@ def _apply_xgboost_lightgbm(X_train, y_train, X_pred, data_config):
         verbose=-1
     )
 
-    # Set up cross-validation for stacking
-    cv_folds = min(5, len(y_train) // 20)  # Use fewer folds for small datasets
-    if cv_folds < 3:
-        cv_folds = 3
-    
-    kfold = KFold(n_splits=cv_folds, shuffle=True, random_state=42)
-
-    # Generate out-of-fold predictions for meta-learner training
+    # Train both models on full training data
     import warnings
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore")
-        
-        # Get cross-validated predictions from base models
-        xgb_oof_preds = cross_val_predict(
-            xgb_model, X_train_processed, y_train, 
-            cv=kfold, method='predict', n_jobs=1  # Use n_jobs=1 to avoid nested parallelism
-        ).astype('float32')
-        
-        lgb_oof_preds = cross_val_predict(
-            lgb_model, X_train_processed, y_train, 
-            cv=kfold, method='predict', n_jobs=1
-        ).astype('float32')
-
-    # Create meta-features from out-of-fold predictions
-    meta_features = np.column_stack([xgb_oof_preds, lgb_oof_preds])
-    
-    # Train meta-learner (Ridge regression)
-    meta_learner = Ridge(alpha=0.1, random_state=42)
-    meta_learner.fit(meta_features, y_train)
-
-    # Train base models on full training data and make predictions
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         xgb_model.fit(X_train_processed, y_train)
         lgb_model.fit(X_train_processed, y_train, feature_name='auto')
         
-        # Generate base model predictions on test data
-        xgb_test_preds = xgb_model.predict(X_pred_processed).astype('float32')
-        lgb_test_preds = lgb_model.predict(X_pred_processed).astype('float32')
+        # Generate predictions from both models
+        xgb_preds = xgb_model.predict(X_pred_processed).astype('float32')
+        lgb_preds = lgb_model.predict(X_pred_processed).astype('float32')
 
-    # Create meta-features for test predictions
-    test_meta_features = np.column_stack([xgb_test_preds, lgb_test_preds])
+    # Simple weighted average ensemble (XGBoost tends to be slightly more robust)
+    xgb_weight = 0.6
+    lgb_weight = 0.4
     
-    # Generate final stacked predictions using meta-learner
-    stacked_predictions = meta_learner.predict(test_meta_features).astype('float32')
+    weighted_predictions = (xgb_weight * xgb_preds + lgb_weight * lgb_preds).astype('float32')
 
-    return stacked_predictions 
+    return weighted_predictions 
 
 
 def _generate_output_filename(target_log, data_config):
@@ -1458,7 +1430,7 @@ def fill_gaps_with_ml(target_log, All_logs, data_config, output_csv=True,
     Notes
     -----
     Supports four ML methods: Random Forest ('rf'), Random Forest with Trend
-    Constraints ('rftc'), XGBoost ('xgb'), and XGBoost+LightGBM stacking ('xgblgbm').
+    Constraints ('rftc'), XGBoost ('xgb'), and XGBoost+LightGBM ('xgblgbm').
     """
     # Input validation
     if target_log is None or All_logs is None or data_config is None:
@@ -1527,7 +1499,7 @@ def fill_gaps_with_ml(target_log, All_logs, data_config, output_csv=True,
 
     # Apply specific ML method
     if ml_method == 'rf':
-        predictions = _apply_random_forest(X_train, y_train, X_pred)
+        predictions = _apply_random_forest(X_train, y_train, X_pred, data_config)
     elif ml_method == 'rftc':
         predictions = _apply_random_forest_with_trend_constraints(X_train, y_train, X_pred, merged_data, gap_mask, target_log, data_config)
     elif ml_method == 'xgb':
@@ -1658,7 +1630,7 @@ def process_and_fill_logs(data_config, ml_method='xgblgbm'):
         'rf': 'Random Forest', 
         'rftc': 'Random Forest with Trend Constraints',
         'xgb': 'XGBoost', 
-        'xgblgbm': 'XGBoost + LightGBM Stacking'
+        'xgblgbm': 'XGBoost + LightGBM'
     }
 
     # Helper function to get additional feature support for multi-column data types
@@ -1680,14 +1652,17 @@ def process_and_fill_logs(data_config, ml_method='xgblgbm'):
         return None, None
 
     # Collect target logs dynamically from column configurations
+    # Process in the order defined in column_configs to maintain consistency
     target_logs = []
     
-    for data_type in valid_data_types:
-        if data_type in feature_data:
+    # Process data types in the order they appear in column_configs
+    for data_type in available_columns.keys():
+        if data_type in valid_data_types and data_type in feature_data:
             type_config = available_columns[data_type]
             
             # Handle multi-column data types
             if 'data_cols' in type_config:
+                # Process columns in the order defined in data_cols
                 for col in type_config['data_cols']:
                     if col in data_dict[data_type].columns:
                         # Check if column has valid non-empty data for ML training
@@ -1710,7 +1685,9 @@ def process_and_fill_logs(data_config, ml_method='xgblgbm'):
             
             # Handle nested configurations
             else:
-                for sub_key, sub_config in type_config.items():
+                # Process sub-keys in the order they appear in the config
+                for sub_key in type_config.keys():
+                    sub_config = type_config[sub_key]
                     if isinstance(sub_config, dict) and 'data_col' in sub_config:
                         col = sub_config['data_col']
                         if col in data_dict[data_type].columns:

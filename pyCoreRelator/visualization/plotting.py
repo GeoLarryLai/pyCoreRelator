@@ -1277,7 +1277,7 @@ def visualize_combined_segments(log_a, log_b, md_a, md_b, dtw_results, valid_dtw
     return combined_wp, combined_quality, correlation_fig, matrix_fig
 
 
-def plot_correlation_distribution(csv_file, target_mapping_id=None, quality_index=None, save_png=True, png_filename=None, core_a_name=None, core_b_name=None, no_bins=None, pdf_method='KDE', kde_bandwidth=0.05, mute_mode=False):
+def plot_correlation_distribution(csv_file, target_mapping_id=None, quality_index=None, save_png=True, png_filename=None, core_a_name=None, core_b_name=None, no_bins=None, pdf_method='KDE', kde_bandwidth=0.05, mute_mode=False, targeted_binsize=None):
     """
     UPDATED: Handle new CSV format with different column structure.
     Plot distribution of a specified quality index.
@@ -1292,6 +1292,7 @@ def plot_correlation_distribution(csv_file, target_mapping_id=None, quality_inde
     - pdf_method: str, method for probability density function overlay: 'KDE' (default), 'skew-normal', or 'normal'
     - kde_bandwidth: float, bandwidth for KDE when pdf_method='KDE' (default: 0.05)
     - mute_mode: bool, if True, suppress all print statements (default: False)
+    - targeted_binsize: tuple or None, (synthetic_bins, bin_width) for consistent bin sizing with synthetic data (default: None)
     """
     
     # Define quality index display names and descriptions
@@ -1402,14 +1403,16 @@ def plot_correlation_distribution(csv_file, target_mapping_id=None, quality_inde
     if len(quality_values) > 1:  # Only plot PDF if we have multiple values
         x = np.linspace(quality_values.min(), quality_values.max(), 1000)
         
-        # Calculate area under the histogram in percentage terms
+        # Calculate bin width for proper PDF scaling
         bin_width = bins[1] - bins[0]
-        hist_area = np.sum(hist) * bin_width
+        # PDF curves should integrate to 1 to match density=True histogram
+        # No scaling factor needed - density=True histograms and PDFs both integrate to 1
+        pdf_scale_factor = 1.0  # No scaling needed for density plots
         
         if pdf_method.upper() == 'KDE':
             # Use Kernel Density Estimation
             kde = stats.gaussian_kde(quality_values, bw_method=kde_bandwidth)
-            y = kde(x) * hist_area
+            y = kde(x) * pdf_scale_factor
             fit_params['method'] = 'KDE'
             fit_params['bandwidth'] = kde_bandwidth
             fit_params['kde_object'] = kde
@@ -1423,7 +1426,7 @@ def plot_correlation_distribution(csv_file, target_mapping_id=None, quality_inde
                 shape, location, scale = stats.skewnorm.fit(quality_values)
                 
                 # Generate PDF
-                y = stats.skewnorm.pdf(x, shape, location, scale) * hist_area
+                y = stats.skewnorm.pdf(x, shape, location, scale) * pdf_scale_factor
                 
                 # Calculate skewness
                 skewness = shape / np.sqrt(1 + shape**2) * np.sqrt(2/np.pi)
@@ -1446,8 +1449,51 @@ def plot_correlation_distribution(csv_file, target_mapping_id=None, quality_inde
             # Fit normal distribution
             mean_val, std_val = stats.norm.fit(quality_values)
             
-            # Generate PDF
-            y = stats.norm.pdf(x, mean_val, std_val) * hist_area
+            # Use targeted bin sizing if provided, otherwise use default
+            if targeted_binsize is not None:
+                # targeted_binsize now contains (synthetic_bins, bin_width)
+                synthetic_bins, bin_width_targeted = targeted_binsize
+                n_bins_targeted = len(synthetic_bins) - 1
+                
+                # Use the exact same bin edges as synthetic data
+                bins_targeted = synthetic_bins
+                
+                # Compute histogram using targeted bins
+                hist_values, _ = np.histogram(quality_values, bins=bins_targeted, density=False)
+                hist_percentages = (hist_values / len(quality_values)) * 100
+                
+                # Generate PDF curve from tail to tail (6 sigma range) with targeted scaling
+                x_min = mean_val - 6 * std_val
+                x_max = mean_val + 6 * std_val
+                x = np.linspace(x_min, x_max, 1000)
+                y = stats.norm.pdf(x, mean_val, std_val) * bin_width_targeted * 100
+                
+                # Store targeted bin information
+                fit_params['bins'] = bins_targeted
+                fit_params['hist'] = hist_percentages
+                fit_params['n_bins'] = n_bins_targeted
+                fit_params['bin_width'] = bin_width_targeted
+                fit_params['n_points'] = len(quality_values)
+            else:
+                # Fallback to default approach
+                # Generate PDF
+                y = stats.norm.pdf(x, mean_val, std_val) * pdf_scale_factor
+                
+                # Use default histogram computation
+                if no_bins is not None:
+                    n_bins = no_bins
+                else:
+                    n_bins = min(30, int(np.sqrt(len(quality_values))))
+                
+                hist_values, bins_values = np.histogram(quality_values, bins=n_bins, density=False)
+                hist_percentages = (hist_values / len(quality_values)) * 100
+                
+                # Store default bin information
+                fit_params['bins'] = bins_values
+                fit_params['hist'] = hist_percentages
+                fit_params['n_bins'] = n_bins
+                fit_params['bin_width'] = (quality_values.max() - quality_values.min()) / n_bins
+                fit_params['n_points'] = len(quality_values)
             
             fit_params['method'] = 'normal'
             fit_params['mean'] = mean_val
@@ -1456,7 +1502,7 @@ def plot_correlation_distribution(csv_file, target_mapping_id=None, quality_inde
             fit_params['y_values'] = y
     
     # Add median value
-    median_value = np.median(quality_values)
+    fit_params['median'] = np.median(quality_values)
     
     # If target_mapping_id is provided, calculate its statistics
     if target_mapping_id is not None:
@@ -1475,9 +1521,10 @@ def plot_correlation_distribution(csv_file, target_mapping_id=None, quality_inde
         # Create the figure
         fig, ax = plt.subplots(figsize=(6, 4))
         
-        # Plot histogram of quality index as percentage
+        # Plot histogram of quality index as percentage density
+        # Use density=True to create proper probability density histogram
         ax.hist(quality_values, bins=no_bins, alpha=0.7, color='skyblue', 
-                edgecolor='black', weights=np.ones(total_count)*100/total_count)
+                edgecolor='black', density=True)
         
         # Add probability density function curve if available
         if 'x_range' in fit_params and 'y_values' in fit_params:
@@ -1495,6 +1542,7 @@ def plot_correlation_distribution(csv_file, target_mapping_id=None, quality_inde
                         label=f'Normal Fit\n(mean = {fit_params["mean"]:.3f})\n(σ = {fit_params["std"]:.3f})\nn = {total_count:,}')
         
         # Add vertical line for median
+        median_value = fit_params['median']
         ax.axvline(median_value, color='green', linestyle='dashed', linewidth=2, 
                    label=f'Median: {median_value:.3f}')
         
@@ -1511,7 +1559,7 @@ def plot_correlation_distribution(csv_file, target_mapping_id=None, quality_inde
         
         # Add labels and title
         ax.set_xlabel(quality_display_name)
-        ax.set_ylabel('Percentage (%)')
+        ax.set_ylabel('Probability Density')
         title = f'Distribution of {quality_index}'
         if core_a_name and core_b_name:
             title += f'\n{core_a_name} vs {core_b_name}'
@@ -1539,7 +1587,7 @@ def plot_correlation_distribution(csv_file, target_mapping_id=None, quality_inde
         
         # Print summary statistics
         print(f"Summary Statistics for {quality_display_name}:")
-        print(f"Median: {median_value:.3f}")
+        print(f"Median: {fit_params['median']:.3f}")
         print(f"Min: {quality_values.min():.3f}")
         print(f"Max: {quality_values.max():.3f}")
         print(f"Standard Deviation: {quality_values.std():.3f}")
@@ -1753,7 +1801,8 @@ def calculate_dynamic_sizes(total_points, total_connections):
 
 
 def plot_quality_distributions(quality_data, target_quality_indices, output_figure_filenames, 
-                               CORE_A, CORE_B, debug=True, return_plot_info=False):
+                               CORE_A, CORE_B, debug=True, return_plot_info=False,
+                               plot_real_data_histogram=True, plot_age_removal_step_pdf=True):
     """
     Plot quality index distributions comparing real data vs synthetic null hypothesis.
     
@@ -1801,9 +1850,16 @@ def plot_quality_distributions(quality_data, target_quality_indices, output_figu
         max_core_b_constraints = data['max_core_b_constraints']
         unique_combinations = data['unique_combinations']
 
-        # Generate fitted curve
-        x_fitted = np.linspace(combined_data.min(), combined_data.max(), 1000)
-        y_fitted = stats.norm.pdf(x_fitted, fitted_mean, fitted_std)
+        # Generate fitted curve and scale to percentage
+        n_bins = 30  # Match the histogram bins
+        bin_width = (combined_data.max() - combined_data.min()) / n_bins
+        
+        # Extend PDF range from tail to tail (6 sigma range for complete curves)
+        data_std = fitted_std
+        x_min_extended = fitted_mean - 6 * data_std
+        x_max_extended = fitted_mean + 6 * data_std
+        x_fitted = np.linspace(x_min_extended, x_max_extended, 1000)
+        y_fitted = stats.norm.pdf(x_fitted, fitted_mean, fitted_std) * bin_width * 100
 
         # Extract plot info for gif creation (ONLY NEW ADDITION)
         if return_plot_info:
@@ -1883,13 +1939,14 @@ def plot_quality_distributions(quality_data, target_quality_indices, output_figu
         # Create combined plot
         fig, ax = plt.subplots(figsize=(10, 4.5))
 
-        # Plot combined histogram in gray bars
+        # Plot combined histogram in gray bars as percentages
         n_bins = 30
-        ax.hist(combined_data, bins=n_bins, alpha=0.3, color='gray', density=True, label='Synthetic Data')
+        ax.hist(combined_data, bins=n_bins, alpha=0.3, color='gray', density=False,
+                weights=np.ones(len(combined_data)) * 100 / len(combined_data), label='Synthetic data histogram')
 
         # Plot fitted normal curve as gray dotted line
         ax.plot(x_fitted, y_fitted, color='gray', linestyle=':', linewidth=2, alpha=0.8,
-                label='Null Hypothesis PDFs')
+                label='Synthetic data PDF (Null Hypothesis)')
 
         # Set up colormap based on core_b_constraints_count
         min_core_b = df_all_params['core_b_constraints_count'].min()
@@ -1976,6 +2033,7 @@ def plot_quality_distributions(quality_data, target_quality_indices, output_figu
                                 plotted_constraint_levels.add(core_b_constraints)
                             else:
                                 label = None
+                            should_plot = True  # Always plot solid lines
                         else:
                             line_style = '--'
                             linewidth = 1
@@ -1987,14 +2045,37 @@ def plot_quality_distributions(quality_data, target_quality_indices, output_figu
                                 plotted_constraint_levels.add(core_b_constraints)
                             else:
                                 label = None
+                            should_plot = plot_age_removal_step_pdf  # Only plot dashed lines if enabled
                         
-                        # Plot distribution curve
-                        ax.plot(x_range, y_values, 
-                               color=color, 
-                               linestyle=line_style,
-                               linewidth=linewidth, alpha=alpha,
-                               zorder=zorder,
-                               label=label)
+                        # Use stored histogram and PDF data (computed with consistent bin sizing if available)
+                        if should_plot:
+                            ax.plot(x_range, y_values, 
+                                   color=color, 
+                                   linestyle=line_style,
+                                   linewidth=linewidth, alpha=alpha,
+                                   zorder=zorder,
+                                   label=label)
+                            
+                            # Plot histogram for special cases: no age constraints (0) or all age constraints (max)
+                            if plot_real_data_histogram and (core_b_constraints == 0 or (core_a_constraints == max_core_a_constraints and core_b_constraints == max_core_b_constraints)):
+                                # Reconstruct raw data from stored histogram to plot histogram bars
+                                if 'bins' in row and 'hist' in row and 'n_points' in row and \
+                                   pd.notna(row['bins']) and pd.notna(row['hist']) and pd.notna(row['n_points']):
+                                    try:
+                                        bins_stored = np.fromstring(row['bins'].strip('[]'), sep=' ')
+                                        hist_percentages_stored = np.fromstring(row['hist'].strip('[]'), sep=' ')
+                                        n_points_stored = row['n_points']
+                                        
+                                        # Reconstruct raw data points to plot as histogram
+                                        raw_data_points = reconstruct_raw_data_from_histogram(bins_stored, hist_percentages_stored, n_points_stored)
+                                        
+                                        if len(raw_data_points) > 0:
+                                            # Plot histogram as shaded bars using same bins as stored
+                                            ax.hist(raw_data_points, bins=bins_stored, alpha=0.3, color=color, density=False,
+                                                    weights=np.ones(len(raw_data_points)) * 100 / len(raw_data_points),
+                                                    histtype='bar', edgecolor='none', zorder=zorder-1)
+                                    except Exception:
+                                        pass  # Skip histogram if reconstruction fails
                         
                         # Store individual curve data for GIF creation if requested
                         if return_plot_info:
@@ -2091,7 +2172,7 @@ def plot_quality_distributions(quality_data, target_quality_indices, output_figu
         # Print detailed statistical results BEFORE creating the plot
         if not debug:  # Only show detailed analysis when debug=False (mute_mode=False)
             print(f"\n=== DETAILED STATISTICAL ANALYSIS FOR {quality_index} ===")
-            print(f"Null Hypothesis Distribution:")
+            print(f"Synth Data Distribution:")
             print(f"  Mean: {fitted_mean:.1f}, SD: {fitted_std:.1f}")
             print(f"  Sample size: {len(combined_data)}")
             print(f"  Interpretation: Baseline distribution from synthetic data representing no true correlation")
@@ -2213,10 +2294,10 @@ def plot_quality_distributions(quality_data, target_quality_indices, output_figu
         
         # Formatting
         ax.set_xlabel(f"{display_name}")
-        ax.set_ylabel('Probability Density (%)')
+        ax.set_ylabel('Percentage (%)')
         ax.set_title(f'{display_name} Distribution Comparison\n{CORE_A} vs {CORE_B}')
 
-        # Create grouped legend
+        # Create grouped legend based on plot parameters
         handles, labels = ax.get_legend_handles_labels()
 
         # Separate handles and labels by groups
@@ -2224,6 +2305,8 @@ def plot_quality_distributions(quality_data, target_quality_indices, output_figu
         synthetic_labels = []
         constraint_handles = []
         constraint_labels = []
+        histogram_handles = []
+        histogram_labels = []
 
         for handle, label in zip(handles, labels):
             if 'Null' in label or 'Synthetic' in label:
@@ -2240,7 +2323,7 @@ def plot_quality_distributions(quality_data, target_quality_indices, output_figu
         # Add synthetic group
         if synthetic_handles:
             legend_elements.append(Line2D([0], [0], color='white', linewidth=0, alpha=0))
-            legend_labels.append('Null Hypotheses (Synthetic Data)')
+            legend_labels.append('Synthetic Stratigraphy')
             legend_elements.extend(synthetic_handles)
             legend_labels.extend(synthetic_labels)
             legend_elements.append(Line2D([0], [0], color='white', linewidth=0, alpha=0))
@@ -2249,7 +2332,7 @@ def plot_quality_distributions(quality_data, target_quality_indices, output_figu
         # Add constraint level group
         if constraint_handles:
             legend_elements.append(Line2D([0], [0], color='white', linewidth=0, alpha=0))
-            legend_labels.append('Real Data')
+            legend_labels.append('Real Stratigraphy')
             
             # Filter to only show constraint 0 and max constraint
             filtered_constraint_pairs = []
@@ -2259,35 +2342,73 @@ def plot_quality_distributions(quality_data, target_quality_indices, output_figu
                 constraint_count = int(label.split(': ')[-1])
                 if constraint_count == 0:
                     # Rename to use the core B name
-                    new_label = f'Without {CORE_B}\'s age constraints'
-                    filtered_constraint_pairs.append((handle, new_label))
+                    new_label = f'PDF w/o {CORE_B}\'s age constraints'
+                    filtered_constraint_pairs.append((handle, new_label, constraint_count))
                 elif constraint_count == max_core_b_constraints:
                     # Rename to use the core B name
-                    new_label = f'With all of {CORE_B}\'s age constraints'
-                    filtered_constraint_pairs.append((handle, new_label))
+                    new_label = f'PDF w/ all {CORE_B}\'s age constraints'
+                    filtered_constraint_pairs.append((handle, new_label, constraint_count))
             
             # Sort by constraint count (0 first, then max)
-            filtered_constraint_pairs.sort(key=lambda x: 0 if x[1].startswith('Without') else 1)
+            filtered_constraint_pairs.sort(key=lambda x: x[2])  # Sort by constraint count
             
-            for handle, label in filtered_constraint_pairs:
-                legend_elements.append(handle)
-                legend_labels.append(label)
+            # Add legend entries in the correct order: histogram first, then PDF for each constraint level
+            if plot_real_data_histogram:
+                # Get colors from colormap for histogram legend
+                cmap = cm.get_cmap('Spectral_r')
+                norm = colors.Normalize(vmin=min_core_b, vmax=max_core_b)
+                
+                for handle, pdf_label, constraint_count in filtered_constraint_pairs:
+                    # First add histogram legend entry
+                    constraint_color = cmap(norm(constraint_count))
+                    constraint_color_rgb = constraint_color[:3]
+                    constraint_color_hsv = colors.rgb_to_hsv(constraint_color_rgb)
+                    constraint_darkened_hsv = (constraint_color_hsv[0], constraint_color_hsv[1], constraint_color_hsv[2] * 0.9)
+                    constraint_darkened = colors.hsv_to_rgb(constraint_darkened_hsv)
+                    
+                    if constraint_count == 0:
+                        histogram_label = f'Histogram w/o {CORE_B}\'s age constraints'
+                    else:
+                        histogram_label = f'Histogram w/ all {CORE_B}\'s age constraints'
+                    
+                    legend_elements.append(patches.Rectangle((0, 0), 1, 1, facecolor=constraint_darkened, alpha=0.3))
+                    legend_labels.append(histogram_label)
+                    
+                    # Then add PDF legend entry
+                    legend_elements.append(handle)
+                    legend_labels.append(pdf_label)
+            else:
+                # Just add PDF entries when no histograms are plotted
+                for handle, pdf_label, constraint_count in filtered_constraint_pairs:
+                    legend_elements.append(handle)
+                    legend_labels.append(pdf_label)
             
-            # Add 3 lines of spacing below the "with all constraints" label
-            legend_elements.append(Line2D([0], [0], color='white', linewidth=0, alpha=0))
-            legend_labels.append('')
-            legend_elements.append(Line2D([0], [0], color='white', linewidth=0, alpha=0))
-            legend_labels.append('')
-            legend_elements.append(Line2D([0], [0], color='white', linewidth=0, alpha=0))
-            legend_labels.append('')
+            # Add empty lines depending on plot parameters
+            if plot_real_data_histogram and plot_age_removal_step_pdf:
+                # Add 3 lines of spacing when both are enabled
+                legend_elements.append(Line2D([0], [0], color='white', linewidth=0, alpha=0))
+                legend_labels.append('')
+                legend_elements.append(Line2D([0], [0], color='white', linewidth=0, alpha=0))
+                legend_labels.append('')
+                legend_elements.append(Line2D([0], [0], color='white', linewidth=0, alpha=0))
+                legend_labels.append('')
+            elif not plot_real_data_histogram and plot_age_removal_step_pdf:
+                # Add 3 lines of spacing when only PDF curves are shown
+                legend_elements.append(Line2D([0], [0], color='white', linewidth=0, alpha=0))
+                legend_labels.append('')
+                legend_elements.append(Line2D([0], [0], color='white', linewidth=0, alpha=0))
+                legend_labels.append('')
+                legend_elements.append(Line2D([0], [0], color='white', linewidth=0, alpha=0))
+                legend_labels.append('')
+            # For plot_real_data_histogram=True and plot_age_removal_step_pdf=False, no empty lines
 
         # Apply legend with grouping
         legend = ax.legend(legend_elements, legend_labels, bbox_to_anchor=(1.02, 1), loc='upper left')
 
         # Style the group title labels
         for i, label in enumerate(legend_labels):
-            if (label.startswith('Null Hypotheses') or 
-                label.startswith('Real Data') or 
+            if (label.startswith('Synthetic Stratigraphy') or 
+                label.startswith('Real Stratigraphy') or 
                 label.startswith('# of')):
                 legend.get_texts()[i].set_weight('bold')
                 legend.get_texts()[i].set_fontsize(10)
@@ -2305,33 +2426,41 @@ def plot_quality_distributions(quality_data, target_quality_indices, output_figu
         
         # Position colorbar directly under the legend box
         # First render the plot to get accurate legend positioning
-        plt.draw()
+        if plot_age_removal_step_pdf:
+            plt.draw()
+            
+            # Get legend position in figure coordinates
+            legend_bbox = legend.get_window_extent()
+            legend_bbox_axes = legend_bbox.transformed(fig.transFigure.inverted())
+            
+            # Position colorbar directly below legend
+            colorbar_height = 0.025
+            colorbar_width = legend_bbox_axes.width * 0.9  # Slightly smaller than legend
+            colorbar_x = legend_bbox_axes.x0 - legend_bbox_axes.width *.77  # Center it
+            
+            # Adjust colorbar position based on plot parameters
+            if plot_real_data_histogram and plot_age_removal_step_pdf:
+                # Shift down further when both histograms and PDF curves are shown
+                colorbar_y = legend_bbox_axes.y0 - colorbar_height + 0.125  # Further down to account for histogram legend entries
+            else:
+                # Standard position for PDF-only case
+                colorbar_y = legend_bbox_axes.y0 - colorbar_height + 0.127  # Below legend with gap
+            
+            cax = fig.add_axes([colorbar_x, colorbar_y, colorbar_width, colorbar_height])
+            
+            # Create a colorbar with the same normalization as the curves
+            sm = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
+            sm.set_array([])
+            
+            cbar = plt.colorbar(sm, cax=cax, orientation='horizontal')
+            cbar.set_label(f'Number of {CORE_B} Age Constraints', fontsize=8, fontweight='bold')
         
-        # Get legend position in figure coordinates
-        legend_bbox = legend.get_window_extent()
-        legend_bbox_axes = legend_bbox.transformed(fig.transFigure.inverted())
-        
-        # Position colorbar directly below legend
-        colorbar_height = 0.025
-        colorbar_width = legend_bbox_axes.width * 0.9  # Slightly smaller than legend
-        colorbar_x = legend_bbox_axes.x0 - legend_bbox_axes.width *.77  # Center it
-        colorbar_y = legend_bbox_axes.y0 - colorbar_height + 0.13  # Below legend with gap
-        
-        cax = fig.add_axes([colorbar_x, colorbar_y, colorbar_width, colorbar_height])
-        
-        # Create a colorbar with the same normalization as the curves
-        sm = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
-        sm.set_array([])
-        
-        cbar = plt.colorbar(sm, cax=cax, orientation='horizontal')
-        cbar.set_label(f'Number of {CORE_B} Age Constraints', fontsize=8, fontweight='bold')
-        
-        # Set ticks to show actual constraint levels
-        unique_constraints_sorted = sorted(df_all_params['core_b_constraints_count'].unique())
-        cbar.set_ticks([min_core_b + (max_core_b - min_core_b) * i / (len(unique_constraints_sorted) - 1) 
-                       for i in range(len(unique_constraints_sorted))])
-        cbar.set_ticklabels([str(level) for level in unique_constraints_sorted])
-        cbar.ax.tick_params(labelsize=8)
+            # Set ticks to show actual constraint levels
+            unique_constraints_sorted = sorted(df_all_params['core_b_constraints_count'].unique())
+            cbar.set_ticks([min_core_b + (max_core_b - min_core_b) * i / (len(unique_constraints_sorted) - 1) 
+                        for i in range(len(unique_constraints_sorted))])
+            cbar.set_ticklabels([str(level) for level in unique_constraints_sorted])
+            cbar.ax.tick_params(labelsize=8)
 
         # Store legend information for GIF creation if requested
         if return_plot_info:
@@ -2662,7 +2791,7 @@ def plot_t_statistics_vs_constraints(quality_data, target_quality_indices, outpu
         
         # Add null hypothesis line
         ax.axhline(y=0, color='darkgray', linestyle='--', alpha=0.7, linewidth=2, 
-                  label='Null hypothesis (t=0)', zorder=2)
+                  label='Synthetic Data (t=0)', zorder=2)
         
         # Set x-axis
         all_constraints = df_all_params['core_b_constraints_count'].unique()
@@ -2691,7 +2820,7 @@ def plot_t_statistics_vs_constraints(quality_data, target_quality_indices, outpu
             ax.plot([], [], color='darkgray', linestyle='--', alpha=0.7, linewidth=2)[0],
         ]
         legend_labels = [
-            'Null hypothesis (t=0)', 
+            'Synthetic Data (t=0)', 
         ]
         
         # Add effect size legend elements with Cohen's d ranges
@@ -3001,43 +3130,44 @@ def calculate_quality_comparison_t_statistics(target_quality_indices, master_csv
             
             if has_histogram:
                 try:
-                    # Reconstruct raw data from histogram
+                    # Use histogram data (now computed with consistent bin sizing if available)
                     bins = np.fromstring(row['bins'].strip('[]'), sep=' ')
                     hist_percentages = np.fromstring(row['hist'].strip('[]'), sep=' ')
                     n_points = row['n_points']
                     
                     raw_data_points = reconstruct_raw_data_from_histogram(bins, hist_percentages, n_points)
-                    
-                    # Calculate t-statistic and Cohen's d
-                    if len(raw_data_points) > 1:
-                        t_stat, _ = stats.ttest_ind(raw_data_points, combined_data)
-                        cohens_d_value = cohens_d(raw_data_points, combined_data)
-                    elif len(raw_data_points) == 1:
-                        # Single point: use z-score as approximation for t-stat
-                        combined_mean = np.mean(combined_data)
-                        combined_std = np.std(combined_data)
-                        t_stat = (raw_data_points[0] - combined_mean) / combined_std if combined_std > 0 else 0.0
-                        cohens_d_value = cohens_d(raw_data_points, combined_data)
-                    else:
-                        t_stat = 0.0
-                        cohens_d_value = 0.0
-                    
-                    # Categorize effect size based on Cohen's d
-                    abs_cohens_d = abs(cohens_d_value)
-                    if abs_cohens_d < 0.2:
-                        effect_size_category = "negligible"
-                    elif abs_cohens_d < 0.5:
-                        effect_size_category = "small"
-                    elif abs_cohens_d < 0.8:
-                        effect_size_category = "medium"
-                    else:
-                        effect_size_category = "large"
-                        
                 except Exception as e:
+                    raw_data_points = []
+            else:
+                raw_data_points = []
+            
+            # Calculate t-statistic and Cohen's d using raw_data_points
+            try:
+                if len(raw_data_points) > 1:
+                    t_stat, _ = stats.ttest_ind(raw_data_points, combined_data)
+                    cohens_d_value = cohens_d(raw_data_points, combined_data)
+                elif len(raw_data_points) == 1:
+                    # Single point: use z-score as approximation for t-stat
+                    combined_mean = np.mean(combined_data)
+                    combined_std = np.std(combined_data)
+                    t_stat = (raw_data_points[0] - combined_mean) / combined_std if combined_std > 0 else 0.0
+                    cohens_d_value = cohens_d(raw_data_points, combined_data)
+                else:
                     t_stat = 0.0
                     cohens_d_value = 0.0
+                
+                # Categorize effect size based on Cohen's d
+                abs_cohens_d = abs(cohens_d_value)
+                if abs_cohens_d < 0.2:
                     effect_size_category = "negligible"
-            else:
+                elif abs_cohens_d < 0.5:
+                    effect_size_category = "small"
+                elif abs_cohens_d < 0.8:
+                    effect_size_category = "medium"
+                else:
+                    effect_size_category = "large"
+                    
+            except Exception as e:
                 t_stat = 0.0
                 cohens_d_value = 0.0
                 effect_size_category = "negligible"
@@ -3073,7 +3203,8 @@ def calculate_quality_comparison_t_statistics(target_quality_indices, master_csv
 def plot_quality_comparison_t_statistics(target_quality_indices, master_csv_filenames, 
                                         synthetic_csv_filenames, CORE_A, CORE_B, 
                                         mute_mode=False, save_fig=True, output_figure_filenames=None,
-                                        save_gif=False, output_gif_filenames=None, max_frames=50):
+                                        save_gif=False, output_gif_filenames=None, max_frames=50,
+                                        plot_real_data_histogram=False, plot_age_removal_step_pdf=True):
     """
     Plot quality index distributions comparing real data vs synthetic null hypothesis
     AND t-statistics vs age constraints using pre-calculated statistics from CSV files.
@@ -3111,6 +3242,12 @@ def plot_quality_comparison_t_statistics(target_quality_indices, master_csv_file
         Maximum number of frames for GIF animations. When there are more data points than
         available frames, the function automatically groups multiple data points per frame
         to keep the total animation length under this limit.
+    plot_real_data_histogram : bool, default True
+        If True, plot histograms for real data (no age constraints and all age constraints cases)
+        and include them in the legend. If False, skip real data histograms and keep current legend.
+    plot_age_removal_step_pdf : bool, default True
+        If True, plot all PDF curves including dashed lines for partially removed age constraints
+        and show the legend color bar. If False, skip dashed PDF curves and hide color bar.
         
     Returns:
     --------
@@ -3164,7 +3301,8 @@ def plot_quality_comparison_t_statistics(target_quality_indices, master_csv_file
             # Get plot info for gif creation while creating static plots
             distribution_plot_info = plot_quality_distributions(
                 quality_data, [quality_index], output_figure_filenames if save_fig else {}, 
-                CORE_A, CORE_B, debug=mute_mode, return_plot_info=True
+                CORE_A, CORE_B, debug=mute_mode, return_plot_info=True,
+                plot_real_data_histogram=plot_real_data_histogram, plot_age_removal_step_pdf=plot_age_removal_step_pdf
             )
             
             tstat_plot_info = plot_t_statistics_vs_constraints(
@@ -3186,7 +3324,8 @@ def plot_quality_comparison_t_statistics(target_quality_indices, master_csv_file
             # Just create static plots
             plot_quality_distributions(
                 quality_data, [quality_index], output_figure_filenames if save_fig else {}, 
-                CORE_A, CORE_B, debug=mute_mode, return_plot_info=False
+                CORE_A, CORE_B, debug=mute_mode, return_plot_info=False,
+                plot_real_data_histogram=plot_real_data_histogram, plot_age_removal_step_pdf=plot_age_removal_step_pdf
             )
             
             plot_t_statistics_vs_constraints(
@@ -3213,8 +3352,9 @@ def _create_distribution_gif(plot_info, gif_filename, mute_mode, max_frames=50):
         fig, ax = plt.subplots(figsize=(10, 4.5))  # Match static plot size
         
         # Plot null hypothesis with exact same styling as static plot
-        ax.hist(plot_info['combined_data'], bins=plot_info['n_bins'], alpha=0.3, color='gray', density=True, label='Synthetic Data')
-        ax.plot(plot_info['x_synth'], plot_info['y_synth'], color='gray', linestyle=':', linewidth=2, alpha=0.8, label='Null Hypothesis PDFs')
+        ax.hist(plot_info['combined_data'], bins=plot_info['n_bins'], alpha=0.3, color='gray', density=False,
+                weights=np.ones(len(plot_info['combined_data'])) * 100 / len(plot_info['combined_data']), label='Synthetic data histogram')
+        ax.plot(plot_info['x_synth'], plot_info['y_synth'], color='gray', linestyle=':', linewidth=2, alpha=0.8, label='Synthetic data PDF (Null Hypothesis)')
         
         # Apply exact same styling as static plot (fixed axis ranges)
         quality_index = plot_info['quality_index']
@@ -3240,7 +3380,7 @@ def _create_distribution_gif(plot_info, gif_filename, mute_mode, max_frames=50):
                 display_name = quality_index
         
         ax.set_xlabel(f'{display_name}')
-        ax.set_ylabel('Probability Density (%)')
+        ax.set_ylabel('Percentage (%)')
         ax.set_title(f'{display_name} Distribution Comparison\n{plot_info["CORE_A"]} vs {plot_info["CORE_B"]}')  # Same title as PNG
         # Create complete legend (same as static plot)
         if plot_info['legend_elements'] and plot_info['legend_labels']:
@@ -3372,8 +3512,9 @@ def _create_distribution_gif(plot_info, gif_filename, mute_mode, max_frames=50):
                 fig, ax = plt.subplots(figsize=(10, 4.5))  # Match static plot size
             
                 # Plot null hypothesis first (same as static plot)
-                ax.hist(plot_info['combined_data'], bins=plot_info['n_bins'], alpha=0.3, color='gray', density=True, label='Synthetic Data')
-                ax.plot(plot_info['x_synth'], plot_info['y_synth'], color='gray', linestyle=':', linewidth=2, alpha=0.8, label='Null Hypothesis PDFs')
+                ax.hist(plot_info['combined_data'], bins=plot_info['n_bins'], alpha=0.3, color='gray', density=False,
+                        weights=np.ones(len(plot_info['combined_data'])) * 100 / len(plot_info['combined_data']), label='Synthetic data histogram')
+                ax.plot(plot_info['x_synth'], plot_info['y_synth'], color='gray', linestyle=':', linewidth=2, alpha=0.8, label='Synthetic data PDF (Null Hypothesis)')
                 
                 # Plot all curves up to current frame (same styling as static plot)
                 plotted_constraint_levels = set()
@@ -3413,7 +3554,7 @@ def _create_distribution_gif(plot_info, gif_filename, mute_mode, max_frames=50):
                         ax.set_xlim(plot_info['plot_limits']['x_min'], plot_info['plot_limits']['x_max'])
                     ax.set_ylim(0, plot_info['plot_limits']['y_max'])
                 ax.set_xlabel(f'{display_name}')
-                ax.set_ylabel('Probability Density (%)')
+                ax.set_ylabel('Percentage (%)')
                 ax.set_title(f'{display_name} Distribution Comparison\n{plot_info["CORE_A"]} vs {plot_info["CORE_B"]}')  # Same title as PNG
                 # Create complete legend (same as static plot)
                 if plot_info['legend_elements'] and plot_info['legend_labels']:
@@ -3582,7 +3723,7 @@ def _create_tstat_gif(plot_info, gif_filename, mute_mode, max_frames=50):
         
         # Add null hypothesis line (same as static plot)
         ax.axhline(y=0, color='darkgray', linestyle='--', alpha=0.7, linewidth=2, 
-                  label='Null hypothesis (t=0)', zorder=2)
+                  label='Synthetic Data (t=0)', zorder=2)
         
         # Set fixed axis ranges for all frames (use actual limits from static plot)
         if 'actual_plot_limits' in plot_info:
@@ -3615,7 +3756,7 @@ def _create_tstat_gif(plot_info, gif_filename, mute_mode, max_frames=50):
             ax.plot([], [], color='darkgray', linestyle='--', alpha=0.7, linewidth=2)[0],
         ]
         legend_labels = [
-            'Null hypothesis (t=0)', 
+            'Synthetic Data (t=0)', 
         ]
         
         # Add effect size legend elements with Cohen's d ranges
@@ -3772,7 +3913,7 @@ def _create_tstat_gif(plot_info, gif_filename, mute_mode, max_frames=50):
                 
                 # Add null hypothesis line (same as static plot)
                 ax.axhline(y=0, color='darkgray', linestyle='--', alpha=0.7, linewidth=2, 
-                          label='Null hypothesis (t=0)', zorder=2)
+                          label='Synthetic Data (t=0)', zorder=2)
                 
                 # Plot all points up to current frame
                 shown_points = set()
@@ -3828,7 +3969,7 @@ def _create_tstat_gif(plot_info, gif_filename, mute_mode, max_frames=50):
                     ax.plot([], [], color='darkgray', linestyle='--', alpha=0.7, linewidth=2)[0],
                 ]
                 legend_labels = [
-                    'Null hypothesis (t=0)', 
+                    'Synthetic Data (t=0)', 
                 ]
                 
                 # Add effect size legend elements with Cohen's d ranges

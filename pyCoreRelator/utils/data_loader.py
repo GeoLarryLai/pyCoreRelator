@@ -527,11 +527,25 @@ def load_core_age_constraints(core_name, age_base_path, consider_adjacent_core=F
 
 
 def reconstruct_raw_data_from_histogram(bins, hist_percentages, n_points):
-    """Reconstruct raw data points from histogram bins and percentages"""
+    """Reconstruct raw data points from histogram bins and percentages
+    
+    Note: hist_percentages may not be true percentages due to legacy normalization issues.
+    This function handles both true percentages and raw histogram counts.
+    """
     raw_data = []
     
-    # Convert percentages to raw counts
-    raw_counts = (hist_percentages * n_points) / 100
+    # Handle incorrectly normalized histogram data from legacy CSV files
+    # First, normalize the histogram values so they represent proper proportions
+    hist_sum = np.sum(hist_percentages)
+    if hist_sum > 0:
+        # If the sum is approximately 100, treat as percentages; otherwise renormalize
+        if 90 <= hist_sum <= 110:  # Allow some tolerance for true percentages
+            raw_counts = (hist_percentages * n_points) / 100
+        else:
+            # Renormalize incorrectly scaled histogram data
+            raw_counts = (hist_percentages / hist_sum) * n_points
+    else:
+        raw_counts = np.zeros_like(hist_percentages)
     
     # Generate data points for each bin
     for i, count in enumerate(raw_counts):
@@ -668,8 +682,17 @@ def load_and_prepare_quality_data(target_quality_indices, master_csv_filenames, 
             n_points = row['n_points'] if 'n_points' in row and pd.notna(row['n_points']) else None
             
             if bins is not None and hist_percentages is not None and n_points is not None:
-                # Convert percentages back to raw counts
-                raw_counts = (hist_percentages * n_points) / 100
+                # IMPORTANT FIX: The hist values in CSV are not actually percentages but 
+                # raw histogram counts from the old buggy normalization code.
+                # We need to properly normalize them to reconstruct the correct data.
+                
+                # First, normalize the histogram values so they represent proper proportions
+                hist_sum = np.sum(hist_percentages)
+                if hist_sum > 0:
+                    # Normalize to get proper proportions, then scale by n_points to get counts
+                    raw_counts = (hist_percentages / hist_sum) * n_points
+                else:
+                    raw_counts = np.zeros_like(hist_percentages)
                 
                 # Reconstruct data points by sampling from each bin
                 bin_centers = (bins[:-1] + bins[1:]) / 2

@@ -505,6 +505,7 @@ def _process_single_parameter_combination(
     age_data_a, age_data_b,
     target_quality_indices,
     output_csv_filenames,
+    synthetic_csv_filenames,
     pca_for_dependent_dtw,
     test_age_constraint_removal
 ):
@@ -588,11 +589,28 @@ def _process_single_parameter_combination(
         results = {}
         for quality_index in target_quality_indices:
             
+            # Extract bin size information from synthetic CSV if available
+            targeted_binsize = None
+            if synthetic_csv_filenames and quality_index in synthetic_csv_filenames:
+                synthetic_csv_file = synthetic_csv_filenames[quality_index]
+                if os.path.exists(synthetic_csv_file):
+                    try:
+                        synthetic_df = pd.read_csv(synthetic_csv_file)
+                        if not synthetic_df.empty and 'bins' in synthetic_df.columns:
+                            # Parse the first row's bins to get the bin structure
+                            bins_str = synthetic_df.iloc[0]['bins']
+                            if pd.notna(bins_str):
+                                synthetic_bins = np.fromstring(bins_str.strip('[]'), sep=' ')
+                                bin_width_synthetic = np.mean(np.diff(synthetic_bins))
+                                targeted_binsize = (synthetic_bins, bin_width_synthetic)
+                    except Exception:
+                        pass  # Use default binning if extraction fails
+            
             _, _, fit_params = plot_correlation_distribution(
                 csv_file=f'outputs/{temp_mapping_file}',
                 quality_index=quality_index,
                 no_bins=30, save_png=False, pdf_method='normal',
-                kde_bandwidth=0.05, mute_mode=True
+                kde_bandwidth=0.05, mute_mode=True, targeted_binsize=targeted_binsize
             )
             
             if fit_params is not None:
@@ -633,6 +651,7 @@ def _process_single_constraint_scenario(
     age_data_a, age_data_b,
     uncertainty_method,
     target_quality_indices,
+    synthetic_csv_filenames,
     pca_for_dependent_dtw
 ):
     """Process a single constraint scenario (exact copy of original loop body)"""
@@ -759,11 +778,28 @@ def _process_single_constraint_scenario(
         results = {}
         for quality_index in target_quality_indices:
             
+            # Extract bin size information from synthetic CSV if available
+            targeted_binsize = None
+            if synthetic_csv_filenames and quality_index in synthetic_csv_filenames:
+                synthetic_csv_file = synthetic_csv_filenames[quality_index]
+                if os.path.exists(synthetic_csv_file):
+                    try:
+                        synthetic_df = pd.read_csv(synthetic_csv_file)
+                        if not synthetic_df.empty and 'bins' in synthetic_df.columns:
+                            # Parse the first row's bins to get the bin structure
+                            bins_str = synthetic_df.iloc[0]['bins']
+                            if pd.notna(bins_str):
+                                synthetic_bins = np.fromstring(bins_str.strip('[]'), sep=' ')
+                                bin_width_synthetic = np.mean(np.diff(synthetic_bins))
+                                targeted_binsize = (synthetic_bins, bin_width_synthetic)
+                    except Exception:
+                        pass  # Use default binning if extraction fails
+            
             _, _, fit_params = plot_correlation_distribution(
                 csv_file=f'outputs/{temp_mapping_file}',
                 quality_index=quality_index,
                 no_bins=30, save_png=False, pdf_method='normal',
-                kde_bandwidth=0.05, mute_mode=True
+                kde_bandwidth=0.05, mute_mode=True, targeted_binsize=targeted_binsize
             )
             
             if fit_params is not None:
@@ -825,7 +861,8 @@ def run_multi_parameter_analysis(
     # Output configuration
     output_csv_filenames,  # Dict with quality_index as key and filename as value
     
-    # Optional parameter
+    # Optional parameters
+    synthetic_csv_filenames=None,  # Dict with quality_index as key and synthetic CSV filename as value
     pca_for_dependent_dtw=False,
     n_jobs=-1,  # Number of cores used in parallel processing (-1 uses all available cores)
     max_search_per_layer=None  # Max scenarios per constraint removal layer
@@ -861,6 +898,8 @@ def run_multi_parameter_analysis(
         Names of cores A and B
     output_csv_filenames : dict
         Dictionary mapping quality_index to output CSV filename
+    synthetic_csv_filenames : dict or None, default=None
+        Dictionary mapping quality_index to synthetic CSV filename for consistent bin sizing
     pca_for_dependent_dtw : bool
         Whether to use PCA for dependent DTW
     n_jobs : int, default=-1
@@ -934,6 +973,7 @@ def run_multi_parameter_analysis(
          age_data_a, age_data_b,
          target_quality_indices,
          output_csv_filenames,
+         synthetic_csv_filenames,
          pca_for_dependent_dtw,
          test_age_constraint_removal) 
         for idx, params in enumerate(parameter_combinations)
@@ -1028,6 +1068,7 @@ def run_multi_parameter_analysis(
                     age_data_a, age_data_b,
                     uncertainty_method,
                     target_quality_indices,
+                    synthetic_csv_filenames,
                     pca_for_dependent_dtw
                 ))
         
