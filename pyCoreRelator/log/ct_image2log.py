@@ -366,7 +366,9 @@ def display_slice_bt_std(slice_data: np.ndarray,
                         pixel_spacing: Optional[Tuple[float, float]] = None,
                         core_name: str = "",
                         save_figs: bool = False,
-                        output_dir: Optional[str] = None) -> None:
+                        output_dir: Optional[str] = None,
+                        vmin = None,
+                        vmax = None) -> None:
     """
     Display a core slice and corresponding brightness trace and standard deviation.
     
@@ -391,6 +393,10 @@ def display_slice_bt_std(slice_data: np.ndarray,
         Whether to save figures to files
     output_dir : str, optional
         Directory to save figures if save_figs is True
+    vmin : float, optional
+        Minimum value for colormap scaling. If None, defaults to 400
+    vmax : float, optional
+        Maximum value for colormap scaling. If None, defaults to 1700
         
     Returns
     -------
@@ -409,6 +415,12 @@ def display_slice_bt_std(slice_data: np.ndarray,
     >>> stddev = np.random.rand(100) * 100 + 50
     >>> display_slice_bt_std(slice_data, brightness, stddev, core_name="Test Core")
     """
+    # Set default colormap values if not provided
+    if vmin is None:
+        vmin = 400
+    if vmax is None:
+        vmax = 1700
+    
     # Create figure with 3 subplots with specific width ratios and smaller space between subplots
     # Calculate height based on data dimensions while keeping width fixed at 8
     height = 2 * (slice_data.shape[0] / slice_data.shape[1])
@@ -425,11 +437,11 @@ def display_slice_bt_std(slice_data: np.ndarray,
             0, slice_dim[1] * pixel_spacing[0],
             slice_dim[0] * pixel_spacing[1], 0
         ]  # Note: y-axis inverted
-        im = ax1.imshow(slice_data, extent=extent, cmap='jet', vmin=400, vmax=1700)  # vmin set to the defined minimum brightness threshold
+        im = ax1.imshow(slice_data, extent=extent, cmap='jet', vmin=vmin, vmax=vmax)
         ax1.set_xlabel("Width (mm)", fontsize='small')
         ax1.set_ylabel("Depth (mm)", fontsize='small')
     else:
-        im = ax1.imshow(slice_data, cmap='jet', vmin=400, vmax=1700)  # vmin set to the defined minimum brightness threshold
+        im = ax1.imshow(slice_data, cmap='jet', vmin=vmin, vmax=vmax)
         ax1.set_xlabel("Width (pixels)", fontsize='small')
         ax1.set_ylabel("Depth (pixels)", fontsize='small')
     
@@ -500,9 +512,9 @@ def display_slice_bt_std(slice_data: np.ndarray,
         ax.set_axis_off()
         
         if pixel_spacing is not None:
-            im_img = plt.imshow(slice_data, extent=extent, cmap='jet', vmin=400, aspect='auto')
+            im_img = plt.imshow(slice_data, extent=extent, cmap='jet', vmin=vmin, vmax=vmax, aspect='auto')
         else:
-            im_img = plt.imshow(slice_data, cmap='jet', vmin=400, aspect='auto')
+            im_img = plt.imshow(slice_data, cmap='jet', vmin=vmin, vmax=vmax, aspect='auto')
             
         # Ensure no padding
         plt.subplots_adjust(top=1, bottom=0, right=1, left=0, hspace=0, wspace=0)
@@ -1055,7 +1067,7 @@ def create_stitched_slice(trimmed_slice_1, trimmed_slice_2, final_overlap, px_sp
 
 
 def process_single_scan(data_dir, params, segment, scan_name, width_start_pct=0.25, width_end_pct=0.75, 
-                       max_value_side_trim=1200):
+                       max_value_side_trim=1200, vmin=None, vmax=None):
     """
     Process a single CT scan and return the processed data.
     
@@ -1084,6 +1096,10 @@ def process_single_scan(data_dir, params, segment, scan_name, width_start_pct=0.
         Ending percentage of width for brightness analysis (0.0 to 1.0)
     max_value_side_trim : float, default=1200
         Threshold value for automatic side trimming of non-core regions
+    vmin : float, optional
+        Minimum value for display colormap. If None, uses default scaling
+    vmax : float, optional
+        Maximum value for display colormap. If None, uses default scaling
         
     Returns
     -------
@@ -1132,13 +1148,14 @@ def process_single_scan(data_dir, params, segment, scan_name, width_start_pct=0.
     
     display_slice_bt_std(trimmed_slice, brightness, stddev,
                         pixel_spacing=(px_spacing_x, px_spacing_y),
-                        core_name=f"{segment} ({scan_name})")
+                        core_name=f"{segment} ({scan_name})",
+                        vmin=vmin, vmax=vmax)
     
     return brightness, stddev, trimmed_slice, px_spacing_x, px_spacing_y
 
 
 def process_two_scans(segment_data, segment, mother_dir, width_start_pct=0.25, width_end_pct=0.75, 
-                     max_value_side_trim=1200, min_overlap=20, max_overlap=450):
+                     max_value_side_trim=1200, min_overlap=20, max_overlap=450, vmin=None, vmax=None):
     """
     Process and stitch two CT scans together.
     
@@ -1167,6 +1184,10 @@ def process_two_scans(segment_data, segment, mother_dir, width_start_pct=0.25, w
         Minimum overlap length for stitching
     max_overlap : int, default=450
         Maximum overlap length for stitching
+    vmin : float, optional
+        Minimum value for display colormap. If None, uses default scaling
+    vmax : float, optional
+        Maximum value for display colormap. If None, uses default scaling
         
     Returns
     -------
@@ -1201,7 +1222,8 @@ def process_two_scans(segment_data, segment, mother_dir, width_start_pct=0.25, w
         scans[0],
         width_start_pct=width_start_pct,
         width_end_pct=width_end_pct,
-        max_value_side_trim=max_value_side_trim
+        max_value_side_trim=max_value_side_trim,
+        vmin=vmin, vmax=vmax
     )
     
     # Process second scan
@@ -1212,7 +1234,8 @@ def process_two_scans(segment_data, segment, mother_dir, width_start_pct=0.25, w
         scans[1],
         width_start_pct=width_start_pct,
         width_end_pct=width_end_pct,
-        max_value_side_trim=max_value_side_trim
+        max_value_side_trim=max_value_side_trim,
+        vmin=vmin, vmax=vmax
     )
     
     # Stitch scans
@@ -1248,13 +1271,14 @@ def process_two_scans(segment_data, segment, mother_dir, width_start_pct=0.25, w
     # Display stitched slice with recalculated brightness/std
     display_slice_bt_std(st_slice, st_bright_re, st_std_re,
                         pixel_spacing=pixel_spacing,
-                        core_name=f"{segment} (stitched)")
+                        core_name=f"{segment} (stitched)",
+                        vmin=vmin, vmax=vmax)
     
     return st_bright_re, st_std_re, st_depth_re, st_slice, pixel_spacing
 
 
 def process_and_stitch_segments(core_structure, mother_dir, width_start_pct=0.25, width_end_pct=0.75, 
-                               max_value_side_trim=1200, min_overlap=20, max_overlap=450):
+                               max_value_side_trim=1200, min_overlap=20, max_overlap=450, vmin=None, vmax=None):
     """
     Process and stitch all segments of a core according to the specified structure.
     
@@ -1295,6 +1319,10 @@ def process_and_stitch_segments(core_structure, mother_dir, width_start_pct=0.25
         Minimum overlap length for stitching
     max_overlap : int, default=450
         Maximum overlap length for stitching
+    vmin : float, optional
+        Minimum value for display colormap. If None, uses default scaling
+    vmax : float, optional
+        Maximum value for display colormap. If None, uses default scaling
         
     Returns
     -------
@@ -1386,7 +1414,8 @@ def process_and_stitch_segments(core_structure, mother_dir, width_start_pct=0.25
             # Display empty slice
             display_slice_bt_std(empty_slice, empty_brightness, empty_stddev,
                                pixel_spacing=(1, 1),
-                               core_name=f"{segment} (empty segment - {target_height} x {target_width}px)")
+                               core_name=f"{segment} (empty segment - {target_height} x {target_width}px)",
+                               vmin=vmin, vmax=vmax)
             
             continue
         
@@ -1400,7 +1429,8 @@ def process_and_stitch_segments(core_structure, mother_dir, width_start_pct=0.25
                     segment_data['scans'][0],
                     width_start_pct=width_start_pct,
                     width_end_pct=width_end_pct,
-                    max_value_side_trim=max_value_side_trim
+                    max_value_side_trim=max_value_side_trim,
+                    vmin=vmin, vmax=vmax
                 )
                 
                 # Rescale slice to match rgb dimensions
@@ -1433,11 +1463,12 @@ def process_and_stitch_segments(core_structure, mother_dir, width_start_pct=0.25
                 core_name = f"[UPSIDE DOWN] {segment} (rescaled to {target_height} x {target_width}px)" if segment_data.get('upside_down', False) else f"{segment} (rescaled to {target_height} x {target_width}px)"
                 display_slice_bt_std(stitched_segments[segment]['slice'], stitched_segments[segment]['brightness'], stitched_segments[segment]['stddev'],
                                    pixel_spacing=(1, 1),
-                                   core_name=core_name)
+                                   core_name=core_name,
+                                   vmin=vmin, vmax=vmax)
                 
             else:  # Two scans
                 st_bright, st_std, st_depth, st_slice, pixel_spacing = process_two_scans(
-                    segment_data, segment, mother_dir, width_start_pct=width_start_pct, width_end_pct=width_end_pct, max_value_side_trim=max_value_side_trim, min_overlap=min_overlap, max_overlap=max_overlap
+                    segment_data, segment, mother_dir, width_start_pct=width_start_pct, width_end_pct=width_end_pct, max_value_side_trim=max_value_side_trim, min_overlap=min_overlap, max_overlap=max_overlap, vmin=vmin, vmax=vmax
                 )
                 
                 # Rescale slice to match rgb dimensions
@@ -1470,7 +1501,8 @@ def process_and_stitch_segments(core_structure, mother_dir, width_start_pct=0.25
                 core_name = f"[UPSIDE DOWN] {segment} (rescaled to {target_height} x {target_width}px)" if segment_data.get('upside_down', False) else f"{segment} (rescaled to {target_height} x {target_width}px)"
                 display_slice_bt_std(stitched_segments[segment]['slice'], stitched_segments[segment]['brightness'], stitched_segments[segment]['stddev'],
                                    pixel_spacing=(1, 1),
-                                   core_name=core_name)
+                                   core_name=core_name,
+                                   vmin=vmin, vmax=vmax)
                 
         else:  # Segments with suffixes (A, B, C or A, B)
             print(f"Processing {segment}: Stitching sections {', '.join(segment_data['suffixes'])}")
@@ -1491,7 +1523,8 @@ def process_and_stitch_segments(core_structure, mother_dir, width_start_pct=0.25
                     segment_data['scans'][0],
                     width_start_pct=width_start_pct,
                     width_end_pct=width_end_pct,
-                    max_value_side_trim=max_value_side_trim
+                    max_value_side_trim=max_value_side_trim,
+                    vmin=vmin, vmax=vmax
                 )
                 
                 brightness_list.append(brightness)
@@ -1534,7 +1567,8 @@ def process_and_stitch_segments(core_structure, mother_dir, width_start_pct=0.25
                 core_name = f"[UPSIDE DOWN] {segment} (rescaled to {target_height} x {target_width}px)" if segment_data.get('upside_down', False) else f"{segment} (rescaled to {target_height} x {target_width}px)"
                 display_slice_bt_std(stitched_segments[segment]['slice'], stitched_segments[segment]['brightness'], stitched_segments[segment]['stddev'],
                                    pixel_spacing=(1, 1),
-                                   core_name=core_name)
+                                   core_name=core_name,
+                                   vmin=vmin, vmax=vmax)
                 
             elif len(segment_data['suffixes']) == 2:  # A and B
                 # Stitch A and B
@@ -1585,7 +1619,8 @@ def process_and_stitch_segments(core_structure, mother_dir, width_start_pct=0.25
                 core_name = f"[UPSIDE DOWN] {segment} (rescaled to {target_height} x {target_width}px)" if segment_data.get('upside_down', False) else f"{segment} (rescaled to {target_height} x {target_width}px)"
                 display_slice_bt_std(stitched_segments[segment]['slice'], stitched_segments[segment]['brightness'], stitched_segments[segment]['stddev'],
                                    pixel_spacing=(1, 1),
-                                   core_name=core_name)
+                                   core_name=core_name,
+                                   vmin=vmin, vmax=vmax)
                 
             else:  # A, B and C
                 # Stitch A and B first
@@ -1655,7 +1690,8 @@ def process_and_stitch_segments(core_structure, mother_dir, width_start_pct=0.25
                 core_name = f"[UPSIDE DOWN] {segment} (rescaled to {target_height} x {target_width}px)" if segment_data.get('upside_down', False) else f"{segment} (rescaled to {target_height} x {target_width}px)"
                 display_slice_bt_std(stitched_segments[segment]['slice'], stitched_segments[segment]['brightness'], stitched_segments[segment]['stddev'],
                                    pixel_spacing=(1, 1),
-                                   core_name=core_name)
+                                   core_name=core_name,
+                                   vmin=vmin, vmax=vmax)
     
     # Stack all segments together (from top to bottom)
     segment_order = [segment for segment, _ in processed_segments]

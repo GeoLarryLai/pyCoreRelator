@@ -16,7 +16,8 @@ import matplotlib.pyplot as plt
 def plot_core_data(md, log, title, core_img_1=None, core_img_2=None, figsize=(20, 4), 
                   label_name=None, available_columns=None, is_multilog=False,
                   picked_depths=None, picked_categories=None, picked_uncertainties=None,
-                  show_category=None, show_bed_number=False, cluster_data=None):
+                  show_category=None, show_bed_number=False, cluster_data=None,
+                  core_img_1_cmap_range=None, core_img_2_cmap_range=None):
     """
     Plot core data with optional core images and support for multiple log types with category visualization.
     
@@ -64,6 +65,12 @@ def plot_core_data(md, log, title, core_img_1=None, core_img_2=None, figsize=(20
             'depth_vals': depth_values_array,
             'labels_vals': cluster_labels_array,
             'k': number_of_clusters
+    core_img_1_cmap_range : tuple, optional
+        Color map range for core_img_1 in format (min_value, max_value).
+        If not provided, matplotlib default auto-scaling is used.
+    core_img_2_cmap_range : tuple, optional
+        Color map range for core_img_2 in format (min_value, max_value).
+        If not provided, matplotlib default auto-scaling is used.
     
     Returns
     -------
@@ -153,7 +160,11 @@ def plot_core_data(md, log, title, core_img_1=None, core_img_2=None, figsize=(20
         
         # First core image display - span all columns
         for col in range(total_plots):
-            axs[0, col].imshow(core_img_1.transpose(1, 0, 2), aspect='auto', extent=[md[0], md[-1], 0, 1])
+            if core_img_1_cmap_range is not None:
+                axs[0, col].imshow(core_img_1.transpose(1, 0, 2), aspect='auto', extent=[md[0], md[-1], 0, 1],
+                                  vmin=core_img_1_cmap_range[0], vmax=core_img_1_cmap_range[1])
+            else:
+                axs[0, col].imshow(core_img_1.transpose(1, 0, 2), aspect='auto', extent=[md[0], md[-1], 0, 1])
             axs[0, col].set_xticks([])
             axs[0, col].set_yticks([])
             if col == 0:
@@ -161,8 +172,13 @@ def plot_core_data(md, log, title, core_img_1=None, core_img_2=None, figsize=(20
         
         # Second core image display - span all columns
         for col in range(total_plots):
-            axs[1, col].imshow(core_img_2.transpose(1, 0, 2) if len(core_img_2.shape) == 3 else 
-                              core_img_2.transpose(), aspect='auto', extent=[md[0], md[-1], 0, 1], cmap='gray')
+            if core_img_2_cmap_range is not None:
+                axs[1, col].imshow(core_img_2.transpose(1, 0, 2) if len(core_img_2.shape) == 3 else 
+                                  core_img_2.transpose(), aspect='auto', extent=[md[0], md[-1], 0, 1], cmap='gray',
+                                  vmin=core_img_2_cmap_range[0], vmax=core_img_2_cmap_range[1])
+            else:
+                axs[1, col].imshow(core_img_2.transpose(1, 0, 2) if len(core_img_2.shape) == 3 else 
+                                  core_img_2.transpose(), aspect='auto', extent=[md[0], md[-1], 0, 1], cmap='gray')
             axs[1, col].set_xticks([])
             axs[1, col].set_yticks([])
             if col == 0:
@@ -187,7 +203,11 @@ def plot_core_data(md, log, title, core_img_1=None, core_img_2=None, figsize=(20
         
         # Core image display - span all columns
         for col in range(total_plots):
-            axs[0, col].imshow(core_img_1.transpose(1, 0, 2), aspect='auto', extent=[md[0], md[-1], 0, 1])
+            if core_img_1_cmap_range is not None:
+                axs[0, col].imshow(core_img_1.transpose(1, 0, 2), aspect='auto', extent=[md[0], md[-1], 0, 1],
+                                  vmin=core_img_1_cmap_range[0], vmax=core_img_1_cmap_range[1])
+            else:
+                axs[0, col].imshow(core_img_1.transpose(1, 0, 2), aspect='auto', extent=[md[0], md[-1], 0, 1])
             axs[0, col].set_xticks([])
             axs[0, col].set_yticks([])
             if col == 0:
@@ -212,8 +232,13 @@ def plot_core_data(md, log, title, core_img_1=None, core_img_2=None, figsize=(20
         
         # Core image display - span all columns
         for col in range(total_plots):
-            axs[0, col].imshow(core_img_2.transpose(1, 0, 2) if len(core_img_2.shape) == 3 else 
-                              core_img_2.transpose(), aspect='auto', extent=[md[0], md[-1], 0, 1], cmap='gray')
+            if core_img_2_cmap_range is not None:
+                axs[0, col].imshow(core_img_2.transpose(1, 0, 2) if len(core_img_2.shape) == 3 else 
+                                  core_img_2.transpose(), aspect='auto', extent=[md[0], md[-1], 0, 1], cmap='gray',
+                                  vmin=core_img_2_cmap_range[0], vmax=core_img_2_cmap_range[1])
+            else:
+                axs[0, col].imshow(core_img_2.transpose(1, 0, 2) if len(core_img_2.shape) == 3 else 
+                                  core_img_2.transpose(), aspect='auto', extent=[md[0], md[-1], 0, 1], cmap='gray')
             axs[0, col].set_xticks([])
             axs[0, col].set_yticks([])
             if col == 0:
