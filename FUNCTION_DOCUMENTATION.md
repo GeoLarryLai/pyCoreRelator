@@ -120,22 +120,6 @@ Computes comprehensive quality indicators for DTW alignment including normalized
   - `dtw_warp_eff`: DTW warping efficiency measure
   - `match_min, match_mean`: Minimum and mean matching function values
 
-#### `find_best_mappings(csv_file_path, top_n=5, filter_shortest_dtw=True, metric_weight=None)`
-
-**NEW** - Finds the best correlation mappings from complete path analysis results based on weighted scoring of quality metrics.
-
-**Parameters:**
-- `csv_file_path` (str): Path to the CSV file containing DTW results
-- `top_n` (int, default=5): Number of top mappings to return
-- `filter_shortest_dtw` (bool, default=True): If True, only consider mappings with shortest DTW path length
-- `metric_weight` (dict, optional): Dictionary defining metric weights for scoring. If None, uses default weights
-
-**Returns:**
-- `tuple`: (top_mapping_ids, top_mapping_pairs, top_mapping_df) containing:
-  - `top_mapping_ids`: List of top mapping IDs in order
-  - `top_mapping_pairs`: List of valid_pairs_to_combine for each top mapping ID
-  - `top_mapping_df`: DataFrame containing the top N mappings sorted by combined score
-
 #### `calculate_age_overlap_percentage(a_lower_bound, a_upper_bound, b_lower_bound, b_upper_bound)`
 
 Calculates the percentage of age range overlap between two age intervals relative to their union.
@@ -934,6 +918,44 @@ Filters new correlation path against existing paths to remove duplicates and mai
 
 **Returns:**
 - `tuple`: (is_valid, paths_to_remove, updated_count) indicating filter results
+
+#### `find_best_mappings(csv_file_path, top_n=5, filter_shortest_dtw=True, metric_weight=None)`
+
+**NEW** - Finds the best correlation mappings from complete path analysis results based on weighted scoring of quality metrics.
+
+**Parameters:**
+- `csv_file_path` (str): Path to the CSV file containing DTW results
+- `top_n` (int, default=5): Number of top mappings to return
+- `filter_shortest_dtw` (bool, default=True): If True, only consider mappings with shortest DTW path length
+- `metric_weight` (dict, optional): Dictionary defining metric weights for scoring. If None, uses default weights
+
+**Returns:**
+- `tuple`: (top_mapping_ids, top_mapping_pairs, top_mapping_df) containing:
+  - `top_mapping_ids`: List of top mapping IDs in order
+  - `top_mapping_pairs`: List of valid_pairs_to_combine for each top mapping ID
+  - `top_mapping_df`: DataFrame containing the top N mappings sorted by combined score
+
+#### `find_target_mappings(picked_depths_a_cat1, picked_depths_b_cat1, interpreted_bed_a, interpreted_bed_b, valid_dtw_pairs, sequential_mappings_csv, segments_a, segments_b, top_n=5, metric_weight=None)`
+
+**NEW** - Finds mappings that comply with boundary correlations between two cores by checking for matching interpreted bed names.
+
+**Parameters:**
+- `picked_depths_a_cat1` (array-like): Picked depths for core A category 1
+- `picked_depths_b_cat1` (array-like): Picked depths for core B category 1
+- `interpreted_bed_a` (array-like): Interpreted bed names for core A
+- `interpreted_bed_b` (array-like): Interpreted bed names for core B
+- `valid_dtw_pairs` (list): List of valid DTW pairs
+- `sequential_mappings_csv` (str or DataFrame): Path to CSV file or DataFrame containing mappings
+- `segments_a` (list): Segments for core A
+- `segments_b` (list): Segments for core B
+- `top_n` (int, default=5): Number of top mappings to return
+- `metric_weight` (dict, optional): Dictionary defining metric weights for scoring
+
+**Returns:**
+- `tuple`: (top_target_mapping_ids, top_target_mapping_pairs, target_mappings_df) containing:
+  - `top_target_mapping_ids`: List of top mapping IDs in order
+  - `top_target_mapping_pairs`: List of valid_pairs_to_combine for each top mapping ID
+  - `target_mappings_df`: DataFrame containing all target mappings
 
 ### Helpers (`helpers.py`)
 

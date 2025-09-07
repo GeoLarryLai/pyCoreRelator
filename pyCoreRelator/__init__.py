@@ -19,7 +19,11 @@ from .utils.data_loader import (
     reconstruct_raw_data_from_histogram
 )
 from .utils.helpers import find_nearest_index, cohens_d
-from .utils.path_processing import combine_segment_dtw_results
+from .utils.path_processing import (
+    combine_segment_dtw_results,
+    find_best_mappings,
+    find_target_mappings
+)
 
 # Core analysis functions - Segment operations
 from .core.segment_operations import (
@@ -53,8 +57,7 @@ from .core.null_hypothesis import (
 from .core.dtw_analysis import run_comprehensive_dtw_analysis
 from .core.quality_metrics import (
     compute_quality_indicators,
-    calculate_age_overlap_percentage,
-    find_best_mappings
+    calculate_age_overlap_percentage
 )
 from .core.age_models import calculate_interpolated_ages
 
@@ -165,6 +168,7 @@ __all__ = [
     'plot_t_statistics_vs_constraints',
     'plot_quality_distributions',
     'find_best_mappings',
+    'find_target_mappings',
     
     # Segment operations
     'find_all_segments',

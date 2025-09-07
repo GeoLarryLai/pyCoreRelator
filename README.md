@@ -64,7 +64,7 @@ pyCoreRelator/
 │   ├── segment_operations.py      # Segment identification & manipulation
 │   ├── segment_analysis.py        # Legacy segment analysis functions
 │   ├── path_finding.py            # Complete DTW path discovery algorithms
-│   ├── quality_metrics.py         # Quality indicators computation
+│   ├── quality_metrics.py         # Quality indicators & correlation metrics computation
 │   ├── age_models.py              # Age constraint handling & interpolation
 │   ├── diagnostics.py             # Chain break analysis & debugging
 │   ├── null_hypothesis.py         # Synthetic data generation & multi-parameter testing
@@ -76,7 +76,7 @@ pyCoreRelator/
 │   └── ml_log_data_imputation.py  # ML-based data gap filling
 ├── utils/                         
 │   ├── data_loader.py             # Multi-format data loading with image support
-│   ├── path_processing.py         # DTW path analysis & manipulation
+│   ├── path_processing.py         # DTW path analysis, manipulation & mapping optimization
 │   └── helpers.py                 # General utility functions
 └── visualization/                 
     ├── plotting.py                # Core plotting functions & segment visualization
@@ -125,6 +125,7 @@ Detailed function documentation is available in [FUNCTION_DOCUMENTATION.md](FUNC
 - **`diagnose_chain_breaks()`**: Identify and analyze connectivity gaps in correlation chains
 - **`run_multi_parameter_analysis()`**: Comprehensive analysis across parameter combinations with statistical testing
 - **`find_best_mappings()`**: Identify optimal correlation mappings using weighted quality metrics
+- **`find_target_mappings()`**: Find mappings that comply with boundary correlations between cores
 
 ### Data Loading and Visualization
 - **`load_log_data()`**: Load multi-column log data with optional image support and normalization

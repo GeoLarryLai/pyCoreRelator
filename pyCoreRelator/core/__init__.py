@@ -28,8 +28,7 @@ from .dtw_analysis import run_comprehensive_dtw_analysis
 # Quality metrics and assessment
 from .quality_metrics import (
     compute_quality_indicators,
-    calculate_age_overlap_percentage,
-    find_best_mappings
+    calculate_age_overlap_percentage
 )
 
 # Age modeling
@@ -66,7 +65,6 @@ __all__ = [
     # Quality metrics
     'compute_quality_indicators',
     'calculate_age_overlap_percentage',
-    'find_best_mappings',
     
     # Age modeling
     'calculate_interpolated_ages',
