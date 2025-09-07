@@ -125,7 +125,7 @@ Detailed function documentation is available in [FUNCTION_DOCUMENTATION.md](FUNC
 - **`diagnose_chain_breaks()`**: Identify and analyze connectivity gaps in correlation chains
 - **`run_multi_parameter_analysis()`**: Comprehensive analysis across parameter combinations with statistical testing
 - **`find_best_mappings()`**: Identify optimal correlation mappings using weighted quality metrics
-- **`find_target_mappings()`**: Find mappings that comply with boundary correlations between cores
+- **`find_target_mappings()`**: Identify correlation mappings that honor user-defined correlated units or marker beds between cores
 
 ### Data Loading and Visualization
 - **`load_log_data()`**: Load multi-column log data with optional image support and normalization
