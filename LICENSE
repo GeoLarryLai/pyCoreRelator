@@ -631,7 +631,7 @@ the "copyright" line and a pointer to where the full notice is found.
 
     Program: pyCoreRelator
     A Python package for automated quantitative stratigraphic correlation 
-    for core and physical log data.
+    across core and log data
 
     Copyright (C) 2025  Larry Syu-Heng Lai
 
