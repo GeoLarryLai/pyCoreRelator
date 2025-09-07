@@ -559,7 +559,7 @@ def reconstruct_raw_data_from_histogram(bins, hist_percentages, n_points):
     return np.array(raw_data)
 
 
-def load_pickeddepth_ages_from_csv(core_name, uncertainty_method, base_path='pickeddepth_ages'):
+def load_pickeddepth_ages_from_csv(pickeddepth_age_csv):
     """
     Load pickeddepth ages data from CSV file.
     
@@ -568,12 +568,8 @@ def load_pickeddepth_ages_from_csv(core_name, uncertainty_method, base_path='pic
     
     Parameters
     ----------
-    core_name : str
-        Name of the core (e.g., 'M9907-23PC')
-    uncertainty_method : str
-        Uncertainty calculation method used (e.g., 'MonteCarlo')
-    base_path : str, default='pickeddepth_ages'
-        Base directory path for CSV files containing pickeddepth ages data
+    pickeddepth_age_csv : str
+        Full path to the CSV file containing pickeddepth ages data
     
     Returns
     -------
@@ -583,24 +579,19 @@ def load_pickeddepth_ages_from_csv(core_name, uncertainty_method, base_path='pic
         - 'ages': list of age values
         - 'pos_uncertainties': list of positive uncertainty values
         - 'neg_uncertainties': list of negative uncertainty values
-        - 'uncertainty_method': string indicating the uncertainty method used
     
     Example
     -------
-    >>> pickeddepth_ages = load_pickeddepth_ages_from_csv('M9907-23PC', 'MonteCarlo')
+    >>> pickeddepth_ages = load_pickeddepth_ages_from_csv('path/to/M9907-23PC_pickeddepth_ages.csv')
     >>> print(f"Loaded {len(pickeddepth_ages['depths'])} depth-age pairs")
     """
-    # Construct filename
-    filename = f"{core_name}_pickeddepth_ages_{uncertainty_method}.csv"
-    filepath = os.path.join(base_path, filename)
-    
     # Check if file exists
-    if not os.path.exists(filepath):
-        raise FileNotFoundError(f"Pickeddepth ages file not found: {filepath}")
+    if not os.path.exists(pickeddepth_age_csv):
+        raise FileNotFoundError(f"Pickeddepth ages file not found: {pickeddepth_age_csv}")
     
     try:
         # Load CSV file
-        df = pd.read_csv(filepath)
+        df = pd.read_csv(pickeddepth_age_csv)
         
         # Convert to dictionary format matching the expected structure
         # Use the actual column names from the CSV file or column indices
@@ -608,16 +599,15 @@ def load_pickeddepth_ages_from_csv(core_name, uncertainty_method, base_path='pic
             'depths': df.iloc[:, 0].tolist(),  # First column
             'ages': df.iloc[:, 1].tolist(),    # Second column
             'pos_uncertainties': df.iloc[:, 2].tolist(),  # Third column
-            'neg_uncertainties': df.iloc[:, 3].tolist(),  # Fourth column
-            'uncertainty_method': uncertainty_method
+            'neg_uncertainties': df.iloc[:, 3].tolist()   # Fourth column
         }
         
-        print(f"Loaded {len(pickeddepth_ages['depths'])} pickeddepth ages from {filename}")
+        print(f"Loaded {len(pickeddepth_ages['depths'])} pickeddepth ages from {os.path.basename(pickeddepth_age_csv)}")
         
         return pickeddepth_ages
         
     except Exception as e:
-        raise Exception(f"Error loading pickeddepth ages from {filepath}: {e}")
+        raise Exception(f"Error loading pickeddepth ages from {pickeddepth_age_csv}: {e}")
 
 
 def load_and_prepare_quality_data(target_quality_indices, master_csv_filenames, synthetic_csv_filenames, 
