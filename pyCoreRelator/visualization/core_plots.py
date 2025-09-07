@@ -17,7 +17,8 @@ def plot_core_data(md, log, title, core_img_1=None, core_img_2=None, figsize=(20
                   label_name=None, available_columns=None, is_multilog=False,
                   picked_depths=None, picked_categories=None, picked_uncertainties=None,
                   show_category=None, show_bed_number=False, cluster_data=None,
-                  core_img_1_cmap_range=None, core_img_2_cmap_range=None):
+                  core_img_1_cmap_range=None, core_img_2_cmap_range=None,
+                  show_interpreted_bed_name=None):
     """
     Plot core data with optional core images and support for multiple log types with category visualization.
     
@@ -71,6 +72,10 @@ def plot_core_data(md, log, title, core_img_1=None, core_img_2=None, figsize=(20
     core_img_2_cmap_range : tuple, optional
         Color map range for core_img_2 in format (min_value, max_value).
         If not provided, matplotlib default auto-scaling is used.
+    show_interpreted_bed_name : list, optional
+        List of interpreted bed names corresponding to picked_depths.
+        If provided, displays bed names as text labels at the picked depths.
+        Should have the same length as picked_depths.
     
     Returns
     -------
@@ -87,6 +92,7 @@ def plot_core_data(md, log, title, core_img_1=None, core_img_2=None, figsize=(20
     >>> picked_depths = [25.5, 50.0, 75.2]
     >>> picked_categories = [1, 2, 1]
     >>> picked_uncertainties = [1.0, 1.5, 1.0]
+    >>> interpreted_bed_names = ['Bed_A', 'Bed_B', 'Bed_C']
     >>> fig, ax = plot_core_data(md, log, "Core 1", 
     ...                         available_columns=['MS', 'Lumin'], 
     ...                         is_multilog=True,
@@ -94,7 +100,8 @@ def plot_core_data(md, log, title, core_img_1=None, core_img_2=None, figsize=(20
     ...                         picked_categories=picked_categories,
     ...                         picked_uncertainties=picked_uncertainties,
     ...                         show_category=[1],
-    ...                         show_bed_number=True)
+    ...                         show_bed_number=True,
+    ...                         show_interpreted_bed_name=interpreted_bed_names)
     """
     
     # Define color and style mapping for each column type
@@ -313,6 +320,14 @@ def plot_core_data(md, log, title, core_img_1=None, core_img_2=None, figsize=(20
         if picked_uncertainties is None:
             picked_uncertainties = [1.0] * len(picked_depths)
         
+        # Ensure interpreted bed names list exists and has proper length
+        if show_interpreted_bed_name is not None:
+            if len(show_interpreted_bed_name) != len(picked_depths):
+                print(f"Warning: Length of show_interpreted_bed_name ({len(show_interpreted_bed_name)}) "
+                      f"does not match length of picked_depths ({len(picked_depths)}). "
+                      f"Interpreted bed names will be ignored.")
+                show_interpreted_bed_name = None
+        
         # Validate show_category parameter and filter data
         if show_category is not None:
             # Check if requested categories exist in the data
@@ -330,22 +345,48 @@ def plot_core_data(md, log, title, core_img_1=None, core_img_2=None, figsize=(20
                 print("Error: None of the requested categories exist in the data. No category markers will be shown.")
             else:
                 # Filter the data to only include requested categories
-                filtered_data = [(depth, cat, unc) for depth, cat, unc in 
-                               zip(picked_depths, picked_categories, picked_uncertainties) 
-                               if cat in valid_categories]
-                picked_depths_filtered, picked_categories_filtered, picked_uncertainties_filtered = zip(*filtered_data) if filtered_data else ([], [], [])
+                if show_interpreted_bed_name is not None:
+                    filtered_data = [(depth, cat, unc, name) for depth, cat, unc, name in 
+                                   zip(picked_depths, picked_categories, picked_uncertainties, show_interpreted_bed_name) 
+                                   if cat in valid_categories]
+                    if filtered_data:
+                        picked_depths_filtered, picked_categories_filtered, picked_uncertainties_filtered, show_interpreted_bed_name_filtered = zip(*filtered_data)
+                    else:
+                        picked_depths_filtered, picked_categories_filtered, picked_uncertainties_filtered, show_interpreted_bed_name_filtered = [], [], [], []
+                else:
+                    filtered_data = [(depth, cat, unc) for depth, cat, unc in 
+                                   zip(picked_depths, picked_categories, picked_uncertainties) 
+                                   if cat in valid_categories]
+                    if filtered_data:
+                        picked_depths_filtered, picked_categories_filtered, picked_uncertainties_filtered = zip(*filtered_data)
+                    else:
+                        picked_depths_filtered, picked_categories_filtered, picked_uncertainties_filtered = [], [], []
+                    show_interpreted_bed_name_filtered = None
         else:
             # Show all categories
             picked_depths_filtered = picked_depths
             picked_categories_filtered = picked_categories
             picked_uncertainties_filtered = picked_uncertainties
+            show_interpreted_bed_name_filtered = show_interpreted_bed_name
         
         # Add colored uncertainty shading and boundaries
-        for depth, category, uncertainty in zip(picked_depths_filtered, picked_categories_filtered, picked_uncertainties_filtered):
+        for i, (depth, category, uncertainty) in enumerate(zip(picked_depths_filtered, picked_categories_filtered, picked_uncertainties_filtered)):
             color = category_colors.get(category, 'red')
             plot_ax.axvspan(depth - uncertainty, depth + uncertainty, color=color, alpha=0.1)
             plot_ax.axvline(x=depth, color=color, linestyle='--', linewidth=1.2,
                           label=f'#{category}' if f'#{category}' not in plot_ax.get_legend_handles_labels()[1] else "")
+            
+            # Add interpreted bed name in bold text if it exists
+            if show_interpreted_bed_name_filtered is not None:
+                bed_name = show_interpreted_bed_name_filtered[i]
+                if bed_name and str(bed_name).strip() and str(bed_name) != 'nan':
+                    plot_ax.text(depth, plot_ax.get_ylim()[1] * 0.9, 
+                                str(bed_name), 
+                                rotation=90, 
+                                fontweight='bold',
+                                color='black',
+                                ha='center',
+                                va='top')
         
         # Add bed numbers if requested - only on smallest category per bed
         if show_bed_number and picked_depths_filtered:

@@ -14,6 +14,7 @@ from .utils.data_loader import (
     load_age_constraints_from_csv,
     combine_age_constraints,
     load_core_age_constraints,
+    load_pickeddepth_ages_from_csv,
     load_and_prepare_quality_data,
     reconstruct_raw_data_from_histogram
 )
@@ -134,6 +135,7 @@ __all__ = [
     'load_age_constraints_from_csv',
     'combine_age_constraints',
     'load_core_age_constraints',
+    'load_pickeddepth_ages_from_csv',
     'load_and_prepare_quality_data',
     'reconstruct_raw_data_from_histogram',
     'plot_core_data',
