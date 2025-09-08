@@ -239,14 +239,14 @@ def plot_dtw_matrix_with_paths(dtw_distance_matrix_full,
             if core_name is not None and i < len(constraint_source_cores):
                 source_core = constraint_source_cores[i]
                 if source_core in core_name:
-                    line_color = 'red'  # Same core
-                    line_alpha = 0.6
+                    line_color = 'white'  # Same core
+                    line_alpha = 0.8
                 else:
                     line_color = 'indigo'  # Adjacent core  
-                    line_alpha = 0.6
+                    line_alpha = 0.8
             else:
-                line_color = 'red'  
-                line_alpha = 0.6
+                line_color = 'white'  
+                line_alpha = 0.8
             
             # Draw the constraint line
             if orientation == 'horizontal':
@@ -309,7 +309,7 @@ def plot_dtw_matrix_with_paths(dtw_distance_matrix_full,
     
     plt_max = np.percentile(dtw_distance_matrix_full, 95)
     im = ax.imshow(dtw_distance_matrix_full, aspect='auto', vmin=0, vmax=plt_max, 
-                   cmap='gray_r', origin='lower')
+                   cmap='magma_r', origin='lower')
     plt.colorbar(im, label='DTW distance')
     
     # Add age constraint lines after heatmap but before other plot elements
@@ -351,7 +351,7 @@ def plot_dtw_matrix_with_paths(dtw_distance_matrix_full,
                 
                 # Plot each path
                 for wp_idx, wp in enumerate(paths):
-                    ax.plot(wp[:, 1], wp[:, 0], color=color, linewidth=2, alpha=0.7)
+                    ax.plot(wp[:, 1], wp[:, 0], color=color, linewidth=2, alpha=0.8)
                     
                 # Add segment labels if requested
                 if visualize_segment_labels:
@@ -366,7 +366,7 @@ def plot_dtw_matrix_with_paths(dtw_distance_matrix_full,
                     continue
                 
                 for wp_idx, wp in enumerate(paths):
-                    ax.plot(wp[:, 1], wp[:, 0], color='red', linewidth=2, alpha=0.7)
+                    ax.plot(wp[:, 1], wp[:, 0], color='white', linewidth=2, alpha=0.8)
         
         ax.set_title('DTW Matrix with All Segment Paths')
     
@@ -392,7 +392,7 @@ def plot_dtw_matrix_with_paths(dtw_distance_matrix_full,
                         wp_segment = wp_segment[mask]
                         
                         if len(wp_segment) > 0:
-                            ax.plot(wp_segment[:, 1], wp_segment[:, 0], color=color, linewidth=2, alpha=0.7)
+                            ax.plot(wp_segment[:, 1], wp_segment[:, 0], color=color, linewidth=2, alpha=0.8)
                 
                 if visualize_segment_labels:
                     ax.text(b_start + (b_end-b_start)/2, a_start + (a_end-a_start)/2, 
