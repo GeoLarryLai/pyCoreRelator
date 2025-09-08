@@ -21,8 +21,7 @@ from .utils.data_loader import (
 from .utils.helpers import find_nearest_index, cohens_d
 from .utils.path_processing import (
     combine_segment_dtw_results,
-    find_best_mappings,
-    find_target_mappings
+    find_best_mappings
 )
 
 # Core analysis functions - Segment operations
@@ -168,7 +167,6 @@ __all__ = [
     'plot_t_statistics_vs_constraints',
     'plot_quality_distributions',
     'find_best_mappings',
-    'find_target_mappings',
     
     # Segment operations
     'find_all_segments',

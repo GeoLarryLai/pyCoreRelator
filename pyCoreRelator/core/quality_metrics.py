@@ -5,7 +5,7 @@ Included Functions:
 - compute_quality_indicators: Compute comprehensive quality metrics for DTW alignment
 - calculate_age_overlap_percentage: Calculate overlap percentage between two age intervals
 - find_best_mappings: Find the best DTW mappings based on multiple quality metrics
-- find_target_mappings: Find mappings that comply with boundary correlations between two cores
+  (supports both standard best mappings and boundary correlation filtering modes)
 
 This module provides functions to compute various quality indicators for Dynamic Time Warping (DTW)
 alignment results and calculate age overlap percentages between geological intervals.

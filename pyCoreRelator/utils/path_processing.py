@@ -8,7 +8,7 @@ Included Functions:
 - is_subset_or_superset: Check subset/superset relationships between paths
 - filter_against_existing: Filter new paths against existing filtered paths
 - find_best_mappings: Find the best DTW mappings based on multiple quality metrics
-- find_target_mappings: Find mappings that comply with boundary correlations between cores
+  (supports both standard best mappings and boundary correlation filtering modes)
 
 This module provides utilities for combining DTW segment results, computing combined
 path metrics, loading sequential mappings from CSV files, filtering paths based
@@ -400,9 +400,20 @@ def filter_against_existing(new_path, filtered_paths, group_writer):
 def find_best_mappings(csv_file_path, 
                        top_n=5, 
                        filter_shortest_dtw=True,
-                       metric_weight=None):
+                       metric_weight=None,
+                       picked_depths_a_cat1=None,
+                       picked_depths_b_cat1=None,
+                       interpreted_bed_a=None,
+                       interpreted_bed_b=None,
+                       valid_dtw_pairs=None,
+                       segments_a=None,
+                       segments_b=None):
     """
     Find the best DTW mappings based on multiple quality metrics with configurable scoring.
+    
+    If boundary correlation parameters are provided, filters mappings that comply with 
+    boundary correlations between cores. If those parameters are not provided or no 
+    matching boundaries are found, behaves as standard best mappings finder.
     
     Parameters
     ----------
@@ -416,6 +427,20 @@ def find_best_mappings(csv_file_path,
         Dictionary defining metric weights for scoring
         Format: {metric_name: weight_value}
         If None, uses default weights
+    picked_depths_a_cat1 : array-like, optional
+        Picked depths for core A category 1 (for boundary correlation mode)
+    picked_depths_b_cat1 : array-like, optional  
+        Picked depths for core B category 1 (for boundary correlation mode)
+    interpreted_bed_a : array-like, optional
+        Interpreted bed names for core A (for boundary correlation mode)
+    interpreted_bed_b : array-like, optional
+        Interpreted bed names for core B (for boundary correlation mode)
+    valid_dtw_pairs : list, optional
+        List of valid DTW pairs (for boundary correlation mode)
+    segments_a : list, optional
+        Segments for core A (for boundary correlation mode)
+    segments_b : list, optional
+        Segments for core B (for boundary correlation mode)
     
     Returns
     -------
@@ -429,17 +454,16 @@ def find_best_mappings(csv_file_path,
     
     Examples
     --------
-    >>> # Using default weights
+    >>> # Standard best mappings mode
     >>> top_ids, top_pairs, top_df = find_best_mappings('dtw_results.csv', top_n=3)
     
-    >>> # Using custom weights
-    >>> custom_weights = {
-    ...     'corr_coef': 5.0,
-    ...     'perc_diag': 2.0,
-    ...     'norm_dtw': 1.0
-    ... }
-    >>> top_ids, top_pairs, top_df = find_best_mappings('dtw_results.csv', 
-    ...                                       metric_weight=custom_weights)
+    >>> # Boundary correlation mode
+    >>> top_ids, top_pairs, top_df = find_best_mappings(
+    ...     'dtw_results.csv', top_n=3,
+    ...     picked_depths_a_cat1=depths_a, picked_depths_b_cat1=depths_b,
+    ...     interpreted_bed_a=beds_a, interpreted_bed_b=beds_b,
+    ...     valid_dtw_pairs=pairs, segments_a=segs_a, segments_b=segs_b
+    ... )
     """
     
     def parse_compact_path(compact_path_str):
@@ -447,6 +471,121 @@ def find_best_mappings(csv_file_path,
         if not compact_path_str or compact_path_str == "":
             return []
         return [tuple(map(int, pair.split(','))) for pair in compact_path_str.split(';')]
+    
+    def clean_name(name):
+        """Helper function to clean bed names (remove "?")"""
+        if pd.isna(name) or name == '':
+            return ''
+        return name.replace('?', '').strip()
+    
+    def _calculate_combined_scores(df_for_ranking, weights, higher_is_better_config):
+        """Calculate combined scores for a dataframe"""
+        # Initialize the combined score column
+        df_for_ranking['combined_score'] = 0.0
+        total_weight = 0.0
+        
+        # Calculate scores for each metric and add to combined score
+        for metric, weight in weights.items():
+            if metric in df_for_ranking.columns:
+                # Make sure we have valid data to work with
+                valid_data = df_for_ranking[~df_for_ranking[metric].isna()]
+                
+                if len(valid_data) > 0:
+                    min_val = valid_data[metric].min()
+                    max_val = valid_data[metric].max()
+                    
+                    # Only normalize if there's a range
+                    if max_val > min_val:
+                        if higher_is_better_config.get(metric, True):
+                            # For metrics where higher values are better
+                            df_for_ranking[f'{metric}_score'] = (df_for_ranking[metric] - min_val) / (max_val - min_val)
+                        else:
+                            # For metrics where lower values are better
+                            df_for_ranking[f'{metric}_score'] = 1 - ((df_for_ranking[metric] - min_val) / (max_val - min_val))
+                    else:
+                        # If all values are the same, assign a score of 1
+                        df_for_ranking[f'{metric}_score'] = 1.0
+                        
+                    # Add to weighted sum
+                    df_for_ranking['combined_score'] += df_for_ranking[f'{metric}_score'].fillna(0) * weight
+                    total_weight += weight
+        
+        # Normalize the combined score by the total weight
+        if total_weight > 0:
+            df_for_ranking['combined_score'] = df_for_ranking['combined_score'] / total_weight
+        else:
+            print("Warning: No valid metrics found for scoring.")
+            df_for_ranking['combined_score'] = 0.0
+        
+        # Handle NaN values in combined score
+        if df_for_ranking['combined_score'].isna().any():
+            print("Warning: NaN values detected in combined scores. Replacing with zeros.")
+            df_for_ranking['combined_score'] = df_for_ranking['combined_score'].fillna(0)
+        
+        return df_for_ranking
+    
+    def _print_results(top_mappings, weights, mode_title):
+        """Print detailed results for mappings"""
+        top_mapping_ids = []
+        top_mapping_pairs = []
+        
+        print(f"\nTop {len(top_mappings)} mappings by combined score:")
+        for idx, row in top_mappings.iterrows():
+            if 'mapping_id' in row:
+                mapping_id = int(row['mapping_id'])
+                top_mapping_ids.append(mapping_id)
+                print(f"Mapping ID {mapping_id}: Combined Score={row['combined_score']:.3f}")
+                
+                # Parse the path and convert to valid_pairs_to_combine
+                if 'path' in row:
+                    target_data_row = parse_compact_path(row['path'])
+                    # Convert 1-based to 0-based indices for python
+                    valid_pairs_to_combine = [(a-1, b-1) for a, b in target_data_row]
+                    top_mapping_pairs.append(valid_pairs_to_combine)
+                else:
+                    # If no path column, append empty list
+                    top_mapping_pairs.append([])
+            
+            # Print all available metrics
+            metric_outputs = []
+            if 'dtw_path_length' in row and weights.get('dtw_path_length', 0) != 0:
+                metric_outputs.append(f"dtw_path_length={row['dtw_path_length']:.1f}")
+            if 'length' in row and weights.get('length', 0) != 0:
+                metric_outputs.append(f"dtw_path_length={row['length']:.1f}")
+            if 'corr_coef' in row and weights.get('corr_coef', 0) != 0:
+                metric_outputs.append(f"correlation coefficient r={row['corr_coef']:.3f}")
+            if 'perc_diag' in row and weights.get('perc_diag', 0) != 0:
+                metric_outputs.append(f"perc_diag={row['perc_diag']:.1f}%")
+            if 'norm_dtw' in row and weights.get('norm_dtw', 0) != 0:
+                metric_outputs.append(f"norm_dtw={row['norm_dtw']:.3f}")
+            if 'dtw_ratio' in row and weights.get('dtw_ratio', 0) != 0:
+                metric_outputs.append(f"dtw_ratio={row['dtw_ratio']:.3f}")
+            if 'dtw_warp_eff' in row and weights.get('dtw_warp_eff', 0) != 0:
+                metric_outputs.append(f"dtw_warp_eff={row['dtw_warp_eff']:.1f}%")
+            if 'perc_age_overlap' in row and weights.get('perc_age_overlap', 0) != 0:
+                metric_outputs.append(f"perc_age_overlap={row['perc_age_overlap']:.1f}%")
+            
+            # Print metrics with proper indentation
+            for metric_output in metric_outputs:
+                print(f"  {metric_output}")
+            
+            # Print valid_pairs_to_combine at the end of each mapping with 1-based numbering
+            if len(top_mapping_pairs) > 0 and len(top_mapping_pairs[-1]) > 0:
+                # Convert back to 1-based for display
+                pairs_display = [(a+1, b+1) for a, b in top_mapping_pairs[-1]]
+                print(f"  valid_pairs_to_combine={pairs_display}")
+            else:
+                print(f"  valid_pairs_to_combine=[]")
+            print("")
+        
+        # Handle case where no valid mappings found
+        if not top_mappings.empty:
+            best_mapping_id = top_mapping_ids[0] if top_mapping_ids else 'None'
+            print(f"Best mapping ID: {best_mapping_id}")
+        else:
+            print("Warning: No valid mappings found")
+        
+        return top_mapping_ids, top_mapping_pairs
     
     # Default metrics configuration with fixed higher_is_better values
     default_weights = {
@@ -472,491 +611,205 @@ def find_best_mappings(csv_file_path,
     weights = metric_weight if metric_weight is not None else default_weights
     
     # Load and clean the data
-    dtw_results_df = pd.read_csv(csv_file_path)
-    required_cols = ['corr_coef', 'perc_diag', 'perc_age_overlap']
-    dtw_results_df = dtw_results_df.replace([np.inf, -np.inf], np.nan).dropna(subset=required_cols)
-    
-    print(f"=== Top {top_n} Overall Best Mappings ===")
-    
-    # Filter for shortest DTW path length if requested
-    if filter_shortest_dtw and 'length' in dtw_results_df.columns:
-        dtw_results_df['dtw_path_length'] = dtw_results_df['length']
-        min_length = dtw_results_df['dtw_path_length'].min()
-        shortest_mappings = dtw_results_df[dtw_results_df['dtw_path_length'] == min_length]
-        
-        print(f"Filtering for shortest DTW path length: {min_length}")
-        print(f"Number of mappings found: {len(shortest_mappings)} out of {len(dtw_results_df)}")
+    if isinstance(csv_file_path, str):
+        dtw_results_df = pd.read_csv(csv_file_path)
     else:
-        shortest_mappings = dtw_results_df
-        if filter_shortest_dtw:
-            print("Warning: No 'length' column found. Using all mappings.")
+        dtw_results_df = csv_file_path
     
-    # Create a copy for scoring calculations
-    df_for_ranking = shortest_mappings.copy()
+    # Check if we should use boundary correlation mode
+    use_boundary_mode = all(param is not None for param in [
+        picked_depths_a_cat1, picked_depths_b_cat1, interpreted_bed_a, 
+        interpreted_bed_b, valid_dtw_pairs, segments_a, segments_b
+    ])
     
-    # Initialize the combined score column
-    df_for_ranking['combined_score'] = 0.0
-    total_weight = 0.0
-    
-    # Calculate scores for each metric and add to combined score
-    for metric, weight in weights.items():
-        if metric in df_for_ranking.columns:
-            # Make sure we have valid data to work with
-            valid_data = df_for_ranking[~df_for_ranking[metric].isna()]
-            
-            if len(valid_data) > 0:
-                min_val = valid_data[metric].min()
-                max_val = valid_data[metric].max()
-                
-                # Only normalize if there's a range
-                if max_val > min_val:
-                    if higher_is_better_config.get(metric, True):
-                        # For metrics where higher values are better
-                        df_for_ranking[f'{metric}_score'] = (df_for_ranking[metric] - min_val) / (max_val - min_val)
-                    else:
-                        # For metrics where lower values are better
-                        df_for_ranking[f'{metric}_score'] = 1 - ((df_for_ranking[metric] - min_val) / (max_val - min_val))
-                else:
-                    # If all values are the same, assign a score of 1
-                    df_for_ranking[f'{metric}_score'] = 1.0
-                    
-                # Add to weighted sum
-                df_for_ranking['combined_score'] += df_for_ranking[f'{metric}_score'].fillna(0) * weight
-                total_weight += weight
-    
-    # Normalize the combined score by the total weight
-    if total_weight > 0:
-        df_for_ranking['combined_score'] = df_for_ranking['combined_score'] / total_weight
-    else:
-        print("Warning: No valid metrics found for scoring.")
-        df_for_ranking['combined_score'] = 0.0
-    
-    # Handle NaN values in combined score
-    if df_for_ranking['combined_score'].isna().any():
-        print("Warning: NaN values detected in combined scores. Replacing with zeros.")
-        df_for_ranking['combined_score'] = df_for_ranking['combined_score'].fillna(0)
-    
-    # Get top N mappings by combined score
-    top_mappings = df_for_ranking.sort_values(by='combined_score', ascending=False).head(top_n)
-    
-    # Parse paths and create valid_pairs_to_combine for each mapping
-    top_mapping_ids = []
-    top_mapping_pairs = []
-    
-    # Print detailed results
-    print(f"\nTop {top_n} mappings by combined score:")
-    for idx, row in top_mappings.iterrows():
-        if 'mapping_id' in row:
-            mapping_id = int(row['mapping_id'])
-            top_mapping_ids.append(mapping_id)
-            print(f"Mapping ID {mapping_id}: Combined Score={row['combined_score']:.3f}")
-            
-            # Parse the path and convert to valid_pairs_to_combine
-            if 'path' in row:
-                target_data_row = parse_compact_path(row['path'])
-                # Convert 1-based to 0-based indices for python
-                valid_pairs_to_combine = [(a-1, b-1) for a, b in target_data_row]
-                top_mapping_pairs.append(valid_pairs_to_combine)
-            else:
-                # If no path column, append empty list
-                top_mapping_pairs.append([])
-        
-        # Print all available metrics
-        metric_outputs = []
-        if 'dtw_path_length' in row and weights.get('dtw_path_length', 0) != 0:
-            metric_outputs.append(f"dtw_path_length={row['dtw_path_length']:.1f}")
-        if 'corr_coef' in row and weights.get('corr_coef', 0) != 0:
-            metric_outputs.append(f"correlation coefficient r={row['corr_coef']:.3f}")
-        if 'perc_diag' in row and weights.get('perc_diag', 0) != 0:
-            metric_outputs.append(f"perc_diag={row['perc_diag']:.1f}%")
-        if 'norm_dtw' in row and weights.get('norm_dtw', 0) != 0:
-            metric_outputs.append(f"norm_dtw={row['norm_dtw']:.3f}")
-        if 'dtw_ratio' in row and weights.get('dtw_ratio', 0) != 0:
-            metric_outputs.append(f"dtw_ratio={row['dtw_ratio']:.3f}")
-        if 'dtw_warp_eff' in row and weights.get('dtw_warp_eff', 0) != 0:
-            metric_outputs.append(f"dtw_warp_eff={row['dtw_warp_eff']:.1f}%")
-        if 'perc_age_overlap' in row and weights.get('perc_age_overlap', 0) != 0:
-            metric_outputs.append(f"perc_age_overlap={row['perc_age_overlap']:.1f}%")
-        
-        # Print metrics with proper indentation
-        for metric_output in metric_outputs:
-            print(f"  {metric_output}")
-        
-        # Print valid_pairs_to_combine at the end of each mapping with 1-based numbering
-        if len(top_mapping_pairs) > 0 and len(top_mapping_pairs[-1]) > 0:
-            # Convert back to 1-based for display
-            pairs_display = [(a+1, b+1) for a, b in top_mapping_pairs[-1]]
-            print(f"  valid_pairs_to_combine={pairs_display}")
-        else:
-            print(f"  valid_pairs_to_combine=[]")
-        print("")
-    
-    # Handle case where no valid mappings found
-    if not top_mappings.empty:
-        print(f"Best mapping ID: {top_mapping_ids[0] if top_mapping_ids else 'None'}")
-    else:
-        print("Warning: No valid mappings found")
-    
-    return top_mapping_ids, top_mapping_pairs, top_mappings
-
-
-def find_target_mappings(picked_depths_a_cat1, picked_depths_b_cat1, 
-                         interpreted_bed_a, interpreted_bed_b,
-                         valid_dtw_pairs, sequential_mappings_csv,
-                         segments_a, segments_b,
-                         top_n=5,
-                         metric_weight=None):
-    """
-    Find mappings that comply with boundary correlations between two cores.
-    
-    For DTW consecutive segments, checks if at least one boundary has matching 
-    interpreted_bed names between cores (ignoring "?" and empty names).
-    
-    Parameters
-    ----------
-    picked_depths_a_cat1 : array-like
-        Picked depths for core A category 1
-    picked_depths_b_cat1 : array-like  
-        Picked depths for core B category 1
-    interpreted_bed_a : array-like
-        Interpreted bed names for core A
-    interpreted_bed_b : array-like
-        Interpreted bed names for core B
-    valid_dtw_pairs : list
-        List of valid DTW pairs
-    sequential_mappings_csv : str or DataFrame
-        Path to CSV file or DataFrame containing mappings
-    segments_a : list
-        Segments for core A
-    segments_b : list
-        Segments for core B
-    top_n : int, optional
-        Number of top mappings to return (default: 5)
-    metric_weight : dict, optional
-        Dictionary defining metric weights for scoring
-        If None, uses default weights from find_best_mappings
-        
-    Returns
-    -------
-    tuple
-        - top_target_mapping_ids : list
-            List of top mapping IDs in order
-        - top_target_mapping_pairs : list
-            List of valid_pairs_to_combine for each top mapping ID
-        - target_mappings_df : pandas.DataFrame
-            DataFrame containing all target mappings
-    """
-    
-    # Helper function to clean bed names (remove "?")
-    def clean_name(name):
-        if pd.isna(name) or name == '':
-            return ''
-        return name.replace('?', '').strip()
-    
-    # Helper function to parse compact path format
-    def parse_compact_path(compact_path_str):
-        """Parse compact path format "2,3;4,5;6,7" back to list of tuples"""
-        if not compact_path_str or compact_path_str == "":
-            return []
-        return [tuple(map(int, pair.split(','))) for pair in compact_path_str.split(';')]
-    
-    # Step 1: Find valid consecutive DTW pairs that have at least one matching boundary
-    matching_pairs = []
+    target_mappings_df = None
     matching_boundary_names = set()
-    matching_details = []  # Store detailed information for better output
+    matching_details = []
     
-    for pair in valid_dtw_pairs:
-        seg_a_idx, seg_b_idx = pair
+    if use_boundary_mode:
+        # Check if all interpreted bed names are empty
+        all_beds_empty = (
+            all(pd.isna(name) or clean_name(name) == '' for name in interpreted_bed_a) and
+            all(pd.isna(name) or clean_name(name) == '' for name in interpreted_bed_b)
+        )
         
-        # Get the actual segment tuples
-        seg_a = segments_a[seg_a_idx]
-        seg_b = segments_b[seg_b_idx]
-        
-        # Only check consecutive segments (i, i+1) - these represent intervals between boundaries
-        if seg_a[1] == seg_a[0] + 1 and seg_b[1] == seg_b[0] + 1:
-            start_idx_a, end_idx_a = seg_a
-            start_idx_b, end_idx_b = seg_b
+        if not all_beds_empty:
+            # Step 1: Find valid consecutive DTW pairs that have at least one matching boundary
+            matching_pairs = []
             
-            # Check if both start and end boundaries exist in interpreted_bed arrays
-            if (start_idx_a < len(interpreted_bed_a) and end_idx_a < len(interpreted_bed_a) and
-                start_idx_b < len(interpreted_bed_b) and end_idx_b < len(interpreted_bed_b)):
+            for pair in valid_dtw_pairs:
+                seg_a_idx, seg_b_idx = pair
                 
-                # Get boundary names for this segment
-                start_name_a = clean_name(interpreted_bed_a[start_idx_a])
-                end_name_a = clean_name(interpreted_bed_a[end_idx_a])
-                start_name_b = clean_name(interpreted_bed_b[start_idx_b])
-                end_name_b = clean_name(interpreted_bed_b[end_idx_b])
-                
-                # Check if at least one boundary matches (top OR bottom)
-                top_match = start_name_a and start_name_b and start_name_a == start_name_b
-                bottom_match = end_name_a and end_name_b and end_name_a == end_name_b
-                
-                if top_match or bottom_match:
-                    matching_pairs.append(pair)
-                    
-                    # Create detailed description with 1-based pair numbers
-                    match_type = []
-                    if top_match:
-                        matching_boundary_names.add(start_name_a)
-                        match_type.append(f"top:{start_name_a}")
-                    if bottom_match:
-                        matching_boundary_names.add(end_name_a)
-                        match_type.append(f"bottom:{end_name_a}")
-                    
-                    # Store with sorting key (use start boundary index for depth order)
-                    matching_details.append({
-                        'sort_key': start_idx_a,  # Use for sorting from top to bottom
-                        'description': f"Segment pair ({seg_a_idx+1},{seg_b_idx+1}): [{','.join(match_type)}]"
-                    })
-    
-    # Sort matching details from top to bottom (by boundary index)
-    matching_details.sort(key=lambda x: x['sort_key'])
-    
-    # Step 2: Filter mappings that cover all required boundary names
-    target_mappings = []
-    
-    # Load the CSV if it's a filename string
-    if isinstance(sequential_mappings_csv, str):
-        mappings_df = pd.read_csv(sequential_mappings_csv)
-    else:
-        mappings_df = sequential_mappings_csv
-    
-    for _, mapping_row in mappings_df.iterrows():
-        # The segment pairs are stored in the 'path' column
-        mapping_pairs = mapping_row['path']
-        
-        # Parse pairs if they're stored as string
-        if isinstance(mapping_pairs, str):
-            # Handle different string formats
-            if ';' in mapping_pairs:
-                try:
-                    pairs_list = []
-                    for pair_str in mapping_pairs.split(';'):
-                        a, b = pair_str.split(',')
-                        # Convert from 1-based to 0-based indexing
-                        pairs_list.append((int(a) - 1, int(b) - 1))
-                    mapping_pairs = pairs_list
-                except:
-                    continue
-            else:
-                try:
-                    import ast
-                    mapping_pairs = ast.literal_eval(mapping_pairs)
-                    # Convert from 1-based to 0-based indexing
-                    mapping_pairs = [(a - 1, b - 1) for a, b in mapping_pairs]
-                except:
-                    continue
-        else:
-            # Convert from 1-based to 0-based indexing if not string
-            mapping_pairs = [(a - 1, b - 1) for a, b in mapping_pairs]
-        
-        # Check what boundary names are covered by this mapping
-        covered_boundaries = set()
-        
-        for seg_a_idx, seg_b_idx in mapping_pairs:
-            # Check if these segment indices are valid
-            if seg_a_idx < len(segments_a) and seg_b_idx < len(segments_b):
+                # Get the actual segment tuples
                 seg_a = segments_a[seg_a_idx]
                 seg_b = segments_b[seg_b_idx]
                 
-                # Only check consecutive segments
+                # Only check consecutive segments (i, i+1) - these represent intervals between boundaries
                 if seg_a[1] == seg_a[0] + 1 and seg_b[1] == seg_b[0] + 1:
                     start_idx_a, end_idx_a = seg_a
                     start_idx_b, end_idx_b = seg_b
                     
+                    # Check if both start and end boundaries exist in interpreted_bed arrays
                     if (start_idx_a < len(interpreted_bed_a) and end_idx_a < len(interpreted_bed_a) and
                         start_idx_b < len(interpreted_bed_b) and end_idx_b < len(interpreted_bed_b)):
                         
+                        # Get boundary names for this segment
                         start_name_a = clean_name(interpreted_bed_a[start_idx_a])
                         end_name_a = clean_name(interpreted_bed_a[end_idx_a])
                         start_name_b = clean_name(interpreted_bed_b[start_idx_b])
                         end_name_b = clean_name(interpreted_bed_b[end_idx_b])
                         
-                        # Check if at least one boundary matches
+                        # Check if at least one boundary matches (top OR bottom)
                         top_match = start_name_a and start_name_b and start_name_a == start_name_b
                         bottom_match = end_name_a and end_name_b and end_name_a == end_name_b
                         
-                        if top_match:
-                            covered_boundaries.add(start_name_a)
-                        if bottom_match:
-                            covered_boundaries.add(end_name_a)
-        
-        # Check if this mapping covers ALL required boundary names
-        if matching_boundary_names.issubset(covered_boundaries):
-            target_mappings.append(mapping_row)
-    
-    # Convert to DataFrame if mappings found
-    if target_mappings:
-        target_mappings_df = pd.DataFrame(target_mappings).reset_index(drop=True)
-        
-        # Initialize return variables
-        top_target_mapping_ids = []
-        top_target_mapping_pairs = []
-        
-        # Apply ranking if metric weights are provided
-        if metric_weight is not None:
-            # Default metrics configuration
-            default_weights = {
-                'perc_diag': 0.0,
-                'norm_dtw': 1.0,
-                'dtw_ratio': 0.0,
-                'corr_coef': 1.0,
-                'dtw_warp_eff': 0.0,
-                'perc_age_overlap': 0.0
-            }
-            
-            # Fixed higher_is_better configuration
-            higher_is_better_config = {
-                'perc_diag': True,
-                'norm_dtw': False,
-                'dtw_ratio': False,
-                'corr_coef': True,
-                'dtw_warp_eff': True,
-                'perc_age_overlap': True,
-            }
-            
-            # Use provided weights or default weights
-            weights = metric_weight
-            
-            # Clean the data
-            required_cols = ['corr_coef', 'perc_diag', 'perc_age_overlap']
-            existing_cols = [col for col in required_cols if col in target_mappings_df.columns]
-            if existing_cols:
-                target_mappings_df = target_mappings_df.replace([np.inf, -np.inf], np.nan).dropna(subset=existing_cols)
-            
-            # Calculate combined score
-            target_mappings_df['combined_score'] = 0.0
-            total_weight = 0.0
-            
-            for metric, weight in weights.items():
-                if metric in target_mappings_df.columns:
-                    # Make sure we have valid data to work with
-                    valid_data = target_mappings_df[~target_mappings_df[metric].isna()]
-                    
-                    if len(valid_data) > 0:
-                        min_val = valid_data[metric].min()
-                        max_val = valid_data[metric].max()
-                        
-                        # Only normalize if there's a range
-                        if max_val > min_val:
-                            if higher_is_better_config.get(metric, True):
-                                # For metrics where higher values are better
-                                target_mappings_df[f'{metric}_score'] = (target_mappings_df[metric] - min_val) / (max_val - min_val)
-                            else:
-                                # For metrics where lower values are better
-                                target_mappings_df[f'{metric}_score'] = 1 - ((target_mappings_df[metric] - min_val) / (max_val - min_val))
-                        else:
-                            # If all values are the same, assign a score of 1
-                            target_mappings_df[f'{metric}_score'] = 1.0
+                        if top_match or bottom_match:
+                            matching_pairs.append(pair)
                             
-                        # Add to weighted sum
-                        target_mappings_df['combined_score'] += target_mappings_df[f'{metric}_score'].fillna(0) * weight
-                        total_weight += weight
+                            # Create detailed description with 1-based pair numbers
+                            match_type = []
+                            if top_match:
+                                matching_boundary_names.add(start_name_a)
+                                match_type.append(f"top:{start_name_a}")
+                            if bottom_match:
+                                matching_boundary_names.add(end_name_a)
+                                match_type.append(f"bottom:{end_name_a}")
+                            
+                            # Store with sorting key (use start boundary index for depth order)
+                            matching_details.append({
+                                'sort_key': start_idx_a,  # Use for sorting from top to bottom
+                                'description': f"Segment pair ({seg_a_idx+1},{seg_b_idx+1}): [{','.join(match_type)}]"
+                            })
             
-            # Normalize the combined score by the total weight
-            if total_weight > 0:
-                target_mappings_df['combined_score'] = target_mappings_df['combined_score'] / total_weight
-            else:
-                target_mappings_df['combined_score'] = 0.0
+            # Sort matching details from top to bottom (by boundary index)
+            matching_details.sort(key=lambda x: x['sort_key'])
             
-            # Handle NaN values in combined score
-            target_mappings_df['combined_score'] = target_mappings_df['combined_score'].fillna(0)
-            
-            # Sort by combined score
-            target_mappings_df = target_mappings_df.sort_values(by='combined_score', ascending=False)
-            
-            # Get top N for display and return
-            top_mappings = target_mappings_df.head(top_n)
-            
-            print(f"Number of mappings found: {len(target_mappings_df)} out of {len(mappings_df)}")
-            print(f"Required boundary names: {sorted(matching_boundary_names)}")
-            print(f"Matching boundary correlations (top to bottom):")
-            for detail in matching_details:
-                print(f"  {detail['description']}")
-            
-            print(f"\nTop {min(top_n, len(target_mappings_df))} mappings by combined score:")
-            for idx, row in top_mappings.iterrows():
-                if 'mapping_id' in row:
-                    mapping_id = int(row['mapping_id'])
-                    top_target_mapping_ids.append(mapping_id)
-                    print(f"Mapping ID {mapping_id}: Combined Score={row['combined_score']:.3f}")
+            # Step 2: Filter mappings that cover all required boundary names
+            if matching_boundary_names:
+                target_mappings = []
+                
+                for _, mapping_row in dtw_results_df.iterrows():
+                    # The segment pairs are stored in the 'path' column
+                    mapping_pairs = mapping_row['path']
                     
-                    # Parse the path and convert to valid_pairs_to_combine
-                    if 'path' in row:
-                        target_data_row = parse_compact_path(row['path'])
-                        # Convert 1-based to 0-based indices for python
-                        valid_pairs_to_combine = [(a-1, b-1) for a, b in target_data_row]
-                        top_target_mapping_pairs.append(valid_pairs_to_combine)
+                    # Parse pairs if they're stored as string
+                    if isinstance(mapping_pairs, str):
+                        # Handle different string formats
+                        if ';' in mapping_pairs:
+                            try:
+                                pairs_list = []
+                                for pair_str in mapping_pairs.split(';'):
+                                    a, b = pair_str.split(',')
+                                    # Convert from 1-based to 0-based indexing
+                                    pairs_list.append((int(a) - 1, int(b) - 1))
+                                mapping_pairs = pairs_list
+                            except:
+                                continue
+                        else:
+                            try:
+                                import ast
+                                mapping_pairs = ast.literal_eval(mapping_pairs)
+                                # Convert from 1-based to 0-based indexing
+                                mapping_pairs = [(a - 1, b - 1) for a, b in mapping_pairs]
+                            except:
+                                continue
                     else:
-                        # If no path column, append empty list
-                        top_target_mapping_pairs.append([])
+                        # Convert from 1-based to 0-based indexing if not string
+                        mapping_pairs = [(a - 1, b - 1) for a, b in mapping_pairs]
                     
-                    # Print all available metrics
-                    metric_outputs = []
-                    if 'length' in row and weights.get('length', 0) != 0:
-                        metric_outputs.append(f"dtw_path_length={row['length']:.1f}")
-                    if 'corr_coef' in row and weights.get('corr_coef', 0) != 0:
-                        metric_outputs.append(f"correlation coefficient r={row['corr_coef']:.3f}")
-                    if 'perc_diag' in row and weights.get('perc_diag', 0) != 0:
-                        metric_outputs.append(f"perc_diag={row['perc_diag']:.1f}%")
-                    if 'norm_dtw' in row and weights.get('norm_dtw', 0) != 0:
-                        metric_outputs.append(f"norm_dtw={row['norm_dtw']:.3f}")
-                    if 'dtw_ratio' in row and weights.get('dtw_ratio', 0) != 0:
-                        metric_outputs.append(f"dtw_ratio={row['dtw_ratio']:.3f}")
-                    if 'dtw_warp_eff' in row and weights.get('dtw_warp_eff', 0) != 0:
-                        metric_outputs.append(f"dtw_warp_eff={row['dtw_warp_eff']:.1f}%")
-                    if 'perc_age_overlap' in row and weights.get('perc_age_overlap', 0) != 0:
-                        metric_outputs.append(f"perc_age_overlap={row['perc_age_overlap']:.1f}%")
+                    # Check what boundary names are covered by this mapping
+                    covered_boundaries = set()
                     
-                    # Print metrics with proper indentation
-                    for metric_output in metric_outputs:
-                        print(f"  {metric_output}")
+                    for seg_a_idx, seg_b_idx in mapping_pairs:
+                        # Check if these segment indices are valid
+                        if seg_a_idx < len(segments_a) and seg_b_idx < len(segments_b):
+                            seg_a = segments_a[seg_a_idx]
+                            seg_b = segments_b[seg_b_idx]
+                            
+                            # Only check consecutive segments
+                            if seg_a[1] == seg_a[0] + 1 and seg_b[1] == seg_b[0] + 1:
+                                start_idx_a, end_idx_a = seg_a
+                                start_idx_b, end_idx_b = seg_b
+                                
+                                if (start_idx_a < len(interpreted_bed_a) and end_idx_a < len(interpreted_bed_a) and
+                                    start_idx_b < len(interpreted_bed_b) and end_idx_b < len(interpreted_bed_b)):
+                                    
+                                    start_name_a = clean_name(interpreted_bed_a[start_idx_a])
+                                    end_name_a = clean_name(interpreted_bed_a[end_idx_a])
+                                    start_name_b = clean_name(interpreted_bed_b[start_idx_b])
+                                    end_name_b = clean_name(interpreted_bed_b[end_idx_b])
+                                    
+                                    # Check if at least one boundary matches
+                                    top_match = start_name_a and start_name_b and start_name_a == start_name_b
+                                    bottom_match = end_name_a and end_name_b and end_name_a == end_name_b
+                                    
+                                    if top_match:
+                                        covered_boundaries.add(start_name_a)
+                                    if bottom_match:
+                                        covered_boundaries.add(end_name_a)
                     
-                    # Print valid_pairs_to_combine at the end of each mapping with 1-based numbering
-                    if len(top_target_mapping_pairs) > 0 and len(top_target_mapping_pairs[-1]) > 0:
-                        # Convert back to 1-based for display
-                        pairs_display = [(a+1, b+1) for a, b in top_target_mapping_pairs[-1]]
-                        print(f"  valid_pairs_to_combine={pairs_display}")
-                    else:
-                        print(f"  valid_pairs_to_combine=[]")
-                    print("")
-            
-            # Handle case where no valid mappings found
-            if not top_mappings.empty:
-                best_mapping_id = top_target_mapping_ids[0] if top_target_mapping_ids else 'None'
-                print(f"Best mapping ID: {best_mapping_id}")
-            else:
-                print("Warning: No valid mappings found")
-            
-        else:
-            print(f"Found {len(target_mappings_df)} target mappings")
-            print(f"Required boundary names: {sorted(matching_boundary_names)}")
-            print(f"Matching boundary correlations (top to bottom):")
-            for detail in matching_details:
-                print(f"  {detail['description']}")
-            
-            # If no metric weights, just return top N by original order
-            for idx, row in target_mappings_df.head(top_n).iterrows():
-                if 'mapping_id' in row:
-                    mapping_id = int(row['mapping_id'])
-                    top_target_mapping_ids.append(mapping_id)
-                    
-                    # Parse the path and convert to valid_pairs_to_combine
-                    if 'path' in row:
-                        target_data_row = parse_compact_path(row['path'])
-                        # Convert 1-based to 0-based indices for python
-                        valid_pairs_to_combine = [(a-1, b-1) for a, b in target_data_row]
-                        top_target_mapping_pairs.append(valid_pairs_to_combine)
-                    else:
-                        # If no path column, append empty list
-                        top_target_mapping_pairs.append([])
-        
-        # Return tuple with IDs, pairs, and full dataframe
-        return top_target_mapping_ids, top_target_mapping_pairs, target_mappings_df
-    else:
-        print("No target mappings found")
+                    # Check if this mapping covers ALL required boundary names
+                    if matching_boundary_names.issubset(covered_boundaries):
+                        target_mappings.append(mapping_row)
+                
+                # Convert to DataFrame if mappings found
+                if target_mappings:
+                    target_mappings_df = pd.DataFrame(target_mappings).reset_index(drop=True)
+    
+    # Determine which dataframe to use for ranking
+    if target_mappings_df is not None and not target_mappings_df.empty:
+        working_df = target_mappings_df
+        mode_title = "Target Mappings (Boundary Correlation)"
+        print(f"Number of mappings found: {len(target_mappings_df)} out of {len(dtw_results_df)}")
         print(f"Required boundary names: {sorted(matching_boundary_names)}")
         print(f"Matching boundary correlations (top to bottom):")
         for detail in matching_details:
             print(f"  {detail['description']}")
-        return [], [], pd.DataFrame()
+    else:
+        working_df = dtw_results_df
+        mode_title = "Overall Best Mappings"
+        print(f"=== Top {top_n} Overall Best Mappings ===")
+        
+        if use_boundary_mode and not matching_boundary_names:
+            print("No matching boundary names found. Falling back to standard best mappings mode.")
+        elif use_boundary_mode:
+            print("No target mappings found. Falling back to standard best mappings mode.")
+            print(f"Required boundary names: {sorted(matching_boundary_names)}")
+            print(f"Matching boundary correlations (top to bottom):")
+            for detail in matching_details:
+                print(f"  {detail['description']}")
+    
+    # Clean the working dataframe
+    required_cols = ['corr_coef', 'perc_diag', 'perc_age_overlap']
+    existing_cols = [col for col in required_cols if col in working_df.columns]
+    if existing_cols:
+        working_df = working_df.replace([np.inf, -np.inf], np.nan).dropna(subset=existing_cols)
+    
+    # Filter for shortest DTW path length if requested
+    if filter_shortest_dtw and 'length' in working_df.columns:
+        working_df['dtw_path_length'] = working_df['length']
+        min_length = working_df['dtw_path_length'].min()
+        shortest_mappings = working_df[working_df['dtw_path_length'] == min_length]
+        
+        if mode_title == "Overall Best Mappings":
+            print(f"Filtering for shortest DTW path length: {min_length}")
+            print(f"Number of mappings found: {len(shortest_mappings)} out of {len(working_df)}")
+    else:
+        shortest_mappings = working_df
+        if filter_shortest_dtw and mode_title == "Overall Best Mappings":
+            print("Warning: No 'length' column found. Using all mappings.")
+    
+    # Create a copy for scoring calculations
+    df_for_ranking = shortest_mappings.copy()
+    
+    # Calculate combined scores
+    df_for_ranking = _calculate_combined_scores(df_for_ranking, weights, higher_is_better_config)
+    
+    # Get top N mappings by combined score
+    top_mappings = df_for_ranking.sort_values(by='combined_score', ascending=False).head(top_n)
+    
+    # Print detailed results and return
+    top_mapping_ids, top_mapping_pairs = _print_results(top_mappings, weights, mode_title)
+    
+    return top_mapping_ids, top_mapping_pairs, top_mappings
+

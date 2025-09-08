@@ -554,7 +554,7 @@ def handle_two_single_points(log1, log2, exponent=1, QualityIndex=False):
         return D, wp
 
 
-def custom_dtw(log1, log2, subseq=False, exponent=1, QualityIndex=False, independent_dtw=False, available_columns=None, pca_for_dependent_dtw=False):
+def custom_dtw(log1, log2, subseq=False, exponent=1, QualityIndex=False, independent_dtw=False, available_columns=None, pca_for_dependent_dtw=False, sakoe_chiba=False):
     """
     Custom implementation of Dynamic Time Warping for well log correlation.
     
@@ -579,8 +579,11 @@ def custom_dtw(log1, log2, subseq=False, exponent=1, QualityIndex=False, indepen
     available_columns : list, default=None
         Column names for logging when independent_dtw=True
     pca_for_dependent_dtw : bool, default=True
-        Whether to use PCA for dependent multidimensional DTW. If False, uses conventional 
-        multidimensional DTW with librosa directly without PCA projection.
+        Whether to use PCA for dependent multidimensional DTW.
+        If False, uses conventional multidimensional DTW with librosa directly without PCA projection.
+    sakoe_chiba : bool, default=True
+        If True, applies Sakoe-Chiba band constraint with band_rad=0.5.
+        If False, performs unconstrained DTW.
         
     Returns
     -------
@@ -658,12 +661,14 @@ def custom_dtw(log1, log2, subseq=False, exponent=1, QualityIndex=False, indepen
             if QualityIndex:
                 D_dim, wp_dim, QIdx_dim = custom_dtw(dim_log1, dim_log2, subseq=subseq, 
                                                    exponent=exponent, QualityIndex=True, 
-                                                   independent_dtw=False, pca_for_dependent_dtw=pca_for_dependent_dtw)
+                                                   independent_dtw=False, pca_for_dependent_dtw=pca_for_dependent_dtw,
+                                                   sakoe_chiba=sakoe_chiba)
                 all_QIdx.append(QIdx_dim)
             else:
                 D_dim, wp_dim = custom_dtw(dim_log1, dim_log2, subseq=subseq, 
                                          exponent=exponent, QualityIndex=False, 
-                                         independent_dtw=False, pca_for_dependent_dtw=pca_for_dependent_dtw)
+                                         independent_dtw=False, pca_for_dependent_dtw=pca_for_dependent_dtw,
+                                         sakoe_chiba=sakoe_chiba)
             
             all_D.append(D_dim)
             all_wp.append(wp_dim)
@@ -769,18 +774,18 @@ def custom_dtw(log1, log2, subseq=False, exponent=1, QualityIndex=False, indepen
             sm[i, :] = (np.abs(log2 - log1[i])) ** exponent
 
     # Compute the accumulated cost matrix D and the warping path wp
-    D, wp = dtw(C=sm, subseq=subseq)
+    if sakoe_chiba:
+        D, wp = dtw(C=sm, subseq=subseq, global_constraints=True, band_rad=0.5)
+    else:
+        D, wp = dtw(C=sm, subseq=subseq)
 
-    # Adjust warping path indices to be within valid ranges
-    if wp is not None:
-        wp[:, 0] = np.clip(wp[:, 0], 0, r - 1)
-        wp[:, 1] = np.clip(wp[:, 1], 0, c - 1)
-        
-    # Compute quality indicators if requested
-    if QualityIndex and wp is not None:
-        p = wp[:, 0]
-        q = wp[:, 1]
-        QIdx = compute_quality_indicators(log1, log2, p, q, D, pca_for_dependent_dtw=pca_for_dependent_dtw)
+    # Adjust warping path indices to match input arrays (librosa may use 0-based indexing)
+    p = wp[:, 0]  # indices for log1
+    q = wp[:, 1]  # indices for log2
+
+    if QualityIndex:
+        # Compute quality indicators
+        QIdx = compute_quality_indicators(log1, log2, p, q, D, pca_for_dependent_dtw)
         return D, wp, QIdx
     else:
         return D, wp

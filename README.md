@@ -124,8 +124,7 @@ Detailed function documentation is available in [FUNCTION_DOCUMENTATION.md](FUNC
 - **`calculate_interpolated_ages()`**: Interpolate ages for depth boundaries using age models with uncertainty propagation
 - **`diagnose_chain_breaks()`**: Identify and analyze connectivity gaps in correlation chains
 - **`run_multi_parameter_analysis()`**: Comprehensive analysis across parameter combinations with statistical testing
-- **`find_best_mappings()`**: Identify optimal correlation mappings using weighted quality metrics
-- **`find_target_mappings()`**: Identify correlation mappings that honor user-defined correlated units or marker beds between cores
+- **`find_best_mappings()`**: Identify optimal correlation mappings using weighted quality metrics (supports both standard best mappings and boundary correlation filtering modes)
 
 ### Data Loading and Visualization
 - **`load_log_data()`**: Load multi-column log data with optional image support and normalization
