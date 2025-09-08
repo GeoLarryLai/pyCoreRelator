@@ -384,7 +384,9 @@ def visualize_dtw_results_from_csv(csv_path, log_a, log_b, md_a, md_b,
                                   age_constraint_a_source_cores=None,
                                   age_constraint_b_source_cores=None,
                                   core_a_name=None,
-                                  core_b_name=None):
+                                  core_b_name=None,
+                                  interpreted_bed_a=None,
+                                  interpreted_bed_b=None):
     """
     Create comprehensive DTW visualization animations from CSV mapping results.
     
@@ -420,6 +422,7 @@ def visualize_dtw_results_from_csv(csv_path, log_a, log_b, md_a, md_b,
         age_constraint_a_source_cores (list, optional): Source core names for age constraints in core A
         age_constraint_b_source_cores (list, optional): Source core names for age constraints in core B
         core_a_name, core_b_name (str, optional): Core names for constraint visualization
+        interpreted_bed_a, interpreted_bed_b (array, optional): Interpreted bed names for core A and core B
     
     Returns:
         None: Creates GIF files and frame directories in outputs folder
@@ -538,7 +541,9 @@ def visualize_dtw_results_from_csv(csv_path, log_a, log_b, md_a, md_b,
                 age_constraint_a_source_cores=age_constraint_a_source_cores,
                 age_constraint_b_source_cores=age_constraint_b_source_cores,
                 core_a_name=core_a_name,
-                core_b_name=core_b_name
+                core_b_name=core_b_name,
+                interpreted_bed_a=interpreted_bed_a,
+                interpreted_bed_b=interpreted_bed_b
             )
             
             # Close figures to free memory

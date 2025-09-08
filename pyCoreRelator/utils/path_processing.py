@@ -414,56 +414,6 @@ def find_best_mappings(csv_file_path,
     If boundary correlation parameters are provided, filters mappings that comply with 
     boundary correlations between cores. If those parameters are not provided or no 
     matching boundaries are found, behaves as standard best mappings finder.
-    
-    Parameters
-    ----------
-    csv_file_path : str
-        Path to the CSV file containing DTW results
-    top_n : int, optional
-        Number of top mappings to return (default: 5)
-    filter_shortest_dtw : bool, optional
-        If True, only consider mappings with shortest DTW path length (default: True)
-    metric_weight : dict, optional
-        Dictionary defining metric weights for scoring
-        Format: {metric_name: weight_value}
-        If None, uses default weights
-    picked_depths_a_cat1 : array-like, optional
-        Picked depths for core A category 1 (for boundary correlation mode)
-    picked_depths_b_cat1 : array-like, optional  
-        Picked depths for core B category 1 (for boundary correlation mode)
-    interpreted_bed_a : array-like, optional
-        Interpreted bed names for core A (for boundary correlation mode)
-    interpreted_bed_b : array-like, optional
-        Interpreted bed names for core B (for boundary correlation mode)
-    valid_dtw_pairs : list, optional
-        List of valid DTW pairs (for boundary correlation mode)
-    segments_a : list, optional
-        Segments for core A (for boundary correlation mode)
-    segments_b : list, optional
-        Segments for core B (for boundary correlation mode)
-    
-    Returns
-    -------
-    tuple
-        - top_mapping_id : list
-            List of top mapping IDs in order
-        - top_mapping_pairs : list
-            List of valid_pairs_to_combine for each top mapping ID
-        - top_mapping_df : pandas.DataFrame
-            DataFrame containing the top N mappings sorted by combined score
-    
-    Examples
-    --------
-    >>> # Standard best mappings mode
-    >>> top_ids, top_pairs, top_df = find_best_mappings('dtw_results.csv', top_n=3)
-    
-    >>> # Boundary correlation mode
-    >>> top_ids, top_pairs, top_df = find_best_mappings(
-    ...     'dtw_results.csv', top_n=3,
-    ...     picked_depths_a_cat1=depths_a, picked_depths_b_cat1=depths_b,
-    ...     interpreted_bed_a=beds_a, interpreted_bed_b=beds_b,
-    ...     valid_dtw_pairs=pairs, segments_a=segs_a, segments_b=segs_b
-    ... )
     """
     
     def parse_compact_path(compact_path_str):
@@ -478,44 +428,35 @@ def find_best_mappings(csv_file_path,
             return ''
         return name.replace('?', '').strip()
     
-    def _calculate_combined_scores(df_for_ranking, weights, higher_is_better_config):
-        """Calculate combined scores for a dataframe"""
-        # Initialize the combined score column
-        df_for_ranking['combined_score'] = 0.0
-        total_weight = 0.0
+    def _calculate_combined_scores(df_input, weights, higher_is_better_config):
+        """Calculate combined scores for each mapping"""
+        df_for_ranking = df_input.copy()
         
-        # Calculate scores for each metric and add to combined score
+        # Initialize combined score
+        df_for_ranking['combined_score'] = 0.0
+        
+        # Calculate weighted combined score
+        total_weight = 0
         for metric, weight in weights.items():
-            if metric in df_for_ranking.columns:
-                # Make sure we have valid data to work with
-                valid_data = df_for_ranking[~df_for_ranking[metric].isna()]
+            if weight != 0 and metric in df_for_ranking.columns:
+                # Normalize metric values to 0-1 range
+                metric_values = df_for_ranking[metric].copy()
+                metric_min = metric_values.min()
+                metric_max = metric_values.max()
                 
-                if len(valid_data) > 0:
-                    min_val = valid_data[metric].min()
-                    max_val = valid_data[metric].max()
+                if metric_max != metric_min:
+                    normalized_values = (metric_values - metric_min) / (metric_max - metric_min)
                     
-                    # Only normalize if there's a range
-                    if max_val > min_val:
-                        if higher_is_better_config.get(metric, True):
-                            # For metrics where higher values are better
-                            df_for_ranking[f'{metric}_score'] = (df_for_ranking[metric] - min_val) / (max_val - min_val)
-                        else:
-                            # For metrics where lower values are better
-                            df_for_ranking[f'{metric}_score'] = 1 - ((df_for_ranking[metric] - min_val) / (max_val - min_val))
-                    else:
-                        # If all values are the same, assign a score of 1
-                        df_for_ranking[f'{metric}_score'] = 1.0
-                        
-                    # Add to weighted sum
-                    df_for_ranking['combined_score'] += df_for_ranking[f'{metric}_score'].fillna(0) * weight
+                    # Flip values if lower is better
+                    if not higher_is_better_config.get(metric, True):
+                        normalized_values = 1 - normalized_values
+                    
+                    df_for_ranking['combined_score'] += weight * normalized_values
                     total_weight += weight
         
-        # Normalize the combined score by the total weight
+        # Normalize by total weight if weights were applied
         if total_weight > 0:
-            df_for_ranking['combined_score'] = df_for_ranking['combined_score'] / total_weight
-        else:
-            print("Warning: No valid metrics found for scoring.")
-            df_for_ranking['combined_score'] = 0.0
+            df_for_ranking['combined_score'] /= total_weight
         
         # Handle NaN values in combined score
         if df_for_ranking['combined_score'].isna().any():
@@ -569,9 +510,9 @@ def find_best_mappings(csv_file_path,
             for metric_output in metric_outputs:
                 print(f"  {metric_output}")
             
-            # Print valid_pairs_to_combine at the end of each mapping with 1-based numbering
+            # Print valid_pairs_to_combine with display numbering (export values + 1)
             if len(top_mapping_pairs) > 0 and len(top_mapping_pairs[-1]) > 0:
-                # Convert back to 1-based for display
+                # Convert export values to display format (add 1 more)
                 pairs_display = [(a+1, b+1) for a, b in top_mapping_pairs[-1]]
                 print(f"  valid_pairs_to_combine={pairs_display}")
             else:
@@ -615,7 +556,7 @@ def find_best_mappings(csv_file_path,
         dtw_results_df = pd.read_csv(csv_file_path)
     else:
         dtw_results_df = csv_file_path
-    
+   
     # Check if we should use boundary correlation mode
     use_boundary_mode = all(param is not None for param in [
         picked_depths_a_cat1, picked_depths_b_cat1, interpreted_bed_a, 
@@ -659,11 +600,16 @@ def find_best_mappings(csv_file_path,
                         start_name_b = clean_name(interpreted_bed_b[start_idx_b])
                         end_name_b = clean_name(interpreted_bed_b[end_idx_b])
                         
-                        # Check if at least one boundary matches (top OR bottom)
+                        # Check if boundaries match consistently (top-to-top AND/OR bottom-to-bottom)
                         top_match = start_name_a and start_name_b and start_name_a == start_name_b
                         bottom_match = end_name_a and end_name_b and end_name_a == end_name_b
                         
-                        if top_match or bottom_match:
+                        # Only accept if at least one boundary matches AND no conflicting boundaries
+                        has_valid_match = (top_match or bottom_match)
+                        has_conflict = ((start_name_a and start_name_b and start_name_a != start_name_b) or 
+                                       (end_name_a and end_name_b and end_name_a != end_name_b))
+                        
+                        if has_valid_match and not has_conflict:
                             matching_pairs.append(pair)
                             
                             # Create detailed description with 1-based pair numbers
@@ -683,18 +629,124 @@ def find_best_mappings(csv_file_path,
             
             # Sort matching details from top to bottom (by boundary index)
             matching_details.sort(key=lambda x: x['sort_key'])
-            
-            # Step 2: Filter mappings that cover all required boundary names
-            if matching_boundary_names:
+
+            # Filter out single-boundary matches that are redundant with double-boundary matches
+            if matching_pairs:
+                # First pass: identify double boundary names
+                double_boundary_names = set()
+                for pair in matching_pairs:
+                    seg_a_idx, seg_b_idx = pair[0] - 2, pair[1] - 2  # Convert back to 0-based for boundary checking
+                    seg_a = segments_a[seg_a_idx]
+                    seg_b = segments_b[seg_b_idx]
+                    
+                    if seg_a[1] == seg_a[0] + 1 and seg_b[1] == seg_b[0] + 1:
+                        start_idx_a, end_idx_a = seg_a
+                        start_idx_b, end_idx_b = seg_b
+                        
+                        if (start_idx_a < len(interpreted_bed_a) and end_idx_a < len(interpreted_bed_a) and
+                            start_idx_b < len(interpreted_bed_b) and end_idx_b < len(interpreted_bed_b)):
+                            
+                            start_name_a = clean_name(interpreted_bed_a[start_idx_a])
+                            end_name_a = clean_name(interpreted_bed_a[end_idx_a])
+                            start_name_b = clean_name(interpreted_bed_b[start_idx_b])
+                            end_name_b = clean_name(interpreted_bed_b[end_idx_b])
+                            
+                            top_match = start_name_a and start_name_b and start_name_a == start_name_b
+                            bottom_match = end_name_a and end_name_b and end_name_a == end_name_b
+                            
+                            if top_match and bottom_match:
+                                double_boundary_names.add(start_name_a)
+                                double_boundary_names.add(end_name_a)
+                
+                # Second pass: filter out single boundary pairs with names in double boundary pairs
+                filtered_pairs = []
+                for pair in matching_pairs:
+                    seg_a_idx, seg_b_idx = pair
+                    seg_a = segments_a[seg_a_idx]
+                    seg_b = segments_b[seg_b_idx]
+                    
+                    if seg_a[1] == seg_a[0] + 1 and seg_b[1] == seg_b[0] + 1:
+                        start_idx_a, end_idx_a = seg_a
+                        start_idx_b, end_idx_b = seg_b
+                        
+                        if (start_idx_a < len(interpreted_bed_a) and end_idx_a < len(interpreted_bed_a) and
+                            start_idx_b < len(interpreted_bed_b) and end_idx_b < len(interpreted_bed_b)):
+                            
+                            start_name_a = clean_name(interpreted_bed_a[start_idx_a])
+                            end_name_a = clean_name(interpreted_bed_a[end_idx_a])
+                            start_name_b = clean_name(interpreted_bed_b[start_idx_b])
+                            end_name_b = clean_name(interpreted_bed_b[end_idx_b])
+                            
+                            top_match = start_name_a and start_name_b and start_name_a == start_name_b
+                            bottom_match = end_name_a and end_name_b and end_name_a == end_name_b
+                            
+                            if top_match and bottom_match:
+                                # Always keep double boundary matches
+                                filtered_pairs.append(pair)
+                            elif top_match:
+                                # Keep single top match only if name not in double boundary pairs
+                                if start_name_a not in double_boundary_names:
+                                    filtered_pairs.append(pair)
+                            elif bottom_match:
+                                # Keep single bottom match only if name not in double boundary pairs
+                                if end_name_a not in double_boundary_names:
+                                    filtered_pairs.append(pair)
+                
+                # Update matching_pairs and rebuild matching_boundary_names and matching_details
+                matching_pairs = filtered_pairs
+                matching_boundary_names = set()
+                matching_details = []
+                
+                for pair in matching_pairs:
+                    seg_a_idx, seg_b_idx = pair
+                    seg_a = segments_a[seg_a_idx]
+                    seg_b = segments_b[seg_b_idx]
+                    
+                    if seg_a[1] == seg_a[0] + 1 and seg_b[1] == seg_b[0] + 1:
+                        start_idx_a, end_idx_a = seg_a
+                        start_idx_b, end_idx_b = seg_b
+                        
+                        if (start_idx_a < len(interpreted_bed_a) and end_idx_a < len(interpreted_bed_a) and
+                            start_idx_b < len(interpreted_bed_b) and end_idx_b < len(interpreted_bed_b)):
+                            
+                            start_name_a = clean_name(interpreted_bed_a[start_idx_a])
+                            end_name_a = clean_name(interpreted_bed_a[end_idx_a])
+                            start_name_b = clean_name(interpreted_bed_b[start_idx_b])
+                            end_name_b = clean_name(interpreted_bed_b[end_idx_b])
+                            
+                            top_match = start_name_a and start_name_b and start_name_a == start_name_b
+                            bottom_match = end_name_a and end_name_b and end_name_a == end_name_b
+                            
+                            # Rebuild matching_boundary_names and matching_details
+                            match_type = []
+                            if top_match:
+                                matching_boundary_names.add(start_name_a)
+                                match_type.append(f"top:{start_name_a}")
+                            if bottom_match:
+                                matching_boundary_names.add(end_name_a)
+                                match_type.append(f"bottom:{end_name_a}")
+                            
+                            matching_details.append({
+                                'sort_key': start_idx_a,
+                                'description': f"Segment pair ({seg_a_idx+3},{seg_b_idx+3}): [{','.join(match_type)}]"
+                            })
+                
+                # Re-sort matching details and convert matching_pairs to set for faster lookup
+                matching_details.sort(key=lambda x: x['sort_key'])
+                valid_pairs_set = set(matching_pairs)
+
+            # Step 2: Find DTW results that use only the filtered segment pairs
+            if matching_pairs:
                 target_mappings = []
                 
                 for _, mapping_row in dtw_results_df.iterrows():
-                    # The segment pairs are stored in the 'path' column
-                    mapping_pairs = mapping_row['path']
+                    mapping_pairs = mapping_row.get('valid_pairs_to_combine')
                     
-                    # Parse pairs if they're stored as string
+                    if pd.isna(mapping_pairs) or mapping_pairs == '':
+                        continue
+                    
+                    # Parse mapping pairs from various formats
                     if isinstance(mapping_pairs, str):
-                        # Handle different string formats
                         if ';' in mapping_pairs:
                             try:
                                 pairs_list = []
@@ -717,39 +769,13 @@ def find_best_mappings(csv_file_path,
                         # Convert from 1-based to 0-based indexing if not string
                         mapping_pairs = [(a - 1, b - 1) for a, b in mapping_pairs]
                     
-                    # Check what boundary names are covered by this mapping
-                    covered_boundaries = set()
+                    # Check if all mapping pairs are in the filtered valid pairs set
+                    mapping_uses_valid_pairs = all((seg_a_idx, seg_b_idx) in valid_pairs_set 
+                                                 for seg_a_idx, seg_b_idx in mapping_pairs 
+                                                 if seg_a_idx < len(segments_a) and seg_b_idx < len(segments_b))
                     
-                    for seg_a_idx, seg_b_idx in mapping_pairs:
-                        # Check if these segment indices are valid
-                        if seg_a_idx < len(segments_a) and seg_b_idx < len(segments_b):
-                            seg_a = segments_a[seg_a_idx]
-                            seg_b = segments_b[seg_b_idx]
-                            
-                            # Only check consecutive segments
-                            if seg_a[1] == seg_a[0] + 1 and seg_b[1] == seg_b[0] + 1:
-                                start_idx_a, end_idx_a = seg_a
-                                start_idx_b, end_idx_b = seg_b
-                                
-                                if (start_idx_a < len(interpreted_bed_a) and end_idx_a < len(interpreted_bed_a) and
-                                    start_idx_b < len(interpreted_bed_b) and end_idx_b < len(interpreted_bed_b)):
-                                    
-                                    start_name_a = clean_name(interpreted_bed_a[start_idx_a])
-                                    end_name_a = clean_name(interpreted_bed_a[end_idx_a])
-                                    start_name_b = clean_name(interpreted_bed_b[start_idx_b])
-                                    end_name_b = clean_name(interpreted_bed_b[end_idx_b])
-                                    
-                                    # Check if at least one boundary matches
-                                    top_match = start_name_a and start_name_b and start_name_a == start_name_b
-                                    bottom_match = end_name_a and end_name_b and end_name_a == end_name_b
-                                    
-                                    if top_match:
-                                        covered_boundaries.add(start_name_a)
-                                    if bottom_match:
-                                        covered_boundaries.add(end_name_a)
-                    
-                    # Check if this mapping covers ALL required boundary names
-                    if matching_boundary_names.issubset(covered_boundaries):
+                    # Only include mappings that use only the filtered pairs
+                    if mapping_uses_valid_pairs and len(mapping_pairs) > 0:
                         target_mappings.append(mapping_row)
                 
                 # Convert to DataFrame if mappings found
@@ -785,18 +811,17 @@ def find_best_mappings(csv_file_path,
     if existing_cols:
         working_df = working_df.replace([np.inf, -np.inf], np.nan).dropna(subset=existing_cols)
     
-    # Filter for shortest DTW path length if requested
-    if filter_shortest_dtw and 'length' in working_df.columns:
+    # Filter for shortest DTW path length if requested (only in standard mode)
+    if filter_shortest_dtw and 'length' in working_df.columns and mode_title == "Overall Best Mappings":
         working_df['dtw_path_length'] = working_df['length']
         min_length = working_df['dtw_path_length'].min()
         shortest_mappings = working_df[working_df['dtw_path_length'] == min_length]
         
-        if mode_title == "Overall Best Mappings":
-            print(f"Filtering for shortest DTW path length: {min_length}")
-            print(f"Number of mappings found: {len(shortest_mappings)} out of {len(working_df)}")
+        print(f"Filtering for shortest DTW path length: {min_length}")
+        print(f"Number of mappings found: {len(shortest_mappings)} out of {len(working_df)}")
     else:
         shortest_mappings = working_df
-        if filter_shortest_dtw and mode_title == "Overall Best Mappings":
+        if filter_shortest_dtw and mode_title == "Overall Best Mappings" and 'length' not in working_df.columns:
             print("Warning: No 'length' column found. Using all mappings.")
     
     # Create a copy for scoring calculations
@@ -812,4 +837,3 @@ def find_best_mappings(csv_file_path,
     top_mapping_ids, top_mapping_pairs = _print_results(top_mappings, weights, mode_title)
     
     return top_mapping_ids, top_mapping_pairs, top_mappings
-

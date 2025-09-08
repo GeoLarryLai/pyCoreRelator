@@ -1069,7 +1069,10 @@ def visualize_combined_segments(log_a, log_b, md_a, md_b, dtw_results, valid_dtw
                               age_constraint_a_source_cores=None,
                               age_constraint_b_source_cores=None,
                               core_a_name=None,
-                              core_b_name=None):
+                              core_b_name=None,
+                              # Bed correlation parameters
+                              interpreted_bed_a=None,
+                              interpreted_bed_b=None):
     """
     Combine selected segment pairs and visualize the results.
     
@@ -1091,28 +1094,10 @@ def visualize_combined_segments(log_a, log_b, md_a, md_b, dtw_results, valid_dtw
         The full DTW distance matrix
     segment_pairs_to_combine : list
         List of tuples (a_idx, b_idx) for segment pairs to combine
-    color_interval_size : int or None, default=None
-        If provided, use this value as step_size for coloring
-    visualize_pairs : bool, default=True
-        Whether to visualize individual segment pairs
-    mark_depths : bool, default=True
-        Whether to mark depth boundaries
-    mark_age_constraints: bool, default=False
-        Whether to display age constraint information
-    ages_a, ages_b: dictionaries with age data
-        Each should contain 'depths', 'ages', 'pos_uncertainties', 'neg_uncertainties'
-    correlation_save_path : str, default='CombinedSegmentPairs_DTW_correlation.png'
-        Path to save the correlation figure
-    matrix_save_path : str, default='CombinedSegmentPairs_DTW_matrix.png'
-        Path to save the matrix figure
-    age_constraint_a_source_cores : list or None, default=None
-        List of source core names for each age constraint in core A.
-        When provided, vertical constraint lines will be drawn in the DTW matrix.
-    age_constraint_b_source_cores : list or None, default=None
-        List of source core names for each age constraint in core B.
-        When provided, horizontal constraint lines will be drawn in the DTW matrix.
-    core_a_name, core_b_name : str or None, default=None
-        Core names for determining same vs adjacent core coloring.
+    interpreted_bed_a, interpreted_bed_b : array-like, optional
+        Arrays of interpreted bed names corresponding to depth boundaries (excluding first and last).
+        When both provided with matching bed names, correlation lines will be drawn between cores.
+    [... other parameters remain the same ...]
         
     Returns:
     --------
@@ -1120,7 +1105,7 @@ def visualize_combined_segments(log_a, log_b, md_a, md_b, dtw_results, valid_dtw
         (combined_wp, combined_quality, correlation_fig, matrix_fig)
     """
     
-    # Helper funcition: Create a global colormap function that uses the full log data
+    # Helper function: Create a global colormap function that uses the full log data
     def create_global_colormap(log_a, log_b):
         """
         Create a global colormap function based on the full normalized log data.
@@ -1155,6 +1140,76 @@ def visualize_combined_segments(log_a, log_b, md_a, md_b, dtw_results, valid_dtw
             return color
         
         return global_color_function
+
+    # Helper function: Validate and process bed correlation arrays
+    def validate_bed_arrays(interpreted_bed_a, interpreted_bed_b, depth_boundaries_a, depth_boundaries_b):
+        """
+        Validate bed correlation arrays and find matching bed names.
+        
+        Returns:
+            list: List of tuples (bed_name, depth_a, depth_b) for matching beds
+        """
+        # Check if both arrays are provided
+        if interpreted_bed_a is None or interpreted_bed_b is None:
+            return []
+        
+        # Convert to numpy arrays for easier processing
+        bed_a = np.array(interpreted_bed_a)
+        bed_b = np.array(interpreted_bed_b)
+        
+        # Check if arrays are empty or contain only empty strings
+        if len(bed_a) == 0 or len(bed_b) == 0:
+            return []
+        
+        if all(bed == '' or bed is None for bed in bed_a) or all(bed == '' or bed is None for bed in bed_b):
+            return []
+        
+        # Expected length is number of depth boundaries minus first and last
+        expected_len_a = len(depth_boundaries_a) - 2
+        expected_len_b = len(depth_boundaries_b) - 2
+        
+        # Check array lengths
+        if len(bed_a) != expected_len_a or len(bed_b) != expected_len_b:
+            return []
+        
+        # Find matching bed names (ignoring empty/None names)
+        matches = []
+        for i, bed_name_a in enumerate(bed_a):
+            if bed_name_a and bed_name_a != '':
+                for j, bed_name_b in enumerate(bed_b):
+                    if bed_name_b and bed_name_b != '' and bed_name_a == bed_name_b:
+                        # Convert bed index to depth boundary index (adding 1 to skip first boundary)
+                        depth_idx_a = i + 1
+                        depth_idx_b = j + 1
+                        
+                        # Get actual depth values
+                        depth_a = md_a[depth_boundaries_a[depth_idx_a]]
+                        depth_b = md_b[depth_boundaries_b[depth_idx_b]]
+                        
+                        matches.append((bed_name_a, depth_a, depth_b))
+                        break  # Only match each bed once
+        
+        return matches
+
+    # Helper function: Draw bed correlation lines
+    def draw_bed_correlations(matches, ax):
+        """
+        Draw dashed correlation lines between matching beds.
+        
+        Parameters:
+            matches: List of tuples (bed_name, depth_a, depth_b)
+            ax: matplotlib axis object
+        """
+        for bed_name, depth_a, depth_b in matches:
+            # Draw dashed black line between the two cores
+            ax.plot([1, 2], [depth_a, depth_b], 
+                   color='black', linestyle='--', linewidth=1.5, alpha=0.8)
+            
+            # Add bed name label at the middle of the line
+            mid_depth = (depth_a + depth_b) / 2
+            ax.text(1.5, mid_depth, bed_name, 
+                   fontweight='bold', color='black', ha='center', va='center',
+                   bbox=dict(boxstyle="round,pad=0.3", facecolor='white', alpha=0.8, edgecolor='none'))
 
     # Combine segment pairs
     combined_wp, combined_quality = combine_segment_dtw_results(
@@ -1232,6 +1287,20 @@ def visualize_combined_segments(log_a, log_b, md_a, md_b, dtw_results, valid_dtw
         all_constraint_neg_errors_b=all_constraint_neg_errors_b
     )
 
+    # NEW: Add bed correlation lines if conditions are met
+    if correlation_fig is not None:
+        bed_matches = validate_bed_arrays(interpreted_bed_a, interpreted_bed_b, 
+                                        depth_boundaries_a, depth_boundaries_b)
+        
+        if bed_matches:
+            # Get the main axis from the correlation figure
+            ax = correlation_fig.get_axes()[0]  # Assuming main plot is first axis
+            draw_bed_correlations(bed_matches, ax)
+            
+            # Re-save the correlation figure with bed correlation lines
+            os.makedirs(os.path.dirname(correlation_save_path), exist_ok=True)
+            correlation_fig.savefig(correlation_save_path, dpi=150, bbox_inches='tight')
+
     # Create DTW matrix plot
     if mark_ages:
         matrix_age_constraint_a_depths = all_constraint_depths_a
@@ -1272,7 +1341,7 @@ def visualize_combined_segments(log_a, log_b, md_a, md_b, dtw_results, valid_dtw
         md_b=md_b,
         core_a_name=core_a_name,
         core_b_name=core_b_name
-)
+    )
 
     return combined_wp, combined_quality, correlation_fig, matrix_fig
 

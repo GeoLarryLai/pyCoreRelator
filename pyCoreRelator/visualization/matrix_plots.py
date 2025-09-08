@@ -239,13 +239,13 @@ def plot_dtw_matrix_with_paths(dtw_distance_matrix_full,
             if core_name is not None and i < len(constraint_source_cores):
                 source_core = constraint_source_cores[i]
                 if source_core in core_name:
-                    line_color = 'white'  # Same core
+                    line_color = 'blue'  # ages from the same core
                     line_alpha = 0.8
                 else:
-                    line_color = 'indigo'  # Adjacent core  
+                    line_color = 'indigo'  # ages from adjacent core  
                     line_alpha = 0.8
             else:
-                line_color = 'white'  
+                line_color = 'blue'  
                 line_alpha = 0.8
             
             # Draw the constraint line
@@ -259,7 +259,7 @@ def plot_dtw_matrix_with_paths(dtw_distance_matrix_full,
                     ax.text(ax.get_xlim()[1] * 0.95, matrix_index, age_label, 
                            rotation=0, ha='right', va='bottom', fontsize=8,
                            color=line_color, alpha=line_alpha,
-                           bbox=dict(facecolor='white', alpha=0.7, pad=1))
+                           bbox=dict(facecolor='blue', alpha=0.7, pad=1))
                            
             else:  # vertical
                 ax.axvline(x=matrix_index, color=line_color, linestyle='--', 
@@ -404,7 +404,7 @@ def plot_dtw_matrix_with_paths(dtw_distance_matrix_full,
         else:
             # Add combined path in red
             if combined_wp is not None and len(combined_wp) > 0:
-                ax.plot(combined_wp[:, 1], combined_wp[:, 0], 'r-', linewidth=2, label="DTW Path")
+                ax.plot(combined_wp[:, 1], combined_wp[:, 0], 'w-', linewidth=2, label="DTW Path")
                 ax.set_title('DTW Matrix with Combined Path')
     
     elif mode == 'all_paths_colored':
