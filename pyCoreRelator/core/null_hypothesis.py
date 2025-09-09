@@ -916,8 +916,11 @@ def run_multi_parameter_analysis(
         Results are saved to CSV files specified in output_csv_filenames
     """
     
-    # Prepare output directory
-    os.makedirs('outputs', exist_ok=True)
+    # Create directories for output files if needed
+    for csv_filename in output_csv_filenames.values():
+        output_dir = os.path.dirname(csv_filename)
+        if output_dir:
+            os.makedirs(output_dir, exist_ok=True)
     
     # Loop through all quality indices
     print(f"Running {len(parameter_combinations)} parameter combinations for {len(target_quality_indices)} quality indices...")

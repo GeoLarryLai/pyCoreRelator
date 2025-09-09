@@ -259,7 +259,7 @@ def plot_dtw_matrix_with_paths(dtw_distance_matrix_full,
                     ax.text(ax.get_xlim()[1] * 0.95, matrix_index, age_label, 
                            rotation=0, ha='right', va='bottom', fontsize=8,
                            color=line_color, alpha=line_alpha,
-                           bbox=dict(facecolor='blue', alpha=0.7, pad=1))
+                           bbox=dict(facecolor='white', alpha=0.7, pad=1))
                            
             else:  # vertical
                 ax.axvline(x=matrix_index, color=line_color, linestyle='--', 
@@ -500,17 +500,14 @@ def plot_dtw_matrix_with_paths(dtw_distance_matrix_full,
     
     # Save figure if output filename provided
     if output_filename:
-        if output_filename.startswith('outputs'):
-            full_output_path = output_filename
-        else:
-            os.makedirs('outputs', exist_ok=True)
-            save_filename = os.path.basename(output_filename)
-            full_output_path = os.path.join('outputs', save_filename)
+        # Create directory structure if needed
+        output_dir = os.path.dirname(output_filename)
+        if output_dir:
+            os.makedirs(output_dir, exist_ok=True)
         
-        os.makedirs(os.path.dirname(full_output_path), exist_ok=True)
         plt.tight_layout()
-        plt.savefig(full_output_path, dpi=150, bbox_inches='tight')
+        plt.savefig(output_filename, dpi=150, bbox_inches='tight')
         
-        return full_output_path
+        return output_filename
 
     return None

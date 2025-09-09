@@ -467,10 +467,10 @@ def find_complete_core_paths(
         >>> print(f"Results saved to: {results['output_csv']}")
     """
 
-    # Ensure outputs directory exists
-    os.makedirs('outputs', exist_ok=True)
-    output_csv_filename = os.path.basename(output_csv)
-    output_csv = os.path.join('outputs', output_csv_filename)
+    # Create directory structure if needed
+    output_dir = os.path.dirname(output_csv)
+    if output_dir:
+        os.makedirs(output_dir, exist_ok=True)
 
     # Performance warning for unlimited search
     if max_search_path is None and not mute_mode:

@@ -15,6 +15,7 @@ import matplotlib.pyplot as plt
 from PIL import Image as PILImage
 import os
 import gc
+import shutil
 from joblib import Parallel, delayed
 from tqdm import tqdm
 import csv
@@ -148,14 +149,15 @@ def create_segment_dtw_animation(log_a, log_b, md_a, md_b, dtw_results, valid_dt
 
     print("=== Starting Segment DTW Animation Creation ===")
     
-    # Create frame directory under outputs
-    frames_dir = os.path.join('outputs', 'SegmentPair_DTW_frames')
+    # Create fresh frame directory
+    frames_dir = 'SegmentPair_DTW_frames'
+    
+    # Remove existing frame directory if it exists, then create a fresh one
+    if os.path.exists(frames_dir):
+        shutil.rmtree(frames_dir)
+        print(f"Removed existing frame directory: {frames_dir}")
     os.makedirs(frames_dir, exist_ok=True)
-
-    # Clean existing frames
-    for file in os.listdir(frames_dir):
-        if file.endswith('.png'):
-            os.remove(os.path.join(frames_dir, file))
+    print(f"Created fresh frame directory: {frames_dir}")
 
     # Process a subset of pairs if there are too many
     if valid_dtw_pairs and len(valid_dtw_pairs) > 0:
@@ -334,8 +336,11 @@ def create_segment_dtw_animation(log_a, log_b, md_a, md_b, dtw_results, valid_dt
                 
                 if frames:
                     # Save all frames in a single GIF
-                    os.makedirs('outputs', exist_ok=True)
-                    output_filepath = os.path.join('outputs', output_filename) 
+                    output_filepath = output_filename
+                    
+                    output_dir = os.path.dirname(output_filepath)
+                    if output_dir:
+                        os.makedirs(output_dir, exist_ok=True) 
                     frames[0].save(output_filepath, format='GIF', append_images=frames[1:], 
                                 save_all=True, duration=500, loop=0)
                     
@@ -343,13 +348,22 @@ def create_segment_dtw_animation(log_a, log_b, md_a, md_b, dtw_results, valid_dt
             except Exception as e:
                 print(f"Error creating GIF: {e}")
                 
-            # Clean up PNG files if not keeping them
+            # Clean up PNG files and frame directory if not keeping them
             if not keep_frames:
+                print("Cleaning up frame folder as keep_frames=False...")
                 for png in png_files:
                     try:
                         os.remove(png)
                     except:
                         pass
+                # Remove the frame directory itself
+                try:
+                    os.rmdir(frames_dir)
+                    print(f"Removed frame directory: {frames_dir}")
+                except:
+                    pass
+            else:
+                print("Preserving frame folder as keep_frames=True...")
         else:
             print("No frames were successfully created.")
     else:
@@ -425,7 +439,7 @@ def visualize_dtw_results_from_csv(csv_path, log_a, log_b, md_a, md_b,
         interpreted_bed_a, interpreted_bed_b (array, optional): Interpreted bed names for core A and core B
     
     Returns:
-        None: Creates GIF files and frame directories in outputs folder
+        None: Creates GIF files and frame directories
         
     Example:
         >>> visualize_dtw_results_from_csv(
@@ -457,15 +471,30 @@ def visualize_dtw_results_from_csv(csv_path, log_a, log_b, md_a, md_b,
             return []
         return [tuple(map(int, pair.split(','))) for pair in compact_path_str.split(';')]
 
-    # Create frame directories under outputs
-    correlation_frames_dir = os.path.join('outputs', 'CombinedDTW_correlation_frames')
-    matrix_frames_dir = os.path.join('outputs', 'CombinedDTW_matrix_frames')
+    # Use provided paths directly
+    corr_gif_path = correlation_gif_output_filename
+    matrix_gif_path = matrix_gif_output_filename
+    
+    # Only create frame directories if we're creating a GIF
+    if creategif:
+        # Create frame directories at the same level as the user-specified GIF names
+        corr_user_dir = os.path.dirname(correlation_gif_output_filename) if os.path.dirname(correlation_gif_output_filename) else '.'
+        matrix_user_dir = os.path.dirname(matrix_gif_output_filename) if os.path.dirname(matrix_gif_output_filename) else '.'
+        
+        correlation_frames_dir = os.path.join(corr_user_dir, 'CombinedDTW_correlation_frames')
+        matrix_frames_dir = os.path.join(matrix_user_dir, 'CombinedDTW_matrix_frames')
 
-    for frame_dir in [correlation_frames_dir, matrix_frames_dir]:
-        os.makedirs(frame_dir, exist_ok=True)
-        for file in os.listdir(frame_dir):
-            if file.endswith(".png"):
-                os.remove(os.path.join(frame_dir, file))
+        for frame_dir in [correlation_frames_dir, matrix_frames_dir]:
+            # Remove existing frame directory if it exists, then create a fresh one
+            if os.path.exists(frame_dir):
+                shutil.rmtree(frame_dir)
+                print(f"Removed existing frame directory: {frame_dir}")
+            os.makedirs(frame_dir, exist_ok=True)
+            print(f"Created fresh frame directory: {frame_dir}")
+    else:
+        # If not creating GIF, skip frame creation entirely
+        print("Skipping frame creation as creategif=False")
+        return
     
     # Count the total number of mappings without loading them all
     total_mappings = 0
@@ -594,20 +623,30 @@ def visualize_dtw_results_from_csv(csv_path, log_a, log_b, md_a, md_b,
     if creategif:
         try:            
             print("\nCreating GIFs from frames...")
-            os.makedirs('outputs', exist_ok=True)
-            corr_gif_result = create_gif(correlation_frames_dir, os.path.join('outputs', correlation_gif_output_filename))
-            matrix_gif_result = create_gif(matrix_frames_dir, os.path.join('outputs', matrix_gif_output_filename))
+            # Create directories for both GIF outputs (paths already computed above)
+            os.makedirs(os.path.dirname(corr_gif_path), exist_ok=True)
+            os.makedirs(os.path.dirname(matrix_gif_path), exist_ok=True)
+            
+            corr_gif_result = create_gif(correlation_frames_dir, corr_gif_path)
+            matrix_gif_result = create_gif(matrix_frames_dir, matrix_gif_path)
             print(corr_gif_result)
             print(matrix_gif_result)
             
-            # Clean up PNG files if keepframes is False
+            # Frame cleanup logic: 
+            # if keep_frames=False, remove frame folders and files after GIF creation
+            # if keep_frames=True, preserve frame folders and files after GIF creation
             if not keep_frames:
-                print("Cleaning up PNG files...")
-                for frame_dir in ["outputs/CombinedDTW_correlation_frames", "outputs/CombinedDTW_matrix_frames"]:
-                    for file in os.listdir(frame_dir):
-                        if file.endswith(".png"):
-                            os.remove(os.path.join(frame_dir, file))
-                    print(f"Cleaned {frame_dir}")
+                print("Cleaning up frame folders as keep_frames=False...")
+                for frame_dir in [correlation_frames_dir, matrix_frames_dir]:
+                    if os.path.exists(frame_dir):
+                        for file in os.listdir(frame_dir):
+                            if file.endswith(".png"):
+                                os.remove(os.path.join(frame_dir, file))
+                        # Remove the directory itself
+                        os.rmdir(frame_dir)
+                        print(f"Removed frame directory: {frame_dir}")
+            else:
+                print("Preserving frame folders as keep_frames=True...")
         except Exception as e:
             print(f"Error creating GIFs: {e}")
             import traceback

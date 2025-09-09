@@ -398,7 +398,7 @@ def filter_against_existing(new_path, filtered_paths, group_writer):
 
 
 def find_best_mappings(csv_file_path, 
-                       top_n=5, 
+                       top_n=10, 
                        filter_shortest_dtw=True,
                        metric_weight=None,
                        picked_depths_a_cat1=None,
@@ -556,6 +556,12 @@ def find_best_mappings(csv_file_path,
         dtw_results_df = pd.read_csv(csv_file_path)
     else:
         dtw_results_df = csv_file_path
+    
+    # Always add ranking columns after loading CSV
+    if 'Ranking' not in dtw_results_df.columns:
+        dtw_results_df['Ranking'] = ''
+    if 'Ranking_datums' not in dtw_results_df.columns:
+        dtw_results_df['Ranking_datums'] = ''
    
     # Check if we should use boundary correlation mode
     use_boundary_mode = all(param is not None for param in [
@@ -788,36 +794,113 @@ def find_best_mappings(csv_file_path,
             for detail in matching_details:
                 print(f"  {detail['description']}")
     
-    # Clean the working dataframe
+    # Step 1: ALWAYS compute standard mode ranking for all mappings first
+    # Clean the data for standard ranking
+    standard_working_df = dtw_results_df.copy()
     required_cols = ['corr_coef', 'perc_diag', 'perc_age_overlap']
+    existing_cols = [col for col in required_cols if col in standard_working_df.columns]
+    if existing_cols:
+        standard_working_df = standard_working_df.replace([np.inf, -np.inf], np.nan).dropna(subset=existing_cols)
+    
+    # Filter for shortest DTW path length for standard mode
+    if filter_shortest_dtw and 'length' in standard_working_df.columns:
+        standard_working_df['dtw_path_length'] = standard_working_df['length']
+        min_length = standard_working_df['dtw_path_length'].min()
+        standard_shortest = standard_working_df[standard_working_df['dtw_path_length'] == min_length]
+        print(f"Filtering for shortest DTW path length: {min_length}")
+    else:
+        standard_shortest = standard_working_df
+        if filter_shortest_dtw and 'length' not in standard_working_df.columns:
+            print("Warning: No 'length' column found. Using all mappings.")
+    
+    # Calculate combined scores for standard mode
+    standard_df_for_ranking = _calculate_combined_scores(standard_shortest.copy(), weights, higher_is_better_config)
+    
+    # Always calculate and append standard mode ranking to 'Ranking' column
+    standard_ranked_df = standard_df_for_ranking.sort_values(by='combined_score', ascending=False)
+    top_n_standard = standard_ranked_df.head(top_n)
+    for i, (idx, row) in enumerate(top_n_standard.iterrows(), 1):
+        if 'mapping_id' in row:
+            mapping_id = int(row['mapping_id'])
+            # Update the original dtw_results_df with standard ranking
+            dtw_results_df.loc[dtw_results_df['mapping_id'] == mapping_id, 'Ranking'] = i
+    
+    # Step 2: Check if we should proceed with boundary mode
+    if not use_boundary_mode or not matching_boundary_names:
+        # No boundary mode or no matching names - return standard mode results
+        print(f"=== Top {top_n} Overall Best Mappings ===")
+        if use_boundary_mode and not matching_boundary_names:
+            print("No matching datums found. Using standard best mappings mode.")
+        
+        top_mapping_ids, top_mapping_pairs = _print_results(top_n_standard, weights, "Overall Best Mappings")
+        
+        # Save the updated CSV if it was loaded from a file path
+        if isinstance(csv_file_path, str):
+            dtw_results_df.to_csv(csv_file_path, index=False)
+        
+        return top_mapping_ids, top_mapping_pairs, standard_ranked_df
+    
+    # Step 3: Proceed with boundary mode processing since we have matching names
+    # Determine which dataframe to use for boundary ranking
+    if target_mappings_df is not None and not target_mappings_df.empty:
+        working_df = target_mappings_df
+        mode_title = "Target Mappings (Boundary Correlation)"
+        print(f"Datum matching correlations:")
+        for detail in matching_details:
+            print(f"  {detail['description']}")
+        print(f"\n{len(target_mappings_df)}/{len(dtw_results_df)} mappings found with matched datums")
+    else:
+        working_df = dtw_results_df
+        mode_title = "Overall Best Mappings"
+        print(f"No mappings found with matched datums. Falling back to search for the most optimal mappings.")
+        if matching_boundary_names:
+            print(f"Datum matching correlations:")
+            for detail in matching_details:
+                print(f"  {detail['description']}")
+    
+    # Clean the working dataframe for boundary mode
     existing_cols = [col for col in required_cols if col in working_df.columns]
     if existing_cols:
         working_df = working_df.replace([np.inf, -np.inf], np.nan).dropna(subset=existing_cols)
     
-    # Filter for shortest DTW path length if requested (only in standard mode)
-    if filter_shortest_dtw and 'length' in working_df.columns and mode_title == "Overall Best Mappings":
+    # Filter for shortest DTW path length if requested (only for non-target mappings)
+    if filter_shortest_dtw and 'length' in working_df.columns and working_df is not target_mappings_df:
         working_df['dtw_path_length'] = working_df['length']
         min_length = working_df['dtw_path_length'].min()
         shortest_mappings = working_df[working_df['dtw_path_length'] == min_length]
-        
         print(f"Filtering for shortest DTW path length: {min_length}")
         print(f"Number of mappings found: {len(shortest_mappings)} out of {len(working_df)}")
     else:
         shortest_mappings = working_df
-        if filter_shortest_dtw and mode_title == "Overall Best Mappings" and 'length' not in working_df.columns:
-            print("Warning: No 'length' column found. Using all mappings.")
     
     # Create a copy for scoring calculations
     df_for_ranking = shortest_mappings.copy()
     
-    # Calculate combined scores
+    # Calculate combined scores for boundary mode
     df_for_ranking = _calculate_combined_scores(df_for_ranking, weights, higher_is_better_config)
     
-    # Get top N mappings by combined score
+    # Get top N mappings by combined score for boundary mode
     top_mappings_df = df_for_ranking.sort_values(by='combined_score', ascending=False)
-
-    # Print detailed results and return
+    
+    # Add datums ranking if we have target mappings (matched boundary names)
+    if target_mappings_df is not None and not target_mappings_df.empty:
+        # Calculate combined scores for target mappings if not already done
+        if 'combined_score' not in target_mappings_df.columns:
+            target_mappings_df = _calculate_combined_scores(target_mappings_df, weights, higher_is_better_config)
+        
+        # Rank the target mappings (those with matched datums) for 'Ranking_datums' column
+        target_ranked = target_mappings_df.sort_values(by='combined_score', ascending=False)
+        for i, (idx, row) in enumerate(target_ranked.iterrows(), 1):
+            if 'mapping_id' in row:
+                mapping_id = int(row['mapping_id'])
+                # Update the original dtw_results_df with datums ranking
+                dtw_results_df.loc[dtw_results_df['mapping_id'] == mapping_id, 'Ranking_datums'] = i
+    
+    # Print detailed results and return boundary mode results
     top_mapping_ids, top_mapping_pairs = _print_results(top_mappings_df.head(top_n), weights, mode_title)
-
+    
+    # Save the updated CSV if it was loaded from a file path
+    if isinstance(csv_file_path, str):
+        dtw_results_df.to_csv(csv_file_path, index=False)
     
     return top_mapping_ids, top_mapping_pairs, top_mappings_df

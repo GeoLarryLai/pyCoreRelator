@@ -722,14 +722,12 @@ def plot_segment_pair_correlation(log_a, log_b, md_a, md_b,
 
     # Save figure if path provided
     if save_path:
-        if save_path.startswith('outputs'):
-            final_save_path = save_path
-        else:
-            os.makedirs('outputs', exist_ok=True)
-            save_filename = os.path.basename(save_path)
-            final_save_path = os.path.join('outputs', save_filename)
+        final_save_path = save_path
         
-        os.makedirs(os.path.dirname(final_save_path), exist_ok=True)
+        output_dir = os.path.dirname(final_save_path)
+        if output_dir:
+            os.makedirs(output_dir, exist_ok=True)
+        
         plt.savefig(final_save_path, dpi=150, bbox_inches='tight')
     
     return fig
@@ -1231,26 +1229,15 @@ def visualize_combined_segments(log_a, log_b, md_a, md_b, dtw_results, valid_dtw
     # Create the global colormap
     global_color_func = create_global_colormap(log_a, log_b)
 
-    # Ensure outputs directory exists and update save paths
-    os.makedirs('outputs', exist_ok=True)
-
-    # Handle save paths - ensure outputs directory exists
-    os.makedirs('outputs', exist_ok=True)
-
+    # Create directory structure if needed for save paths
     if correlation_save_path:
-        if not correlation_save_path.startswith('outputs'):
-            correlation_save_path = os.path.join('outputs', correlation_save_path)
-        
         save_dir = os.path.dirname(correlation_save_path)
-        if save_dir:  # Only create if directory path exists
+        if save_dir:
             os.makedirs(save_dir, exist_ok=True)
 
     if matrix_save_path:
-        if not matrix_save_path.startswith('outputs'):
-            matrix_save_path = os.path.join('outputs', matrix_save_path)
-        
         save_dir = os.path.dirname(matrix_save_path)
-        if save_dir:  # Only create if directory path exists
+        if save_dir:
             os.makedirs(save_dir, exist_ok=True)
 
     # Create correlation plot in multi-segment mode
@@ -1641,12 +1628,13 @@ def plot_correlation_distribution(csv_file, target_mapping_id=None, quality_inde
             if png_filename is None:
                 png_filename = f'{quality_index}_distribution_{pdf_method.lower()}.png'
             
-            # Ensure outputs directory exists
-            os.makedirs('outputs', exist_ok=True)
+            # Use the provided filename directly
+            final_png_path = png_filename
             
-            # Use only filename, place in outputs directory
-            save_filename = os.path.basename(png_filename)
-            final_png_path = os.path.join('outputs', save_filename)
+            # Create directory if needed
+            output_dir = os.path.dirname(final_png_path)
+            if output_dir:
+                os.makedirs(output_dir, exist_ok=True)
             
             plt.savefig(final_png_path, dpi=150, bbox_inches='tight')
         
@@ -2592,12 +2580,10 @@ def plot_quality_distributions(quality_data, target_quality_indices, output_figu
 
         plt.tight_layout()
         
-        # Ensure output is saved to 'outputs' subfolder
-        if not output_filename.startswith('outputs/') and not os.path.isabs(output_filename):
-            # Create outputs directory if it doesn't exist
-            os.makedirs('outputs', exist_ok=True)
-            # Prepend 'outputs/' to filename
-            output_filename = os.path.join('outputs', os.path.basename(output_filename))
+        # Create directory if needed
+        output_dir = os.path.dirname(output_filename)
+        if output_dir:
+            os.makedirs(output_dir, exist_ok=True)
         
         plt.savefig(output_filename, dpi=150, bbox_inches='tight')
         
@@ -3053,12 +3039,10 @@ def plot_t_statistics_vs_constraints(quality_data, target_quality_indices, outpu
         base_filename = output_figure_filenames[quality_index]
         t_stat_filename = base_filename.replace('.png', '_tstat.png').replace('.jpg', '_tstat.jpg')
         
-        # Ensure output is saved to 'outputs' subfolder
-        if not t_stat_filename.startswith('outputs/') and not os.path.isabs(t_stat_filename):
-            # Create outputs directory if it doesn't exist
-            os.makedirs('outputs', exist_ok=True)
-            # Prepend 'outputs/' to filename
-            t_stat_filename = os.path.join('outputs', os.path.basename(t_stat_filename))
+        # Create directory if needed
+        output_dir = os.path.dirname(t_stat_filename)
+        if output_dir:
+            os.makedirs(output_dir, exist_ok=True)
         
         plt.savefig(t_stat_filename, dpi=150, bbox_inches='tight')
         if debug:  # debug=True means mute_mode=True, show essential info only
@@ -3261,8 +3245,11 @@ def calculate_quality_comparison_t_statistics(target_quality_indices, master_csv
         df_master_with_stats.loc[df_filtered.index, 'cohens_d'] = df_filtered['cohens_d']
         df_master_with_stats.loc[df_filtered.index, 'effect_size_category'] = df_filtered['effect_size_category']
         
-        # Save modified CSV to outputs subfolder
-        output_filename = os.path.join('outputs', os.path.basename(master_csv_filename))
+        # Save modified CSV
+        output_filename = master_csv_filename
+        output_dir = os.path.dirname(output_filename)
+        if output_dir:
+            os.makedirs(output_dir, exist_ok=True)
         df_master_with_stats.to_csv(output_filename, index=False)
         
         if mute_mode:
@@ -3341,14 +3328,8 @@ def plot_quality_comparison_t_statistics(target_quality_indices, master_csv_file
                 print(error_msg)
             raise
     
-    # Modify master_csv_filenames to point to outputs folder if files exist there
-    modified_master_csv_filenames = {}
-    for quality_index in target_quality_indices:
-        outputs_filename = os.path.join('outputs', os.path.basename(master_csv_filenames[quality_index]))
-        if os.path.exists(outputs_filename):
-            modified_master_csv_filenames[quality_index] = outputs_filename
-        else:
-            modified_master_csv_filenames[quality_index] = master_csv_filenames[quality_index]
+    # Use the provided master CSV filenames directly
+    modified_master_csv_filenames = master_csv_filenames.copy()
     
     # Load and prepare data for all quality indices
     quality_data = load_and_prepare_quality_data(
@@ -3749,12 +3730,10 @@ def _create_distribution_gif(plot_info, gif_filename, mute_mode, max_frames=50):
                 for _ in range(frames_for_2_seconds):
                     images.append(final_frame)
             
-            # Ensure GIF is saved to 'outputs' subfolder
-            if not gif_filename.startswith('outputs/') and not os.path.isabs(gif_filename):
-                # Create outputs directory if it doesn't exist
-                os.makedirs('outputs', exist_ok=True)
-                # Prepend 'outputs/' to filename
-                gif_filename = os.path.join('outputs', os.path.basename(gif_filename))
+            # Create directory if needed
+            output_dir = os.path.dirname(gif_filename)
+            if output_dir:
+                os.makedirs(output_dir, exist_ok=True)
             
             imageio.mimsave(gif_filename, images, fps=fps, loop=3)
             
@@ -4171,12 +4150,10 @@ def _create_tstat_gif(plot_info, gif_filename, mute_mode, max_frames=50):
                 for _ in range(frames_for_2_seconds):
                     images.append(final_frame)
             
-            # Ensure GIF is saved to 'outputs' subfolder
-            if not gif_filename.startswith('outputs/') and not os.path.isabs(gif_filename):
-                # Create outputs directory if it doesn't exist
-                os.makedirs('outputs', exist_ok=True)
-                # Prepend 'outputs/' to filename
-                gif_filename = os.path.join('outputs', os.path.basename(gif_filename))
+            # Create directory if needed
+            output_dir = os.path.dirname(gif_filename)
+            if output_dir:
+                os.makedirs(output_dir, exist_ok=True)
             
             imageio.mimsave(gif_filename, images, fps=fps, loop=3)
             

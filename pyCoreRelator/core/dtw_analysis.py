@@ -1609,6 +1609,9 @@ def run_comprehensive_dtw_analysis(log_a, log_b, md_a, md_b, picked_depths_a=Non
         # Display only if created
         if gif_output_file:
             display(IPImage(filename=gif_output_file))
+    else:
+        if not mute_mode:
+            print("\nSkipping GIF animation creation as creategif=False")
 
     # Clean up memory before returning
     plt.close('all')

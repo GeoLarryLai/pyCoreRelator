@@ -511,12 +511,16 @@ def calculate_interpolated_ages(picked_depths, age_constraints_depths, age_const
         
         # Use provided csv_filename if given, otherwise create default name
         if csv_filename is not None:
-            filename = csv_filename
+            full_filename = csv_filename
         else:
             filename = f"{core_name}_pickeddepth_age_{uncertainty_method}.csv" if core_name else f"pickeddepth_age_{uncertainty_method}.csv"
+            full_filename = filename
         
-        os.makedirs('outputs', exist_ok=True)
-        full_filename = os.path.join('outputs', filename)
+        # Create directory if needed
+        output_dir = os.path.dirname(full_filename)
+        if output_dir:
+            os.makedirs(output_dir, exist_ok=True)
+        
         export_df.to_csv(full_filename, index=False)
         if not mute_mode:
             print(f"Exported interpolated/extrapolated ages ({uncertainty_method} method) to {full_filename}")
