@@ -635,7 +635,7 @@ def find_best_mappings(csv_file_path,
                 # First pass: identify double boundary names
                 double_boundary_names = set()
                 for pair in matching_pairs:
-                    seg_a_idx, seg_b_idx = pair[0] - 2, pair[1] - 2  # Convert back to 0-based for boundary checking
+                    seg_a_idx, seg_b_idx = pair  # Convert back to 0-based for boundary checking
                     seg_a = segments_a[seg_a_idx]
                     seg_b = segments_b[seg_b_idx]
                     
@@ -735,73 +735,56 @@ def find_best_mappings(csv_file_path,
                 matching_details.sort(key=lambda x: x['sort_key'])
                 valid_pairs_set = set(matching_pairs)
 
-            # Step 2: Find DTW results that use only the filtered segment pairs
-            if matching_pairs:
-                target_mappings = []
+        print(f"Matching datums: {sorted(matching_boundary_names)}")
+
+        # Step 2: Find DTW results that contain all boundary-correlated segment pairs
+        if matching_pairs:
+            target_mappings = []
+            
+            # Convert boundary pairs to 1-based format for comparison with CSV path values
+            boundary_pairs_1based = set((seg_a_idx + 3, seg_b_idx + 3) for seg_a_idx, seg_b_idx in valid_pairs_set)
+            
+            for _, mapping_row in dtw_results_df.iterrows():
+                path_str = mapping_row.get('path')
                 
-                for _, mapping_row in dtw_results_df.iterrows():
-                    mapping_pairs = mapping_row.get('valid_pairs_to_combine')
-                    
-                    if pd.isna(mapping_pairs) or mapping_pairs == '':
-                        continue
-                    
-                    # Parse mapping pairs from various formats
-                    if isinstance(mapping_pairs, str):
-                        if ';' in mapping_pairs:
-                            try:
-                                pairs_list = []
-                                for pair_str in mapping_pairs.split(';'):
-                                    a, b = pair_str.split(',')
-                                    # Convert from 1-based to 0-based indexing
-                                    pairs_list.append((int(a) - 1, int(b) - 1))
-                                mapping_pairs = pairs_list
-                            except:
-                                continue
-                        else:
-                            try:
-                                import ast
-                                mapping_pairs = ast.literal_eval(mapping_pairs)
-                                # Convert from 1-based to 0-based indexing
-                                mapping_pairs = [(a - 1, b - 1) for a, b in mapping_pairs]
-                            except:
-                                continue
-                    else:
-                        # Convert from 1-based to 0-based indexing if not string
-                        mapping_pairs = [(a - 1, b - 1) for a, b in mapping_pairs]
-                    
-                    # Check if all mapping pairs are in the filtered valid pairs set
-                    mapping_uses_valid_pairs = all((seg_a_idx, seg_b_idx) in valid_pairs_set 
-                                                 for seg_a_idx, seg_b_idx in mapping_pairs 
-                                                 if seg_a_idx < len(segments_a) and seg_b_idx < len(segments_b))
-                    
-                    # Only include mappings that use only the filtered pairs
-                    if mapping_uses_valid_pairs and len(mapping_pairs) > 0:
-                        target_mappings.append(mapping_row)
+                if pd.isna(path_str) or path_str == '':
+                    continue
                 
-                # Convert to DataFrame if mappings found
-                if target_mappings:
-                    target_mappings_df = pd.DataFrame(target_mappings).reset_index(drop=True)
+                # Parse path: "2,2;4,4;6,6" -> {(2,2), (4,4), (6,6)}
+                try:
+                    path_pairs = set()
+                    for pair_str in path_str.split(';'):
+                        a, b = pair_str.split(',')
+                        path_pairs.add((int(a), int(b)))
+                except:
+                    continue  # Skip if parsing fails
+                
+                # Check if ALL boundary pairs are contained in this path
+                if boundary_pairs_1based.issubset(path_pairs):
+                    target_mappings.append(mapping_row)
+            
+            # Convert to DataFrame if mappings found
+            if target_mappings:
+                target_mappings_df = pd.DataFrame(target_mappings).reset_index(drop=True)
     
     # Determine which dataframe to use for ranking
     if target_mappings_df is not None and not target_mappings_df.empty:
         working_df = target_mappings_df
         mode_title = "Target Mappings (Boundary Correlation)"
-        print(f"Number of mappings found: {len(target_mappings_df)} out of {len(dtw_results_df)}")
-        print(f"Required boundary names: {sorted(matching_boundary_names)}")
-        print(f"Matching boundary correlations (top to bottom):")
+        print(f"Datum matching correlations:")
         for detail in matching_details:
             print(f"  {detail['description']}")
+        print(f"\n{len(target_mappings_df)}/{len(dtw_results_df)} mappings found with matched datums")
     else:
         working_df = dtw_results_df
         mode_title = "Overall Best Mappings"
         print(f"=== Top {top_n} Overall Best Mappings ===")
         
         if use_boundary_mode and not matching_boundary_names:
-            print("No matching boundary names found. Falling back to standard best mappings mode.")
+            print("No matching datums found. Falling back to standard best mappings mode.")
         elif use_boundary_mode:
-            print("No target mappings found. Falling back to standard best mappings mode.")
-            print(f"Required boundary names: {sorted(matching_boundary_names)}")
-            print(f"Matching boundary correlations (top to bottom):")
+            print("No mappings found with matched datums. Falling back to search for the most optimal mappings.")
+            print(f"Datum matching correlations:")
             for detail in matching_details:
                 print(f"  {detail['description']}")
     
@@ -831,9 +814,10 @@ def find_best_mappings(csv_file_path,
     df_for_ranking = _calculate_combined_scores(df_for_ranking, weights, higher_is_better_config)
     
     # Get top N mappings by combined score
-    top_mappings = df_for_ranking.sort_values(by='combined_score', ascending=False).head(top_n)
-    
+    top_mappings_df = df_for_ranking.sort_values(by='combined_score', ascending=False)
+
     # Print detailed results and return
-    top_mapping_ids, top_mapping_pairs = _print_results(top_mappings, weights, mode_title)
+    top_mapping_ids, top_mapping_pairs = _print_results(top_mappings_df.head(top_n), weights, mode_title)
+
     
-    return top_mapping_ids, top_mapping_pairs, top_mappings
+    return top_mapping_ids, top_mapping_pairs, top_mappings_df
