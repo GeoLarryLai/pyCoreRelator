@@ -53,6 +53,11 @@ def plot_dtw_matrix_with_paths(dtw_distance_matrix_full,
     for different visualization modes, path overlays, and age constraint lines. Age constraint
     lines are automatically shown when the corresponding source_cores parameters are provided.
     
+    When both cores have valid age constraints (depths, ages, and source_cores), the function
+    automatically applies age-based masking to mask out chronologically impossible correlation
+    regions where one core is older than a certain age while the other is younger than a 
+    certain age.
+    
     Parameters
     ----------
     dtw_distance_matrix_full : numpy.ndarray
@@ -193,6 +198,90 @@ def plot_dtw_matrix_with_paths(dtw_distance_matrix_full,
         """
         return np.abs(np.array(depth_array) - depth_value).argmin()
 
+    def create_age_based_mask(dtw_matrix, constraint_depths_a, constraint_ages_a, md_a,
+                             constraint_depths_b, constraint_ages_b, md_b):
+        """
+        Create a mask for the DTW matrix based on age constraints.
+        
+        The mask identifies regions where correlations would be chronologically impossible,
+        i.e., where one core is older than a certain age while the other is younger than
+        a certain age.
+        
+        Parameters
+        ----------
+        dtw_matrix : numpy.ndarray
+            The DTW distance matrix
+        constraint_depths_a : list
+            List of constraint depths for core A
+        constraint_ages_a : list
+            List of constraint ages for core A
+        md_a : array-like
+            Measured depth array for core A
+        constraint_depths_b : list
+            List of constraint depths for core B
+        constraint_ages_b : list
+            List of constraint ages for core B
+        md_b : array-like
+            Measured depth array for core B
+            
+        Returns
+        -------
+        numpy.ndarray
+            Boolean mask where True indicates areas to be masked out
+        """
+        if (constraint_depths_a is None or constraint_ages_a is None or 
+            constraint_depths_b is None or constraint_ages_b is None or
+            md_a is None or md_b is None):
+            return np.zeros_like(dtw_matrix, dtype=bool)
+        
+        # Convert to numpy arrays for consistent handling
+        constraint_depths_a = np.array(constraint_depths_a)
+        constraint_ages_a = np.array(constraint_ages_a)
+        constraint_depths_b = np.array(constraint_depths_b)
+        constraint_ages_b = np.array(constraint_ages_b)
+        md_a = np.array(md_a)
+        md_b = np.array(md_b)
+        
+        mask = np.zeros_like(dtw_matrix, dtype=bool)
+        
+        # For each age line in core A, find incompatible regions with core B
+        for i, age_a in enumerate(constraint_ages_a):
+            depth_a = constraint_depths_a[i]
+            matrix_idx_a = find_nearest_index(md_a, depth_a)
+            
+            # Find the oldest (largest) age in core B that is younger than current age_a
+            younger_ages_b = constraint_ages_b[constraint_ages_b < age_a]
+            if len(younger_ages_b) > 0:
+                oldest_younger_age_b = np.max(younger_ages_b)
+                # Find the corresponding depth index
+                oldest_younger_idx_b = np.where(constraint_ages_b == oldest_younger_age_b)[0][0]
+                depth_b = constraint_depths_b[oldest_younger_idx_b]
+                matrix_idx_b = find_nearest_index(md_b, depth_b)
+                
+                # Mask the region where core A is deeper (older) than age_a 
+                # AND core B is shallower (younger) than the oldest younger age
+                mask[matrix_idx_a:, :matrix_idx_b+1] = True
+        
+        # For each age line in core B, find incompatible regions with core A
+        for j, age_b in enumerate(constraint_ages_b):
+            depth_b = constraint_depths_b[j]
+            matrix_idx_b = find_nearest_index(md_b, depth_b)
+            
+            # Find the oldest (largest) age in core A that is younger than current age_b
+            younger_ages_a = constraint_ages_a[constraint_ages_a < age_b]
+            if len(younger_ages_a) > 0:
+                oldest_younger_age_a = np.max(younger_ages_a)
+                # Find the corresponding depth index
+                oldest_younger_idx_a = np.where(constraint_ages_a == oldest_younger_age_a)[0][0]
+                depth_a = constraint_depths_a[oldest_younger_idx_a]
+                matrix_idx_a = find_nearest_index(md_a, depth_a)
+                
+                # Mask the region where core B is deeper (older) than age_b
+                # AND core A is shallower (younger) than the oldest younger age
+                mask[:matrix_idx_a+1, matrix_idx_b:] = True
+        
+        return mask
+
     def add_age_constraint_lines(ax, constraint_depths, constraint_ages, constraint_source_cores, 
                                 md_array, core_name, orientation='horizontal'):
         """
@@ -307,8 +396,24 @@ def plot_dtw_matrix_with_paths(dtw_distance_matrix_full,
     # Create figure and plot DTW distance matrix heatmap
     fig, ax = plt.subplots(figsize=(16, 10))
     
-    plt_max = np.percentile(dtw_distance_matrix_full, 95)
-    im = ax.imshow(dtw_distance_matrix_full, aspect='auto', vmin=0, vmax=plt_max, 
+    # Create a copy of the matrix for potential masking
+    dtw_matrix_to_plot = dtw_distance_matrix_full.copy()
+    
+    # Apply age-based masking if both age constraints are available
+    if (age_constraint_a_source_cores is not None and age_constraint_b_source_cores is not None and
+        age_constraint_a_depths is not None and age_constraint_a_ages is not None and
+        age_constraint_b_depths is not None and age_constraint_b_ages is not None and
+        md_a is not None and md_b is not None):
+        
+        age_mask = create_age_based_mask(dtw_matrix_to_plot, 
+                                       age_constraint_a_depths, age_constraint_a_ages, md_a,
+                                       age_constraint_b_depths, age_constraint_b_ages, md_b)
+        
+        # Set masked areas to NaN so they appear as empty/white
+        dtw_matrix_to_plot[age_mask] = np.nan
+    
+    plt_max = np.nanpercentile(dtw_matrix_to_plot, 95)
+    im = ax.imshow(dtw_matrix_to_plot, aspect='auto', vmin=0, vmax=plt_max, 
                    cmap='magma_r', origin='lower')
     plt.colorbar(im, label='DTW distance')
     
@@ -404,7 +509,7 @@ def plot_dtw_matrix_with_paths(dtw_distance_matrix_full,
         else:
             # Add combined path in red
             if combined_wp is not None and len(combined_wp) > 0:
-                ax.plot(combined_wp[:, 1], combined_wp[:, 0], 'w-', linewidth=2, label="DTW Path")
+                ax.plot(combined_wp[:, 1], combined_wp[:, 0], 'c-', linewidth=2, label="DTW Path")
                 ax.set_title('DTW Matrix with Combined Path')
     
     elif mode == 'all_paths_colored':

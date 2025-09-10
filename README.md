@@ -139,7 +139,7 @@ Detailed function documentation is available in [FUNCTION_DOCUMENTATION.md](FUNC
 ### Null Hypothesis Testing Functions
 - **`load_segment_pool()`**: Create pools of real segments for synthetic core generation
 - **`plot_segment_pool()`**: Visualize all segments from the turbidite database pool
-- **`print_segment_pool_summary()`**: Print summary statistics for the segment pool
+- **`modify_segment_pool()`**: Remove unwanted segments from the pool data
 - **`create_and_plot_synthetic_core_pair()`**: Create and visualize synthetic core pairs
 - **`create_synthetic_log_with_depths()`**: Generate synthetic cores from segment pools
 
