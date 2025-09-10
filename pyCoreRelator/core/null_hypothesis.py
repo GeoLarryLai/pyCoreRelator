@@ -8,7 +8,7 @@ synthetic log generation, and visualization tools.
 Functions:
 - load_segment_pool: Load segment pool data from turbidite database
 - plot_segment_pool: Plot all segments from the pool in a grid layout
-- modify_segment_pool: Remove unwanted segments from the pool data
+- print_segment_pool_summary: Print summary statistics for the segment pool
 - create_synthetic_log_with_depths: Create synthetic log using turbidite database approach
 - create_and_plot_synthetic_core_pair: Generate synthetic core pair and optionally plot the results
 """
@@ -36,7 +36,7 @@ from ..visualization.plotting import plot_correlation_distribution
 
 
 def load_segment_pool(core_names, core_log_paths, picked_depth_paths, log_columns, 
-                     depth_column, column_alternatives, boundary_category=1, neglect_topbottom=True):
+                     depth_column, column_alternatives, boundary_category=1):
     """
     Load segment pool data from turbidite database.
     
@@ -48,7 +48,6 @@ def load_segment_pool(core_names, core_log_paths, picked_depth_paths, log_column
     - depth_column: name of depth column
     - column_alternatives: dict of alternative column names
     - boundary_category: category number for turbidite boundaries (default: 1)
-    - neglect_topbottom: if True, skip the first and last segments of each core (default: True)
     
     Returns:
     - segment_pool_cores_data: dict containing loaded core data
@@ -93,17 +92,7 @@ def load_segment_pool(core_names, core_log_paths, picked_depth_paths, log_column
                 category_depths = np.sort(category_depths)  # Ensure sorted order
                 
                 # Create turbidite segments (from boundary to boundary)
-                # Determine range based on neglect_topbottom parameter
-                if neglect_topbottom and len(category_depths) > 2:
-                    # Skip first and last segments
-                    start_range = 1
-                    end_range = len(category_depths) - 2
-                else:
-                    # Include all segments
-                    start_range = 0
-                    end_range = len(category_depths) - 1
-                
-                for i in range(start_range, end_range):
+                for i in range(len(category_depths) - 1):
                     start_depth = category_depths[i]
                     end_depth = category_depths[i + 1]
                     
@@ -232,64 +221,24 @@ def plot_segment_pool(segment_logs, segment_depths, log_column_names, n_cols=8, 
     return fig, axes
 
 
-def modify_segment_pool(segment_logs, segment_depths, remove_list=None):
+def print_segment_pool_summary(segment_logs, segment_depths, target_dimensions):
     """
-    Remove unwanted segments from the pool data and return the modified pool.
+    Print summary statistics for the segment pool.
     
     Parameters:
     - segment_logs: list of log data arrays (segments)
     - segment_depths: list of depth arrays corresponding to each segment
-    - remove_list: list of 1-based segment numbers to remove (optional)
-                  If None or empty, no segments are removed
-    
-    Returns:
-    - modified_segment_logs: list of remaining log data arrays
-    - modified_segment_depths: list of remaining depth arrays
+    - target_dimensions: number of dimensions in the data
     """
+    segment_lengths = [len(seg) for seg in segment_logs]
+    segment_depths_max = [depth[-1] for depth in segment_depths]
     
-    # If remove_list is None or empty, return original data
-    if not remove_list:
-        print("No segments to remove. Returning original pool data.")
-        return segment_logs.copy(), segment_depths.copy()
-    
-    # Convert remove_list to 0-based indices and validate
-    remove_indices = []
-    for item in remove_list:
-        try:
-            # Convert to int (handle both string and int inputs)
-            segment_num = int(item)
-            if 1 <= segment_num <= len(segment_logs):
-                remove_indices.append(segment_num - 1)  # Convert to 0-based
-            else:
-                print(f"Warning: Segment number {segment_num} is out of range (1-{len(segment_logs)}). Skipping.")
-        except (ValueError, TypeError):
-            print(f"Warning: Invalid segment number '{item}'. Skipping.")
-    
-    # Remove duplicates and sort
-    remove_indices = sorted(set(remove_indices))
-    
-    if not remove_indices:
-        print("No valid segments to remove. Returning original pool data.")
-        return segment_logs.copy(), segment_depths.copy()
-    
-    # Create modified lists by excluding specified indices
-    modified_segment_logs = []
-    modified_segment_depths = []
-    
-    for i, (segment_log, segment_depth) in enumerate(zip(segment_logs, segment_depths)):
-        if i not in remove_indices:
-            modified_segment_logs.append(segment_log)
-            modified_segment_depths.append(segment_depth)
-    
-    # Print summary of changes
-    removed_segments_1based = [idx + 1 for idx in remove_indices]
-    print(f"Removed segments: {removed_segments_1based}")
-    print(f"Original pool size: {len(segment_logs)} segments")
-    print(f"Modified pool size: {len(modified_segment_logs)} segments")
-    
-    return modified_segment_logs, modified_segment_depths
-
-
+    print(f"\nSegment Pool Summary:")
+    print(f"  Total segments: {len(segment_logs)}")
+    print(f"  Length range: {min(segment_lengths)}-{max(segment_lengths)} points")
+    print(f"  Depth range: {min(segment_depths_max):.1f}-{max(segment_depths_max):.1f} cm")
+    print(f"  Mean depth: {np.mean(segment_depths_max):.1f} cm")
+    print(f"  Target dimensions: {target_dimensions}")
 
 
 def create_synthetic_log_with_depths(thickness, turb_logs, depth_logs, exclude_inds=None, repetition=False):

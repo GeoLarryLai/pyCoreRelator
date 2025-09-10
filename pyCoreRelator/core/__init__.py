@@ -38,7 +38,7 @@ from .age_models import calculate_interpolated_ages
 from .null_hypothesis import (
     load_segment_pool,
     plot_segment_pool,
-    modify_segment_pool,
+    print_segment_pool_summary,
     create_synthetic_log_with_depths,
     create_and_plot_synthetic_core_pair,
     generate_constraint_subsets,
@@ -72,7 +72,7 @@ __all__ = [
     # Null hypothesis testing
     'load_segment_pool',
     'plot_segment_pool',
-    'modify_segment_pool',
+    'print_segment_pool_summary',
     'create_synthetic_log_with_depths',
     'create_and_plot_synthetic_core_pair',
     'generate_constraint_subsets',

@@ -720,18 +720,6 @@ Loads segment pool data from turbidite database for synthetic core generation.
 **Returns:**
 - `tuple`: (segment_pool_cores_data, turb_logs, depth_logs, target_dimensions)
 
-#### `modify_segment_pool(segment_logs, segment_depths, remove_list=None)`
-
-Remove unwanted segments from the pool data and return the modified pool.
-
-**Parameters:**
-- `segment_logs` (list): List of log data arrays (segments)
-- `segment_depths` (list): List of depth arrays corresponding to each segment
-- `remove_list` (list, optional): List of 1-based segment numbers to remove. If None or empty, no segments are removed
-
-**Returns:**
-- `tuple`: (modified_segment_logs, modified_segment_depths) containing the remaining segments
-
 #### `create_synthetic_log_with_depths(thickness, turb_logs, depth_logs, exclude_inds=None, plot_results=True, save_plot=False, plot_filename=None)`
 
 Creates synthetic log using turbidite database approach for null hypothesis testing.
