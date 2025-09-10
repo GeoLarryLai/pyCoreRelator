@@ -45,7 +45,7 @@ from .core.diagnostics import diagnose_chain_breaks
 from .core.null_hypothesis import (
     load_segment_pool,
     plot_segment_pool, 
-    print_segment_pool_summary,
+    modify_segment_pool,
     create_synthetic_log_with_depths,
     create_and_plot_synthetic_core_pair,
     generate_constraint_subsets,
@@ -151,7 +151,7 @@ __all__ = [
     # Null hypothesis testing functions
     'load_segment_pool',
     'plot_segment_pool', 
-    'print_segment_pool_summary',
+    'modify_segment_pool',
     'create_synthetic_log_with_depths',
     'create_and_plot_synthetic_core_pair',
     'generate_constraint_subsets',
