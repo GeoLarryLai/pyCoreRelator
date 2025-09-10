@@ -110,59 +110,9 @@ def calculate_interpolated_ages(picked_depths, age_constraints_depths, age_const
     >>> print(f"Uncertainties: +{result['pos_uncertainties']}, -{result['neg_uncertainties']}")
     """
     
-    # Handle case with no age constraints
+    # Validate inputs
     if len(age_constraints_depths) == 0:
-        if not mute_mode:
-            print("No age constraints provided. Cannot calculate interpolated ages.")
-        
-        # Return empty structure with same format as normal output
-        if top_bottom:
-            all_depths = [top_depth] + list(picked_depths) + [bottom_depth if bottom_depth is not None else (max(picked_depths) if picked_depths else 100.0)]
-            # Create lists with top age values for first entry, nan for picked depths, nan for bottom
-            all_ages = [top_age] + [np.nan] * len(picked_depths) + [np.nan]
-            all_pos_uncertainties = [top_age_pos_error] + [np.nan] * len(picked_depths) + [np.nan]
-            all_neg_uncertainties = [top_age_neg_error] + [np.nan] * len(picked_depths) + [np.nan]
-        else:
-            all_depths = list(picked_depths)
-            # Create nan lists with same length as picked_depths
-            all_ages = [np.nan] * len(picked_depths)
-            all_pos_uncertainties = [np.nan] * len(picked_depths)
-            all_neg_uncertainties = [np.nan] * len(picked_depths)
-        
-        result = {
-            'depths': all_depths,
-            'ages': all_ages,
-            'pos_uncertainties': all_pos_uncertainties,
-            'neg_uncertainties': all_neg_uncertainties,
-            'uncertainty_method': uncertainty_method
-        }
-        
-        # Export empty results to CSV if requested
-        if export_csv:
-            export_df = pd.DataFrame({
-                'picked_depths_cm': all_depths,
-                'est_age': all_ages,
-                'est_age_poserr': all_pos_uncertainties,
-                'est_age_negerr': all_neg_uncertainties
-            })
-            
-            # Use provided csv_filename if given, otherwise create default name
-            if csv_filename is not None:
-                full_filename = csv_filename
-            else:
-                filename = f"{core_name}_pickeddepth_age_{uncertainty_method}.csv" if core_name else f"pickeddepth_age_{uncertainty_method}.csv"
-                full_filename = filename
-            
-            # Create directory if needed
-            output_dir = os.path.dirname(full_filename)
-            if output_dir:
-                os.makedirs(output_dir, exist_ok=True)
-            
-            export_df.to_csv(full_filename, index=False)
-            if not mute_mode:
-                print(f"Exported empty age results (no constraints) to {full_filename}")
-        
-        return result
+        raise ValueError("No age constraints provided. Cannot calculate interpolated ages.")
     
     valid_methods = ['Linear', 'MonteCarlo', 'Gaussian']
     if uncertainty_method not in valid_methods:
