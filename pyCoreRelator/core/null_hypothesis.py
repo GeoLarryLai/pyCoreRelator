@@ -563,8 +563,8 @@ def _process_single_parameter_combination(
     """Process a single parameter combination (exact copy of original loop body)"""
     
     # Import here to avoid circular imports in workers
-    from .dtw_analysis import run_comprehensive_dtw_analysis
-    from .path_finding import find_complete_core_paths
+    from ..core.dtw_analysis import run_comprehensive_dtw_analysis
+    from ..core.path_finding import find_complete_core_paths
     from ..visualization.plotting import plot_correlation_distribution
     
     # Generate a random suffix for temporary files in this iteration
@@ -628,7 +628,7 @@ def _process_single_parameter_combination(
                     return False, combo_id, f"Error validating age_data['{key}']: {str(e)}"
         
         # Run comprehensive DTW analysis with original constraints
-        dtw_results, valid_dtw_pairs, segments_a, segments_b, depth_boundaries_a, depth_boundaries_b, dtw_distance_matrix_full = run_comprehensive_dtw_analysis(
+        dtw_result = run_comprehensive_dtw_analysis(
             log_a, log_b, md_a, md_b,
             picked_depths_a=all_depths_a_cat1,
             picked_depths_b=all_depths_b_cat1,
@@ -651,6 +651,13 @@ def _process_single_parameter_combination(
             all_constraint_neg_errors_a=age_data_a['in_sequence_neg_errors'] if age_consideration else None,
             all_constraint_neg_errors_b=age_data_b['in_sequence_neg_errors'] if age_consideration else None
         )
+        
+        # Check if DTW analysis returned None
+        if dtw_result is None:
+            return False, combo_id, "run_comprehensive_dtw_analysis returned None"
+        
+        # Unpack the 7 return values
+        dtw_results, valid_dtw_pairs, segments_a, segments_b, depth_boundaries_a, depth_boundaries_b, dtw_distance_matrix_full = dtw_result
         
         # Validate DTW results before proceeding
         if any(result is None for result in [dtw_results, valid_dtw_pairs, segments_a, segments_b, depth_boundaries_a, depth_boundaries_b, dtw_distance_matrix_full]):
@@ -698,7 +705,7 @@ def _process_single_parameter_combination(
                         pass  # Use default binning if extraction fails
             
             _, _, fit_params = plot_correlation_distribution(
-                csv_file=f'outputs/{temp_mapping_file}',
+                csv_file=f'{temp_mapping_file}',
                 quality_index=quality_index,
                 no_bins=30, save_png=False, pdf_method='normal',
                 kde_bandwidth=0.05, mute_mode=True, targeted_binsize=targeted_binsize
@@ -719,8 +726,8 @@ def _process_single_parameter_combination(
                 results[quality_index] = fit_params_copy
         
         # Clean up
-        if os.path.exists(f'outputs/{temp_mapping_file}'):
-            os.remove(f'outputs/{temp_mapping_file}')
+        if os.path.exists(f'{temp_mapping_file}'):
+            os.remove(f'{temp_mapping_file}')
         
         del dtw_results, valid_dtw_pairs, segments_a, segments_b
         del depth_boundaries_a, depth_boundaries_b, dtw_distance_matrix_full
@@ -729,8 +736,8 @@ def _process_single_parameter_combination(
         return True, combo_id, results
         
     except Exception as e:
-        if os.path.exists(f'outputs/{temp_mapping_file}'):
-            os.remove(f'outputs/{temp_mapping_file}')
+        if os.path.exists(f'{temp_mapping_file}'):
+            os.remove(f'{temp_mapping_file}')
         gc.collect()
         return False, combo_id, str(e)
 
@@ -748,10 +755,10 @@ def _process_single_constraint_scenario(
     """Process a single constraint scenario (exact copy of original loop body)"""
     
     # Import here to avoid circular imports in workers
-    from .dtw_analysis import run_comprehensive_dtw_analysis
-    from .path_finding import find_complete_core_paths
+    from ..core.dtw_analysis import run_comprehensive_dtw_analysis
+    from ..core.path_finding import find_complete_core_paths
     from ..visualization.plotting import plot_correlation_distribution
-    from .age_models import calculate_interpolated_ages
+    from ..core.age_models import calculate_interpolated_ages
     
     # Generate a process-safe random suffix for temporary files using numpy
     # This avoids conflicts between parallel workers
@@ -847,7 +854,7 @@ def _process_single_constraint_scenario(
                 return False, f"{combo_id}_all_nan_ages", f"All values are NaN in interpolated ages key '{key}'"
         
         # Run DTW analysis with reduced constraints
-        dtw_results, valid_dtw_pairs, segments_a, segments_b, depth_boundaries_a, depth_boundaries_b, dtw_distance_matrix_full = run_comprehensive_dtw_analysis(
+        dtw_result = run_comprehensive_dtw_analysis(
             log_a, log_b, md_a, md_b,
             picked_depths_a=all_depths_a_cat1,
             picked_depths_b=all_depths_b_cat1,
@@ -870,6 +877,13 @@ def _process_single_constraint_scenario(
             all_constraint_neg_errors_a=age_data_a['in_sequence_neg_errors'],  # Original errors for core A
             all_constraint_neg_errors_b=age_data_b_current['in_sequence_neg_errors']  # Modified errors for core B
         )
+        
+        # Check if DTW analysis returned None
+        if dtw_result is None:
+            return False, f"{combo_id}_dtw_none", "run_comprehensive_dtw_analysis returned None"
+        
+        # Unpack the 7 return values
+        dtw_results, valid_dtw_pairs, segments_a, segments_b, depth_boundaries_a, depth_boundaries_b, dtw_distance_matrix_full = dtw_result
         
         # Validate DTW results before proceeding
         if any(result is None for result in [dtw_results, valid_dtw_pairs, segments_a, segments_b, depth_boundaries_a, depth_boundaries_b, dtw_distance_matrix_full]):
@@ -895,8 +909,6 @@ def _process_single_constraint_scenario(
                 max_search_path=100000, mute_mode=True, pca_for_dependent_dtw=pca_for_dependent_dtw
             )
         
-
-
         # Process quality indices
         results = {}
         for quality_index in target_quality_indices:
@@ -919,7 +931,7 @@ def _process_single_constraint_scenario(
                         pass  # Use default binning if extraction fails
             
             _, _, fit_params = plot_correlation_distribution(
-                csv_file=f'outputs/{temp_mapping_file}',
+                csv_file=f'{temp_mapping_file}',
                 quality_index=quality_index,
                 no_bins=30, save_png=False, pdf_method='normal',
                 kde_bandwidth=0.05, mute_mode=True, targeted_binsize=targeted_binsize
@@ -943,8 +955,8 @@ def _process_single_constraint_scenario(
                 results[quality_index] = fit_params_copy
         
         # Clean up temporary files
-        if os.path.exists(f'outputs/{temp_mapping_file}'):
-            os.remove(f'outputs/{temp_mapping_file}')
+        if os.path.exists(f'{temp_mapping_file}'):
+            os.remove(f'{temp_mapping_file}')
         
         del dtw_results, valid_dtw_pairs, segments_a, segments_b
         del depth_boundaries_a, depth_boundaries_b, dtw_distance_matrix_full
@@ -955,8 +967,8 @@ def _process_single_constraint_scenario(
         return True, scenario_id, results
         
     except Exception as e:
-        if os.path.exists(f'outputs/{temp_mapping_file}'):
-            os.remove(f'outputs/{temp_mapping_file}')
+        if os.path.exists(f'{temp_mapping_file}'):
+            os.remove(f'{temp_mapping_file}')
         # Clean up variables in case of error
         if 'age_data_b_current' in locals():
             del age_data_b_current
