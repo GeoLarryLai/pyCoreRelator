@@ -3066,7 +3066,7 @@ def calculate_quality_comparison_t_statistics(target_quality_indices, master_csv
     """
     Calculate t-statistics, Cohen's d, and effect size categories by comparing real core 
     correlation data against synthetic null hypothesis data. Appends statistical columns 
-    to master CSV files and saves enhanced versions to the same directory.
+    to master CSV files and saves enhanced versions to 'outputs' subfolder.
     
     Parameters:
     -----------
@@ -3086,7 +3086,7 @@ def calculate_quality_comparison_t_statistics(target_quality_indices, master_csv
     Returns:
     --------
     None
-        Function saves enhanced CSV files with statistical columns using provided filenames
+        Function saves enhanced CSV files with statistical columns to 'outputs' folder
         
     Notes:
     ------
@@ -3095,7 +3095,7 @@ def calculate_quality_comparison_t_statistics(target_quality_indices, master_csv
     - cohens_d: Effect size measure
     - effect_size_category: Categorical interpretation of Cohen's d values
     
-    Enhanced CSV files are saved using the provided filenames directly.
+    Enhanced CSV files are saved in 'outputs' subfolder with same filenames as originals.
     """
     
     # Define which categories to load - same filters as load_and_prepare_quality_data
