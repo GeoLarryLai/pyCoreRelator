@@ -590,7 +590,43 @@ def _process_single_parameter_combination(
     search_label = 'optimal' if shortest_path_search else 'random'
     combo_id = f"{age_label}_{search_label}"
     
-    try:        
+    try:
+        # Validate input age data when age consideration is enabled
+        if age_consideration:
+            # Check pickeddepth_ages_a and pickeddepth_ages_b
+            if pickeddepth_ages_a is None or pickeddepth_ages_b is None:
+                return False, combo_id, "pickeddepth_ages_a or pickeddepth_ages_b is None when age_consideration=True"
+            
+            # Check required keys in pickeddepth_ages
+            required_age_keys = ['depths', 'ages', 'pos_uncertainties', 'neg_uncertainties']
+            for key in required_age_keys:
+                if key not in pickeddepth_ages_a or not pickeddepth_ages_a[key]:
+                    return False, combo_id, f"Missing or empty key '{key}' in pickeddepth_ages_a"
+                if key not in pickeddepth_ages_b or not pickeddepth_ages_b[key]:
+                    return False, combo_id, f"Missing or empty key '{key}' in pickeddepth_ages_b"
+            
+            # Check age_data constraints
+            required_constraint_keys = ['in_sequence_ages', 'in_sequence_depths', 'in_sequence_pos_errors', 'in_sequence_neg_errors']
+            for key in required_constraint_keys:
+                if key not in age_data_a:
+                    return False, combo_id, f"Missing key '{key}' in age_data_a"
+                if key not in age_data_b:
+                    return False, combo_id, f"Missing key '{key}' in age_data_b"
+                    
+                # Check for all NaN values in constraint data
+                try:
+                    if age_data_a[key] and len(age_data_a[key]) > 0:
+                        valid_values_a = [val for val in age_data_a[key] if not (np.isnan(val) if isinstance(val, (int, float)) else False)]
+                        if len(valid_values_a) == 0:
+                            return False, combo_id, f"All values are NaN in age_data_a['{key}']"
+                    
+                    if age_data_b[key] and len(age_data_b[key]) > 0:
+                        valid_values_b = [val for val in age_data_b[key] if not (np.isnan(val) if isinstance(val, (int, float)) else False)]
+                        if len(valid_values_b) == 0:
+                            return False, combo_id, f"All values are NaN in age_data_b['{key}']"
+                except Exception as e:
+                    return False, combo_id, f"Error validating age_data['{key}']: {str(e)}"
+        
         # Run comprehensive DTW analysis with original constraints
         dtw_results, valid_dtw_pairs, segments_a, segments_b, depth_boundaries_a, depth_boundaries_b, dtw_distance_matrix_full = run_comprehensive_dtw_analysis(
             log_a, log_b, md_a, md_b,
@@ -615,6 +651,10 @@ def _process_single_parameter_combination(
             all_constraint_neg_errors_a=age_data_a['in_sequence_neg_errors'] if age_consideration else None,
             all_constraint_neg_errors_b=age_data_b['in_sequence_neg_errors'] if age_consideration else None
         )
+        
+        # Validate DTW results before proceeding
+        if any(result is None for result in [dtw_results, valid_dtw_pairs, segments_a, segments_b, depth_boundaries_a, depth_boundaries_b, dtw_distance_matrix_full]):
+            return False, combo_id, "DTW analysis returned None values"
         
         # Find complete core paths
         if shortest_path_search:
@@ -740,7 +780,21 @@ def _process_single_constraint_scenario(
     
     try:
         # Map subset indices to original constraint indices (in-sequence only)
-        original_indices = [in_sequence_indices[i] for i in constraint_subset]
+        # Filter out NaN values to prevent unpacking errors
+        original_indices = []
+        for i in constraint_subset:
+            idx = in_sequence_indices[i]
+            if not any(np.isnan(val) for val in [
+                age_data_b['depths'][idx], 
+                age_data_b['ages'][idx],
+                age_data_b['pos_errors'][idx], 
+                age_data_b['neg_errors'][idx]
+            ]):
+                original_indices.append(idx)
+        
+        # Check if we have any valid constraints after filtering
+        if len(original_indices) == 0:
+            return False, f"{combo_id}_no_valid_constraints", "No valid age constraints after NaN filtering"
         
         # Create modified age_data_b using original indices
         age_data_b_current = {
@@ -778,6 +832,20 @@ def _process_single_constraint_scenario(
             mute_mode=True
         )
         
+        # Validate the interpolated ages result
+        if pickeddepth_ages_b_current is None:
+            return False, f"{combo_id}_invalid_ages", "calculate_interpolated_ages returned None"
+        
+        # Check if interpolated ages contain valid values
+        required_keys = ['depths', 'ages', 'pos_uncertainties', 'neg_uncertainties']
+        for key in required_keys:
+            if key not in pickeddepth_ages_b_current or not pickeddepth_ages_b_current[key]:
+                return False, f"{combo_id}_missing_age_key", f"Missing or empty key '{key}' in interpolated ages"
+            
+            # Check for all NaN values
+            if all(np.isnan(val) for val in pickeddepth_ages_b_current[key]):
+                return False, f"{combo_id}_all_nan_ages", f"All values are NaN in interpolated ages key '{key}'"
+        
         # Run DTW analysis with reduced constraints
         dtw_results, valid_dtw_pairs, segments_a, segments_b, depth_boundaries_a, depth_boundaries_b, dtw_distance_matrix_full = run_comprehensive_dtw_analysis(
             log_a, log_b, md_a, md_b,
@@ -802,6 +870,10 @@ def _process_single_constraint_scenario(
             all_constraint_neg_errors_a=age_data_a['in_sequence_neg_errors'],  # Original errors for core A
             all_constraint_neg_errors_b=age_data_b_current['in_sequence_neg_errors']  # Modified errors for core B
         )
+        
+        # Validate DTW results before proceeding
+        if any(result is None for result in [dtw_results, valid_dtw_pairs, segments_a, segments_b, depth_boundaries_a, depth_boundaries_b, dtw_distance_matrix_full]):
+            return False, f"{combo_id}_dtw_none", "DTW analysis returned None values"
         
         # Find paths with correct parameters
         if shortest_path_search:
