@@ -707,7 +707,7 @@ def _process_single_parameter_combination(
             _, _, fit_params = plot_correlation_distribution(
                 csv_file=f'{temp_mapping_file}',
                 quality_index=quality_index,
-                no_bins=30, save_png=False, pdf_method='normal',
+                save_png=False, pdf_method='normal',
                 kde_bandwidth=0.05, mute_mode=True, targeted_binsize=targeted_binsize
             )
             
@@ -933,7 +933,7 @@ def _process_single_constraint_scenario(
             _, _, fit_params = plot_correlation_distribution(
                 csv_file=f'{temp_mapping_file}',
                 quality_index=quality_index,
-                no_bins=30, save_png=False, pdf_method='normal',
+                save_png=False, pdf_method='normal',
                 kde_bandwidth=0.05, mute_mode=True, targeted_binsize=targeted_binsize
             )
             

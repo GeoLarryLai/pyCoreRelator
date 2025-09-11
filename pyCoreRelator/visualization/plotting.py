@@ -1333,7 +1333,7 @@ def visualize_combined_segments(log_a, log_b, md_a, md_b, dtw_results, valid_dtw
     return combined_wp, combined_quality, correlation_fig, matrix_fig
 
 
-def plot_correlation_distribution(csv_file, target_mapping_id=None, quality_index=None, save_png=True, png_filename=None, core_a_name=None, core_b_name=None, no_bins=None, pdf_method='KDE', kde_bandwidth=0.05, mute_mode=False, targeted_binsize=None):
+def plot_correlation_distribution(csv_file, target_mapping_id=None, quality_index=None, save_png=True, png_filename=None, core_a_name=None, core_b_name=None, bin_width=None, pdf_method='KDE', kde_bandwidth=0.05, mute_mode=False, targeted_binsize=None):
     """
     UPDATED: Handle new CSV format with different column structure.
     Plot distribution of a specified quality index.
@@ -1344,7 +1344,7 @@ def plot_correlation_distribution(csv_file, target_mapping_id=None, quality_inde
     - target_mapping_id: optional mapping ID to highlight in the plot
     - save_png: whether to save the plot as PNG (default: True)
     - png_filename: optional custom filename for saving PNG
-    - no_bins: number of bins for the histogram (default: None for automatic estimation)
+    - bin_width: width of histogram bins (default: None for automatic estimation based on quality_index)
     - pdf_method: str, method for probability density function overlay: 'KDE' (default), 'skew-normal', or 'normal'
     - kde_bandwidth: float, bandwidth for KDE when pdf_method='KDE' (default: 0.05)
     - mute_mode: bool, if True, suppress all print statements (default: False)
@@ -1401,46 +1401,45 @@ def plot_correlation_distribution(csv_file, target_mapping_id=None, quality_inde
             print("Error: No valid quality values found (all NaN)")
         return None, None, {}
     
-    # Automatically estimate number of bins if not provided
-    if no_bins is None:
-        # Use multiple methods to estimate optimal bin count and take the median
-        # Sturges' rule
-        sturges_bins = int(np.log2(len(quality_values)) + 1)
-        
-        # Square root rule
-        sqrt_bins = int(np.sqrt(len(quality_values)))
-        
-        # Scott's rule based on standard deviation
-        if len(quality_values) > 1:
+    # Determine bin_width and calculate number of bins
+    if bin_width is None:
+        # Set default bin widths based on quality index
+        if quality_index == 'corr_coef':
+            bin_width = 0.025
+        elif quality_index == 'norm_dtw':
+            bin_width = 0.0025
+        else:
+            # Automatically determine bin width for other quality indices
             data_range = quality_values.max() - quality_values.min()
-            scott_width = 3.5 * quality_values.std() / (len(quality_values) ** (1/3))
-            scott_bins = int(data_range / scott_width) if scott_width > 0 else sqrt_bins
-        else:
-            scott_bins = sqrt_bins
-        
-        # Freedman-Diaconis rule based on IQR
-        if len(quality_values) > 1:
-            q75, q25 = np.percentile(quality_values, [75, 25])
-            iqr = q75 - q25
-            if iqr > 0:
-                fd_width = 2 * iqr / (len(quality_values) ** (1/3))
-                data_range = quality_values.max() - quality_values.min()
-                fd_bins = int(data_range / fd_width)
+            if data_range > 0:
+                # Use Freedman-Diaconis rule to estimate optimal bin width
+                if len(quality_values) > 1:
+                    q75, q25 = np.percentile(quality_values, [75, 25])
+                    iqr = q75 - q25
+                    if iqr > 0:
+                        bin_width = 2 * iqr / (len(quality_values) ** (1/3))
+                    else:
+                        # Fallback to simple rule if IQR is 0
+                        bin_width = data_range / max(10, min(int(np.sqrt(len(quality_values))), 100))
+                else:
+                    bin_width = 0.1  # Default for single value
             else:
-                fd_bins = sqrt_bins
-        else:
-            fd_bins = sqrt_bins
-        
-        # Take median of the estimates and constrain to reasonable range
-        estimated_bins = [sturges_bins, sqrt_bins, scott_bins, fd_bins]
-        no_bins = int(np.median(estimated_bins))
-        no_bins = max(10, min(no_bins, 100))  # Constrain between 10 and 100 bins
+                bin_width = 0.1  # Default for zero range
+    
+    # Calculate number of bins based on bin_width
+    data_range = quality_values.max() - quality_values.min()
+    if data_range > 0 and bin_width > 0:
+        no_bins = max(1, int(np.ceil(data_range / bin_width)))
+        # Constrain to reasonable range
+        no_bins = max(10, min(no_bins, 200))
+    else:
+        no_bins = 10  # Default fallback
     
     # Calculate total count for percentage
     total_count = len(quality_values)
     
-    # Calculate histogram data
-    hist, bins = np.histogram(quality_values, bins=no_bins)
+    # Calculate histogram data as counts, then convert to percentages
+    hist, bins = np.histogram(quality_values, bins=no_bins, density=False)
     hist = hist * 100 / total_count  # Convert to percentage
     
     # Initialize fit_params dictionary with common statistics
@@ -1450,20 +1449,21 @@ def plot_correlation_distribution(csv_file, target_mapping_id=None, quality_inde
         'median': np.median(quality_values),
         'std': quality_values.std(),
         'n_points': total_count,
-        'hist_area': np.sum(hist) * (bins[1] - bins[0]),
+        'hist_area': np.sum(hist),  # Should sum to 100% for percentage
         'bins': bins,
-        'hist': hist
+        'hist': hist,
+        'bin_width': bin_width
     }
     
     # Add probability density function curve based on method
     if len(quality_values) > 1:  # Only plot PDF if we have multiple values
         x = np.linspace(quality_values.min(), quality_values.max(), 1000)
         
-        # Calculate bin width for proper PDF scaling
-        bin_width = bins[1] - bins[0]
-        # PDF curves should integrate to 1 to match density=True histogram
-        # No scaling factor needed - density=True histograms and PDFs both integrate to 1
-        pdf_scale_factor = 1.0  # No scaling needed for density plots
+        # Calculate actual bin width from the histogram bins for PDF scaling
+        actual_bin_width = bins[1] - bins[0]
+        # PDF curves should be scaled to match percentage histogram
+        # Scale PDF by bin_width * 100 to convert from density to percentage per bin
+        pdf_scale_factor = actual_bin_width * 100
         
         if pdf_method.upper() == 'KDE':
             # Use Kernel Density Estimation
@@ -1514,11 +1514,11 @@ def plot_correlation_distribution(csv_file, target_mapping_id=None, quality_inde
                 # Use the exact same bin edges as synthetic data
                 bins_targeted = synthetic_bins
                 
-                # Compute histogram using targeted bins
+                # Compute histogram using targeted bins (as percentages)
                 hist_values, _ = np.histogram(quality_values, bins=bins_targeted, density=False)
                 hist_percentages = (hist_values / len(quality_values)) * 100
                 
-                # Generate PDF curve from tail to tail (6 sigma range) with targeted scaling
+                # Generate PDF curve from tail to tail (6 sigma range) with percentage scaling
                 x_min = mean_val - 6 * std_val
                 x_max = mean_val + 6 * std_val
                 x = np.linspace(x_min, x_max, 1000)
@@ -1535,20 +1535,15 @@ def plot_correlation_distribution(csv_file, target_mapping_id=None, quality_inde
                 # Generate PDF
                 y = stats.norm.pdf(x, mean_val, std_val) * pdf_scale_factor
                 
-                # Use default histogram computation
-                if no_bins is not None:
-                    n_bins = no_bins
-                else:
-                    n_bins = min(30, int(np.sqrt(len(quality_values))))
-                
-                hist_values, bins_values = np.histogram(quality_values, bins=n_bins, density=False)
+                # Use histogram computation as percentages
+                hist_values, bins_values = np.histogram(quality_values, bins=no_bins, density=False)
                 hist_percentages = (hist_values / len(quality_values)) * 100
                 
                 # Store default bin information
                 fit_params['bins'] = bins_values
                 fit_params['hist'] = hist_percentages
-                fit_params['n_bins'] = n_bins
-                fit_params['bin_width'] = (quality_values.max() - quality_values.min()) / n_bins
+                fit_params['n_bins'] = no_bins
+                fit_params['bin_width'] = bin_width
                 fit_params['n_points'] = len(quality_values)
             
             fit_params['method'] = 'normal'
@@ -1577,10 +1572,11 @@ def plot_correlation_distribution(csv_file, target_mapping_id=None, quality_inde
         # Create the figure
         fig, ax = plt.subplots(figsize=(6, 4))
         
-        # Plot histogram of quality index as percentage density
-        # Use density=True to create proper probability density histogram
+        # Plot histogram of quality index as percentages
+        # Use weights to convert counts to percentages (similar to Cell 10)
         ax.hist(quality_values, bins=no_bins, alpha=0.7, color='skyblue', 
-                edgecolor='black', density=True)
+                edgecolor='black', density=False,
+                weights=np.ones(len(quality_values)) * 100 / len(quality_values))
         
         # Add probability density function curve if available
         if 'x_range' in fit_params and 'y_values' in fit_params:
@@ -1615,7 +1611,7 @@ def plot_correlation_distribution(csv_file, target_mapping_id=None, quality_inde
         
         # Add labels and title
         ax.set_xlabel(quality_display_name)
-        ax.set_ylabel('Probability Density')
+        ax.set_ylabel('Percentage (%)')
         title = f'Distribution of {quality_index}'
         if core_a_name and core_b_name:
             title += f'\n{core_a_name} vs {core_b_name}'
@@ -1907,16 +1903,30 @@ def plot_quality_distributions(quality_data, target_quality_indices, output_figu
         max_core_b_constraints = data['max_core_b_constraints']
         unique_combinations = data['unique_combinations']
 
-        # Generate fitted curve and scale to percentage
-        n_bins = 30  # Match the histogram bins
-        bin_width = (combined_data.max() - combined_data.min()) / n_bins
+        # Use stored histogram data to determine bin width for consistent PDF scaling
+        # Get bin width from the first row's stored histogram data
+        first_row = df_all_params.iloc[0]
+        if 'bin_width' in first_row and pd.notna(first_row['bin_width']):
+            stored_bin_width = first_row['bin_width']
+        else:
+            # Fallback: calculate from stored bins if available
+            if 'bins' in first_row and pd.notna(first_row['bins']):
+                try:
+                    bins_stored = np.fromstring(first_row['bins'].strip('[]'), sep=' ')
+                    stored_bin_width = bins_stored[1] - bins_stored[0]
+                except:
+                    # Final fallback
+                    stored_bin_width = (combined_data.max() - combined_data.min()) / 30
+            else:
+                stored_bin_width = (combined_data.max() - combined_data.min()) / 30
         
+        # Generate fitted curve using stored bin width for consistent scaling
         # Extend PDF range from tail to tail (6 sigma range for complete curves)
         data_std = fitted_std
         x_min_extended = fitted_mean - 6 * data_std
         x_max_extended = fitted_mean + 6 * data_std
         x_fitted = np.linspace(x_min_extended, x_max_extended, 1000)
-        y_fitted = stats.norm.pdf(x_fitted, fitted_mean, fitted_std) * bin_width * 100
+        y_fitted = stats.norm.pdf(x_fitted, fitted_mean, fitted_std) * stored_bin_width * 100
 
         # Extract plot info for gif creation (ONLY NEW ADDITION)
         if return_plot_info:
@@ -1996,9 +2006,16 @@ def plot_quality_distributions(quality_data, target_quality_indices, output_figu
         # Create combined plot
         fig, ax = plt.subplots(figsize=(10, 4.5))
 
-        # Plot combined histogram in gray bars as percentages
-        n_bins = 30
-        ax.hist(combined_data, bins=n_bins, alpha=0.3, color='gray', density=False,
+        # Plot combined histogram in gray bars as percentages using stored bin width
+        # Calculate number of bins based on stored bin width for consistency
+        data_range = combined_data.max() - combined_data.min()
+        if data_range > 0 and stored_bin_width > 0:
+            n_bins_calculated = max(1, int(np.ceil(data_range / stored_bin_width)))
+            n_bins_calculated = max(10, min(n_bins_calculated, 200))  # Constrain to reasonable range
+        else:
+            n_bins_calculated = 30  # Fallback
+        
+        ax.hist(combined_data, bins=n_bins_calculated, alpha=0.3, color='gray', density=False,
                 weights=np.ones(len(combined_data)) * 100 / len(combined_data), label='Synthetic data histogram')
 
         # Plot fitted normal curve as gray dotted line
@@ -2038,6 +2055,25 @@ def plot_quality_distributions(quality_data, target_quality_indices, output_figu
                 try:
                     x_range = np.fromstring(row['x_range'].strip('[]'), sep=' ')
                     y_values = np.fromstring(row['y_values'].strip('[]'), sep=' ')
+                    
+                    # Ensure PDF is scaled to percentage format (re-scale if needed)
+                    # Get the bin width for this row to properly scale the PDF
+                    if 'bin_width' in row and pd.notna(row['bin_width']):
+                        row_bin_width = row['bin_width']
+                    elif 'bins' in row and pd.notna(row['bins']):
+                        try:
+                            bins_row = np.fromstring(row['bins'].strip('[]'), sep=' ')
+                            row_bin_width = bins_row[1] - bins_row[0] if len(bins_row) > 1 else stored_bin_width
+                        except:
+                            row_bin_width = stored_bin_width
+                    else:
+                        row_bin_width = stored_bin_width
+                    
+                    # Check if y_values appear to be in density format (typically < 10) vs percentage format (typically > 10)
+                    # If stored as density, re-scale to percentage
+                    max_y_value = np.max(y_values) if len(y_values) > 0 else 0
+                    if max_y_value < 10:  # Likely density format, convert to percentage
+                        y_values = y_values * row_bin_width * 100
                     
                     # Create unique key for this parameter combination
                     combo_key = f"age_{age_consideration}_restricted_{restricted_age_correlation}_shortest_{shortest_path_search}"
@@ -2115,24 +2151,28 @@ def plot_quality_distributions(quality_data, target_quality_indices, output_figu
                             
                             # Plot histogram for special cases: no age constraints (0) or all age constraints (max)
                             if plot_real_data_histogram and (core_b_constraints == 0 or (core_a_constraints == max_core_a_constraints and core_b_constraints == max_core_b_constraints)):
-                                # Reconstruct raw data from stored histogram to plot histogram bars
-                                if 'bins' in row and 'hist' in row and 'n_points' in row and \
-                                   pd.notna(row['bins']) and pd.notna(row['hist']) and pd.notna(row['n_points']):
+                                # Use stored histogram data directly (no need to reconstruct raw data)
+                                if 'bins' in row and 'hist' in row and pd.notna(row['bins']) and pd.notna(row['hist']):
                                     try:
                                         bins_stored = np.fromstring(row['bins'].strip('[]'), sep=' ')
                                         hist_percentages_stored = np.fromstring(row['hist'].strip('[]'), sep=' ')
-                                        n_points_stored = row['n_points']
                                         
-                                        # Reconstruct raw data points to plot as histogram
-                                        raw_data_points = reconstruct_raw_data_from_histogram(bins_stored, hist_percentages_stored, n_points_stored)
+                                        # Ensure histogram is in percentage format (re-scale if needed)
+                                        # Check if hist appears to be in density format vs percentage format
+                                        hist_sum = np.sum(hist_percentages_stored)
+                                        if hist_sum < 50:  # Likely density format, convert to percentage
+                                            hist_bin_width = bins_stored[1] - bins_stored[0] if len(bins_stored) > 1 else 1
+                                            hist_percentages_stored = hist_percentages_stored * hist_bin_width * 100
                                         
-                                        if len(raw_data_points) > 0:
-                                            # Plot histogram as shaded bars using same bins as stored
-                                            ax.hist(raw_data_points, bins=bins_stored, alpha=0.3, color=color, density=False,
-                                                    weights=np.ones(len(raw_data_points)) * 100 / len(raw_data_points),
-                                                    histtype='bar', edgecolor='none', zorder=zorder-1)
+                                        # Plot histogram directly using stored percentage data
+                                        # Convert stored percentages to bar heights
+                                        bin_centers = (bins_stored[:-1] + bins_stored[1:]) / 2
+                                        bin_widths = bins_stored[1:] - bins_stored[:-1]
+                                        
+                                        ax.bar(bin_centers, hist_percentages_stored, width=bin_widths, 
+                                              alpha=0.3, color=color, edgecolor='none', zorder=zorder-1)
                                     except Exception:
-                                        pass  # Skip histogram if reconstruction fails
+                                        pass  # Skip histogram if data parsing fails
                         
                         # Store individual curve data for GIF creation if requested
                         if return_plot_info:

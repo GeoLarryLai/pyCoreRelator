@@ -147,7 +147,7 @@ def force_bottom_segment_pairing(valid_dtw_pairs, segments_a, segments_b, depth_
             from .dtw_analysis import custom_dtw
             D_sub, wp, QIdx = custom_dtw(log_a_segment, log_b_segment, subseq=False, 
                                        exponent=1, QualityIndex=True, independent_dtw=independent_dtw,
-                                       pca_for_dependent_dtw=pca_for_dependent_dtw)
+                                       pca_for_dependent_dtw=pca_for_dependent_dtw, sakoe_chiba=True)
             
             adjusted_wp = wp.copy()
             adjusted_wp[:, 0] += a_start
@@ -775,7 +775,7 @@ def custom_dtw(log1, log2, subseq=False, exponent=1, QualityIndex=False, indepen
 
     # Compute the accumulated cost matrix D and the warping path wp
     if sakoe_chiba:
-        D, wp = dtw(C=sm, subseq=subseq, global_constraints=True, band_rad=0.5)
+        D, wp = dtw(C=sm, subseq=subseq, global_constraints=True, band_rad=0.25)
     else:
         D, wp = dtw(C=sm, subseq=subseq)
 
@@ -984,7 +984,7 @@ def run_comprehensive_dtw_analysis(log_a, log_b, md_a, md_b, picked_depths_a=Non
     # Calculate full DTW distance matrix for reference
     if not mute_mode:
         print("Calculating full DTW distance matrix...")
-    dtw_distance_matrix_full, _ = custom_dtw(log_a, log_b, subseq=False, exponent=1, independent_dtw=independent_dtw, pca_for_dependent_dtw=pca_for_dependent_dtw)
+    dtw_distance_matrix_full, _ = custom_dtw(log_a, log_b, subseq=False, exponent=1, independent_dtw=independent_dtw, pca_for_dependent_dtw=pca_for_dependent_dtw, sakoe_chiba=False)
     
     # Create all possible segment pairs for evaluation
     all_possible_pairs = []
@@ -1141,7 +1141,7 @@ def run_comprehensive_dtw_analysis(log_a, log_b, md_a, md_b, picked_depths_a=Non
         
         # Perform DTW
         try:
-            D_sub, wp, QIdx = custom_dtw(segment_a, segment_b, subseq=False, exponent=1, QualityIndex=True, independent_dtw=independent_dtw, pca_for_dependent_dtw=pca_for_dependent_dtw)
+            D_sub, wp, QIdx = custom_dtw(segment_a, segment_b, subseq=False, exponent=1, QualityIndex=True, independent_dtw=independent_dtw, pca_for_dependent_dtw=pca_for_dependent_dtw, sakoe_chiba=True)
             
             # Adjust warping path coordinates
             adjusted_wp = wp.copy()
@@ -1455,7 +1455,7 @@ def run_comprehensive_dtw_analysis(log_a, log_b, md_a, md_b, picked_depths_a=Non
                 # Calculate full DTW with quality indicators (same as regular pairs)
                 D_sub, wp, QIdx = custom_dtw(log_a_segment, log_b_segment, subseq=False, exponent=1, 
                                         QualityIndex=True, independent_dtw=independent_dtw,
-                                        pca_for_dependent_dtw=pca_for_dependent_dtw)
+                                        pca_for_dependent_dtw=pca_for_dependent_dtw, sakoe_chiba=True)
                 
                 # Adjust warping path coordinates to match full log coordinates
                 adjusted_wp = wp.copy()
