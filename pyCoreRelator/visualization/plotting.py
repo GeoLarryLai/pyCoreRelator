@@ -1575,7 +1575,7 @@ def plot_correlation_distribution(csv_file, target_mapping_id=None, quality_inde
         # Plot histogram of quality index as percentages
         # Use weights to convert counts to percentages (similar to Cell 10)
         ax.hist(quality_values, bins=no_bins, alpha=0.7, color='skyblue', 
-                edgecolor='black', density=False,
+                density=False,
                 weights=np.ones(len(quality_values)) * 100 / len(quality_values))
         
         # Add probability density function curve if available
@@ -1853,9 +1853,147 @@ def calculate_dynamic_sizes(total_points, total_connections):
     }
 
 
+def _create_histogram_and_pdf_like_plot_correlation_distribution(quality_values, quality_index, 
+                                                                targeted_binsize=None):
+    """
+    Create histogram and PDF using the exact same approach as plot_correlation_distribution.
+    
+    Returns a dictionary with histogram data and PDF parameters exactly like plot_correlation_distribution.
+    """
+    
+    # Convert to numpy array and remove NaN values (same as plot_correlation_distribution)
+    quality_values = np.array(quality_values)
+    quality_values = quality_values[~np.isnan(quality_values)]
+    
+    if len(quality_values) == 0:
+        return None
+    
+    # Determine bin_width (EXACT same logic as plot_correlation_distribution)
+    bin_width = None
+    if bin_width is None:
+        # Set default bin widths based on quality index
+        if quality_index == 'corr_coef':
+            bin_width = 0.025
+        elif quality_index == 'norm_dtw':
+            bin_width = 0.0025
+        else:
+            # Automatically determine bin width for other quality indices
+            data_range = quality_values.max() - quality_values.min()
+            if data_range > 0:
+                # Use Freedman-Diaconis rule to estimate optimal bin width
+                if len(quality_values) > 1:
+                    q75, q25 = np.percentile(quality_values, [75, 25])
+                    iqr = q75 - q25
+                    if iqr > 0:
+                        bin_width = 2 * iqr / (len(quality_values) ** (1/3))
+                    else:
+                        # Fallback to simple rule if IQR is 0
+                        bin_width = data_range / max(10, min(int(np.sqrt(len(quality_values))), 100))
+                else:
+                    bin_width = 0.1  # Default for single value
+            else:
+                bin_width = 0.1  # Default for zero range
+    
+    # Calculate number of bins based on bin_width (EXACT same logic as plot_correlation_distribution)
+    data_range = quality_values.max() - quality_values.min()
+    if data_range > 0 and bin_width > 0:
+        no_bins = max(1, int(np.ceil(data_range / bin_width)))
+        # Constrain to reasonable range
+        no_bins = max(10, min(no_bins, 200))
+    else:
+        no_bins = 10  # Default fallback
+    
+    # Calculate total count for percentage
+    total_count = len(quality_values)
+    
+    # Calculate histogram data as counts, then convert to percentages (EXACT same as plot_correlation_distribution)
+    hist, bins = np.histogram(quality_values, bins=no_bins, density=False)
+    hist = hist * 100 / total_count  # Convert to percentage
+    
+    # Initialize fit_params dictionary with common statistics (EXACT same as plot_correlation_distribution)
+    fit_params = {
+        'data_min': quality_values.min(),
+        'data_max': quality_values.max(),
+        'median': np.median(quality_values),
+        'std': quality_values.std(),
+        'n_points': total_count,
+        'hist_area': np.sum(hist),  # Should sum to 100% for percentage
+        'bins': bins,
+        'hist': hist,
+        'bin_width': bin_width
+    }
+    
+    # Add probability density function curve based on method (EXACT same as plot_correlation_distribution)
+    if len(quality_values) > 1:  # Only plot PDF if we have multiple values
+        x = np.linspace(quality_values.min(), quality_values.max(), 1000)
+        
+        # Calculate actual bin width from the histogram bins for PDF scaling
+        actual_bin_width = bins[1] - bins[0]
+        # PDF curves should be scaled to match percentage histogram
+        # Scale PDF by bin_width * 100 to convert from density to percentage per bin
+        pdf_scale_factor = actual_bin_width * 100
+        
+        # Use normal distribution fitting (same as plot_correlation_distribution default)
+        # Fit normal distribution
+        mean_val, std_val = stats.norm.fit(quality_values)
+        
+        # Use targeted bin sizing if provided, otherwise use default (EXACT same as plot_correlation_distribution)
+        if targeted_binsize is not None:
+            # targeted_binsize now contains (synthetic_bins, bin_width)
+            synthetic_bins, bin_width_targeted = targeted_binsize
+            n_bins_targeted = len(synthetic_bins) - 1
+            
+            # Use the exact same bin edges as synthetic data
+            bins_targeted = synthetic_bins
+            
+            # Compute histogram using targeted bins (as percentages)
+            hist_values, _ = np.histogram(quality_values, bins=bins_targeted, density=False)
+            hist_percentages = (hist_values / len(quality_values)) * 100
+            
+            # Generate PDF curve from tail to tail (6 sigma range) with percentage scaling
+            x_min = mean_val - 6 * std_val
+            x_max = mean_val + 6 * std_val
+            x = np.linspace(x_min, x_max, 1000)
+            y = stats.norm.pdf(x, mean_val, std_val) * bin_width_targeted * 100
+            
+            # Store targeted bin information
+            fit_params['bins'] = bins_targeted
+            fit_params['hist'] = hist_percentages
+            fit_params['n_bins'] = n_bins_targeted
+            fit_params['bin_width'] = bin_width_targeted
+            fit_params['n_points'] = len(quality_values)
+        else:
+            # Fallback to default approach
+            # Generate PDF
+            y = stats.norm.pdf(x, mean_val, std_val) * pdf_scale_factor
+            
+            # Use histogram computation as percentages
+            hist_values, bins_values = np.histogram(quality_values, bins=no_bins, density=False)
+            hist_percentages = (hist_values / len(quality_values)) * 100
+            
+            # Store default bin information
+            fit_params['bins'] = bins_values
+            fit_params['hist'] = hist_percentages
+            fit_params['n_bins'] = no_bins
+            fit_params['bin_width'] = bin_width
+            fit_params['n_points'] = len(quality_values)
+        
+        fit_params['method'] = 'normal'
+        fit_params['mean'] = mean_val
+        fit_params['std'] = std_val
+        fit_params['x_range'] = x
+        fit_params['y_values'] = y
+    
+    # Add median value
+    fit_params['median'] = np.median(quality_values)
+    
+    return fit_params
+
+
 def plot_quality_distributions(quality_data, target_quality_indices, output_figure_filenames, 
                                CORE_A, CORE_B, debug=True, return_plot_info=False,
-                               plot_real_data_histogram=True, plot_age_removal_step_pdf=True):
+                               plot_real_data_histogram=True, plot_age_removal_step_pdf=True,
+                               synthetic_csv_filenames=None):
     """
     Plot quality index distributions comparing real data vs synthetic null hypothesis.
     
@@ -1878,6 +2016,12 @@ def plot_quality_distributions(quality_data, target_quality_indices, output_figu
         If True, only print essential messages. If False, print all detailed messages.
     return_plot_info : bool, default False
         If True, return plotting information for gif creation
+    plot_real_data_histogram : bool, default True
+        If True, plot histograms for real data (no age constraints and all age constraints cases)
+    plot_age_removal_step_pdf : bool, default True
+        If True, plot all PDF curves including dashed lines for partially removed age constraints
+    synthetic_csv_filenames : dict, optional
+        Dictionary mapping quality_index to synthetic CSV filename paths for loading histogram data
     
     Returns:
     --------
@@ -1903,30 +2047,80 @@ def plot_quality_distributions(quality_data, target_quality_indices, output_figu
         max_core_b_constraints = data['max_core_b_constraints']
         unique_combinations = data['unique_combinations']
 
-        # Use stored histogram data to determine bin width for consistent PDF scaling
-        # Get bin width from the first row's stored histogram data
-        first_row = df_all_params.iloc[0]
-        if 'bin_width' in first_row and pd.notna(first_row['bin_width']):
-            stored_bin_width = first_row['bin_width']
-        else:
-            # Fallback: calculate from stored bins if available
-            if 'bins' in first_row and pd.notna(first_row['bins']):
-                try:
-                    bins_stored = np.fromstring(first_row['bins'].strip('[]'), sep=' ')
-                    stored_bin_width = bins_stored[1] - bins_stored[0]
-                except:
-                    # Final fallback
-                    stored_bin_width = (combined_data.max() - combined_data.min()) / 30
-            else:
-                stored_bin_width = (combined_data.max() - combined_data.min()) / 30
+        # Reconstruct synthetic data from binned CSV data EXACTLY like Cell 10
+        synthetic_quality_values = None
+        if synthetic_csv_filenames and quality_index in synthetic_csv_filenames:
+            try:
+                # Load fit params from synthetic CSV (same as Cell 10)
+                df_fit_params = pd.read_csv(synthetic_csv_filenames[quality_index])
+                
+                # Initialize list to collect all raw synthetic data points (same as Cell 10)
+                all_raw_data = []
+                
+                # Process each iteration to reconstruct raw data from binned data (same as Cell 10)
+                for _, row in df_fit_params.iterrows():
+                    # Extract binned data (same as Cell 10)
+                    bins = np.fromstring(row['bins'].strip('[]'), sep=' ') if 'bins' in row and pd.notna(row['bins']) else None
+                    hist_percentages = np.fromstring(row['hist'].strip('[]'), sep=' ') if 'hist' in row and pd.notna(row['hist']) else None
+                    n_points = row['n_points'] if 'n_points' in row and pd.notna(row['n_points']) else None
+                    
+                    if bins is not None and hist_percentages is not None and n_points is not None:
+                        # IMPORTANT FIX: The hist values in CSV are not actually percentages but 
+                        # raw histogram counts from the old buggy normalization code.
+                        # We need to properly normalize them to reconstruct the correct data. (same as Cell 10)
+                        
+                        # First, normalize the histogram values so they represent proper proportions
+                        hist_sum = np.sum(hist_percentages)
+                        if hist_sum > 0:
+                            # Normalize to get proper proportions, then scale by n_points to get counts
+                            raw_counts = (hist_percentages / hist_sum) * n_points
+                        else:
+                            raw_counts = np.zeros_like(hist_percentages)
+                        
+                        # Reconstruct data points by sampling from each bin (same as Cell 10)
+                        bin_centers = (bins[:-1] + bins[1:]) / 2
+                        bin_width = bins[1] - bins[0]
+                        
+                        for i, count in enumerate(raw_counts):
+                            if count > 0:
+                                # Generate random points within each bin
+                                n_samples = int(round(count))
+                                if n_samples > 0:
+                                    # Sample uniformly within the bin
+                                    bin_samples = np.random.uniform(
+                                        bins[i], bins[i+1], n_samples
+                                    )
+                                    all_raw_data.extend(bin_samples)
+                
+                # Convert to numpy array (same as Cell 10)
+                synthetic_quality_values = np.array(all_raw_data)
+                
+            except Exception as e:
+                print(f"Error reconstructing synthetic data: {e}")
+                synthetic_quality_values = None
         
-        # Generate fitted curve using stored bin width for consistent scaling
-        # Extend PDF range from tail to tail (6 sigma range for complete curves)
-        data_std = fitted_std
-        x_min_extended = fitted_mean - 6 * data_std
-        x_max_extended = fitted_mean + 6 * data_std
-        x_fitted = np.linspace(x_min_extended, x_max_extended, 1000)
-        y_fitted = stats.norm.pdf(x_fitted, fitted_mean, fitted_std) * stored_bin_width * 100
+        # Create synthetic histogram and PDF using the EXACT same approach as Cell 10 and plot_correlation_distribution
+        if synthetic_quality_values is not None and len(synthetic_quality_values) > 0:
+            synthetic_fit_params = _create_histogram_and_pdf_like_plot_correlation_distribution(
+                synthetic_quality_values, quality_index
+            )
+            
+            no_bins = synthetic_fit_params['n_bins']
+            x_fitted = synthetic_fit_params['x_range']
+            y_fitted = synthetic_fit_params['y_values']
+            fitted_mean = synthetic_fit_params['mean']
+            fitted_std = synthetic_fit_params['std']
+            synthetic_bins = synthetic_fit_params['bins']
+            actual_bin_width = synthetic_fit_params['bin_width']
+            
+        else:
+            # Fallback if synthetic data not available
+            synthetic_bins = np.linspace(fitted_mean - 3*fitted_std, fitted_mean + 3*fitted_std, 31)
+            synthetic_hist = np.ones(30) * (100 / 30)
+            x_fitted = np.linspace(fitted_mean - 6 * fitted_std, fitted_mean + 6 * fitted_std, 1000)
+            actual_bin_width = synthetic_bins[1] - synthetic_bins[0]
+            y_fitted = stats.norm.pdf(x_fitted, fitted_mean, fitted_std) * actual_bin_width * 100
+            no_bins = 30
 
         # Extract plot info for gif creation (ONLY NEW ADDITION)
         if return_plot_info:
@@ -1985,8 +2179,8 @@ def plot_quality_distributions(quality_data, target_quality_indices, output_figu
                 'y_synth': y_fitted,  # Add missing key - same as y_fitted  
                 'fitted_mean': fitted_mean,
                 'fitted_std': fitted_std,
-                'combined_data': combined_data,
-                'n_bins': 30,
+                'combined_data': synthetic_quality_values if synthetic_quality_values is not None else np.linspace(fitted_mean - 3*fitted_std, fitted_mean + 3*fitted_std, 100),
+                'n_bins': no_bins if synthetic_quality_values is not None else 30,
                 'max_core_a_constraints': max_core_a_constraints,
                 'max_core_b_constraints': max_core_b_constraints,
                 'unique_combinations': unique_combinations,
@@ -2006,19 +2200,20 @@ def plot_quality_distributions(quality_data, target_quality_indices, output_figu
         # Create combined plot
         fig, ax = plt.subplots(figsize=(10, 4.5))
 
-        # Plot combined histogram in gray bars as percentages using stored bin width
-        # Calculate number of bins based on stored bin width for consistency
-        data_range = combined_data.max() - combined_data.min()
-        if data_range > 0 and stored_bin_width > 0:
-            n_bins_calculated = max(1, int(np.ceil(data_range / stored_bin_width)))
-            n_bins_calculated = max(10, min(n_bins_calculated, 200))  # Constrain to reasonable range
+        # Plot synthetic histogram and PDF EXACTLY like plot_correlation_distribution
+        if synthetic_quality_values is not None and len(synthetic_quality_values) > 0:
+            # Use ax.hist with weights to convert counts to percentages (EXACT same as plot_correlation_distribution)
+            ax.hist(synthetic_quality_values, bins=no_bins, alpha=0.3, color='gray', 
+                    density=False,
+                    weights=np.ones(len(synthetic_quality_values)) * 100 / len(synthetic_quality_values),
+                    label='Synthetic data histogram')
         else:
-            n_bins_calculated = 30  # Fallback
-        
-        ax.hist(combined_data, bins=n_bins_calculated, alpha=0.3, color='gray', density=False,
-                weights=np.ones(len(combined_data)) * 100 / len(combined_data), label='Synthetic data histogram')
+            # Fallback: use bar chart for synthetic histogram
+            bin_centers = (synthetic_bins[:-1] + synthetic_bins[1:]) / 2
+            ax.bar(bin_centers, synthetic_hist, width=actual_bin_width*0.8, alpha=0.3, color='gray', 
+                   label='Synthetic data histogram')
 
-        # Plot fitted normal curve as gray dotted line
+        # Plot fitted normal curve as gray dotted line (EXACT same as plot_correlation_distribution)
         ax.plot(x_fitted, y_fitted, color='gray', linestyle=':', linewidth=2, alpha=0.8,
                 label='Synthetic data PDF (Null Hypothesis)')
 
@@ -2050,148 +2245,143 @@ def plot_quality_distributions(quality_data, target_quality_indices, output_figu
             core_a_constraints = row['core_a_constraints_count']
             core_b_constraints = row['core_b_constraints_count']
             
-            # Parse x_range and y_values from stored strings
-            if 'x_range' in row and 'y_values' in row and pd.notna(row['x_range']) and pd.notna(row['y_values']):
+            # Extract the raw quality values for this row EXACTLY like plot_correlation_distribution does
+            # We need to reconstruct the original quality values to plot histogram exactly like plot_correlation_distribution
+            row_quality_values = None
+            if 'bins' in row and 'hist' in row and 'n_points' in row and pd.notna(row['bins']) and pd.notna(row['hist']) and pd.notna(row['n_points']):
                 try:
-                    x_range = np.fromstring(row['x_range'].strip('[]'), sep=' ')
-                    y_values = np.fromstring(row['y_values'].strip('[]'), sep=' ')
+                    bins_data = np.fromstring(row['bins'].strip('[]'), sep=' ')
+                    hist_data = np.fromstring(row['hist'].strip('[]'), sep=' ')
+                    n_points = int(row['n_points'])
                     
-                    # Ensure PDF is scaled to percentage format (re-scale if needed)
-                    # Get the bin width for this row to properly scale the PDF
-                    if 'bin_width' in row and pd.notna(row['bin_width']):
-                        row_bin_width = row['bin_width']
-                    elif 'bins' in row and pd.notna(row['bins']):
-                        try:
-                            bins_row = np.fromstring(row['bins'].strip('[]'), sep=' ')
-                            row_bin_width = bins_row[1] - bins_row[0] if len(bins_row) > 1 else stored_bin_width
-                        except:
-                            row_bin_width = stored_bin_width
-                    else:
-                        row_bin_width = stored_bin_width
-                    
-                    # Check if y_values appear to be in density format (typically < 10) vs percentage format (typically > 10)
-                    # If stored as density, re-scale to percentage
-                    max_y_value = np.max(y_values) if len(y_values) > 0 else 0
-                    if max_y_value < 10:  # Likely density format, convert to percentage
-                        y_values = y_values * row_bin_width * 100
-                    
-                    # Create unique key for this parameter combination
-                    combo_key = f"age_{age_consideration}_restricted_{restricted_age_correlation}_shortest_{shortest_path_search}"
-                    
-                    # Reconstruct raw data from histogram for statistical tests
-                    if 'bins' in row and 'hist' in row and 'n_points' in row and \
-                       pd.notna(row['bins']) and pd.notna(row['hist']) and pd.notna(row['n_points']):
-                        
-                        bins = np.fromstring(row['bins'].strip('[]'), sep=' ')
-                        hist_percentages = np.fromstring(row['hist'].strip('[]'), sep=' ')
-                        n_points = row['n_points']
-                        
-                        # Reconstruct raw data points
-                        raw_data_points = reconstruct_raw_data_from_histogram(bins, hist_percentages, n_points)
-                        
-                        # Group by search method based on shortest_path_search column
-                        if shortest_path_search:
-                            if combo_key not in solid_real_data_by_combo:
-                                solid_real_data_by_combo[combo_key] = []
-                            solid_real_data_by_combo[combo_key].extend(raw_data_points)
-                        else:
-                            if combo_key not in dash_real_data_by_combo:
-                                dash_real_data_by_combo[combo_key] = []
-                            dash_real_data_by_combo[combo_key].extend(raw_data_points)
-                    
-                    if len(x_range) > 0 and len(y_values) > 0:
-                        # Determine if this is a max constraint case
-                        is_max_constraints = (core_a_constraints == max_core_a_constraints and 
-                                            core_b_constraints == max_core_b_constraints)
-                        
-                        # Get color from colormap based on core_b_constraints_count
-                        base_color = cmap(norm(core_b_constraints))
-                        
-                        # Darken the color by reducing brightness
-                        # Convert to HSV, reduce the V (value/brightness) component, then back to RGB
-                        base_color_rgb = base_color[:3]  # Remove alpha if present
-                        base_color_hsv = colors.rgb_to_hsv(base_color_rgb)
-                        darkened_hsv = (base_color_hsv[0], base_color_hsv[1], base_color_hsv[2] * 0.9)  # Reduce brightness by 10%
-                        color = colors.hsv_to_rgb(darkened_hsv)
-                        
-                        # Determine line style and transparency based on constraint levels
-                        if is_max_constraints or core_b_constraints == 0:
-                            line_style = '-'
-                            linewidth = 1.5
-                            alpha = 0.9
-                            zorder = 10  # Higher zorder to bring solid lines to front
-                            constraint_label = f'{CORE_B} age constraints: {core_b_constraints}'
-                            if core_b_constraints not in plotted_constraint_levels:
-                                label = constraint_label
-                                plotted_constraint_levels.add(core_b_constraints)
-                            else:
-                                label = None
-                            should_plot = True  # Always plot solid lines
-                        else:
-                            line_style = '--'
-                            linewidth = 1
-                            alpha = 0.9
-                            zorder = 1  # Lower zorder for dashed lines
-                            constraint_label = f'{CORE_B} age constraints: {core_b_constraints}'
-                            if core_b_constraints not in plotted_constraint_levels:
-                                label = constraint_label
-                                plotted_constraint_levels.add(core_b_constraints)
-                            else:
-                                label = None
-                            should_plot = plot_age_removal_step_pdf  # Only plot dashed lines if enabled
-                        
-                        # Use stored histogram and PDF data (computed with consistent bin sizing if available)
-                        if should_plot:
-                            ax.plot(x_range, y_values, 
-                                   color=color, 
-                                   linestyle=line_style,
-                                   linewidth=linewidth, alpha=alpha,
-                                   zorder=zorder,
-                                   label=label)
-                            
-                            # Plot histogram for special cases: no age constraints (0) or all age constraints (max)
-                            if plot_real_data_histogram and (core_b_constraints == 0 or (core_a_constraints == max_core_a_constraints and core_b_constraints == max_core_b_constraints)):
-                                # Use stored histogram data directly (no need to reconstruct raw data)
-                                if 'bins' in row and 'hist' in row and pd.notna(row['bins']) and pd.notna(row['hist']):
-                                    try:
-                                        bins_stored = np.fromstring(row['bins'].strip('[]'), sep=' ')
-                                        hist_percentages_stored = np.fromstring(row['hist'].strip('[]'), sep=' ')
-                                        
-                                        # Ensure histogram is in percentage format (re-scale if needed)
-                                        # Check if hist appears to be in density format vs percentage format
-                                        hist_sum = np.sum(hist_percentages_stored)
-                                        if hist_sum < 50:  # Likely density format, convert to percentage
-                                            hist_bin_width = bins_stored[1] - bins_stored[0] if len(bins_stored) > 1 else 1
-                                            hist_percentages_stored = hist_percentages_stored * hist_bin_width * 100
-                                        
-                                        # Plot histogram directly using stored percentage data
-                                        # Convert stored percentages to bar heights
-                                        bin_centers = (bins_stored[:-1] + bins_stored[1:]) / 2
-                                        bin_widths = bins_stored[1:] - bins_stored[:-1]
-                                        
-                                        ax.bar(bin_centers, hist_percentages_stored, width=bin_widths, 
-                                              alpha=0.3, color=color, edgecolor='none', zorder=zorder-1)
-                                    except Exception:
-                                        pass  # Skip histogram if data parsing fails
-                        
-                        # Store individual curve data for GIF creation if requested
-                        if return_plot_info:
-                            plot_info_dict[quality_index]['individual_curves'].append({
-                                'x_range': x_range,
-                                'y_values': y_values,
-                                'color': color,
-                                'linestyle': line_style,
-                                'linewidth': linewidth,
-                                'alpha': alpha,
-                                'zorder': zorder,
-                                'label': label,
-                                'constraint_count': core_b_constraints,
-                                'is_max_constraints': is_max_constraints
-                            })
+                    # Reconstruct quality values from histogram (for exact plotting)
+                    row_quality_values = reconstruct_raw_data_from_histogram(bins_data, hist_data, n_points)
+                except:
+                    pass
+            
+            # Create histogram and PDF using EXACT same approach as plot_correlation_distribution
+            row_fit_params = None
+            if row_quality_values is not None and len(row_quality_values) > 0:
+                # Use the synthetic data binning for consistency (targeted bin sizing like plot_correlation_distribution)
+                targeted_binsize = (synthetic_bins, actual_bin_width) if synthetic_quality_values is not None else None
+                row_fit_params = _create_histogram_and_pdf_like_plot_correlation_distribution(
+                    row_quality_values, quality_index, targeted_binsize
+                )
+                if row_fit_params is not None and 'x_range' in row_fit_params and 'y_values' in row_fit_params:
+                    x_range = row_fit_params['x_range']
+                    y_values = row_fit_params['y_values']
+                else:
+                    x_range = y_values = None
+            else:
+                x_range = y_values = None
+            
+            # Create unique key for this parameter combination
+            combo_key = f"age_{age_consideration}_restricted_{restricted_age_correlation}_shortest_{shortest_path_search}"
+            
+            # Store reconstructed quality values for statistical tests
+            if row_quality_values is not None:
+                # Group by search method based on shortest_path_search column
+                if shortest_path_search:
+                    if combo_key not in solid_real_data_by_combo:
+                        solid_real_data_by_combo[combo_key] = []
+                    solid_real_data_by_combo[combo_key].extend(row_quality_values)
+                else:
+                    if combo_key not in dash_real_data_by_combo:
+                        dash_real_data_by_combo[combo_key] = []
+                    dash_real_data_by_combo[combo_key].extend(row_quality_values)
+            
+            if x_range is not None and y_values is not None and len(x_range) > 0 and len(y_values) > 0:
+                # Determine if this is a max constraint case
+                is_max_constraints = (core_a_constraints == max_core_a_constraints and 
+                                    core_b_constraints == max_core_b_constraints)
                 
-                except Exception as e:
-                    if not debug:
-                        print(f"Warning: Could not plot curve for row {idx}: {str(e)}")
+                # Get color from colormap based on core_b_constraints_count
+                base_color = cmap(norm(core_b_constraints))
+                
+                # Darken the color by reducing brightness
+                # Convert to HSV, reduce the V (value/brightness) component, then back to RGB
+                base_color_rgb = base_color[:3]  # Remove alpha if present
+                base_color_hsv = colors.rgb_to_hsv(base_color_rgb)
+                darkened_hsv = (base_color_hsv[0], base_color_hsv[1], base_color_hsv[2] * 0.9)  # Reduce brightness by 10%
+                color = colors.hsv_to_rgb(darkened_hsv)
+                
+                # Determine line style and transparency based on constraint levels
+                if is_max_constraints or core_b_constraints == 0:
+                    line_style = '-'
+                    linewidth = 1.5
+                    alpha = 0.9
+                    zorder = 10  # Higher zorder to bring solid lines to front
+                    constraint_label = f'{CORE_B} age constraints: {core_b_constraints}'
+                    if core_b_constraints not in plotted_constraint_levels:
+                        label = constraint_label
+                        plotted_constraint_levels.add(core_b_constraints)
+                    else:
+                        label = None
+                    should_plot = True  # Always plot solid lines
+                else:
+                    line_style = '--'
+                    linewidth = 1
+                    alpha = 0.9
+                    zorder = 1  # Lower zorder for dashed lines
+                    constraint_label = f'{CORE_B} age constraints: {core_b_constraints}'
+                    if core_b_constraints not in plotted_constraint_levels:
+                        label = constraint_label
+                        plotted_constraint_levels.add(core_b_constraints)
+                    else:
+                        label = None
+                    should_plot = plot_age_removal_step_pdf  # Only plot dashed lines if enabled
+                
+                # Plot PDF curve using stored data
+                if should_plot:
+                    ax.plot(x_range, y_values, 
+                           color=color, 
+                           linestyle=line_style,
+                           linewidth=linewidth, alpha=alpha,
+                           zorder=zorder,
+                           label=label)
+                    
+                    # Store individual curve data for GIF creation if requested (for ALL plotted curves)
+                    if return_plot_info:
+                        plot_info_dict[quality_index]['individual_curves'].append({
+                            'x_range': x_range,
+                            'y_values': y_values,
+                            'color': color,
+                            'linestyle': line_style,
+                            'linewidth': linewidth,
+                            'alpha': alpha,
+                            'zorder': zorder,
+                            'label': label,
+                            'constraint_count': core_b_constraints,
+                            'is_max_constraints': is_max_constraints
+                        })
+                    
+                    # Plot histogram for special cases: no age constraints (0) or all age constraints (max)
+                    if plot_real_data_histogram and (core_b_constraints == 0 or (core_a_constraints == max_core_a_constraints and core_b_constraints == max_core_b_constraints)):
+                        # Plot histogram EXACTLY like plot_correlation_distribution does
+                        if row_quality_values is not None and len(row_quality_values) > 0:
+                            # Use the exact same binning as plot_correlation_distribution with targeted bin sizing
+                            if row_fit_params is not None and 'bins' in row_fit_params:
+                                # Use the bins calculated by our unified function (same as plot_correlation_distribution)
+                                target_bins = row_fit_params['bins']
+                                ax.hist(row_quality_values, bins=target_bins, alpha=0.3, color=color, 
+                                       edgecolor='none', density=False, zorder=zorder-1,
+                                       weights=np.ones(len(row_quality_values)) * 100 / len(row_quality_values))
+                            else:
+                                # Fallback: use same binning as synthetic data for consistency
+                                if synthetic_quality_values is not None:
+                                    # Use same bins as synthetic data
+                                    ax.hist(row_quality_values, bins=no_bins, alpha=0.3, color=color, 
+                                           edgecolor='none', density=False, zorder=zorder-1,
+                                           weights=np.ones(len(row_quality_values)) * 100 / len(row_quality_values))
+                                else:
+                                    # Fallback: calculate bins using plot_correlation_distribution logic
+                                    fallback_fit_params = _create_histogram_and_pdf_like_plot_correlation_distribution(
+                                        row_quality_values, quality_index
+                                    )
+                                    if fallback_fit_params is not None and 'bins' in fallback_fit_params:
+                                        ax.hist(row_quality_values, bins=fallback_fit_params['bins'], alpha=0.3, color=color, 
+                                               edgecolor='none', density=False, zorder=zorder-1,
+                                               weights=np.ones(len(row_quality_values)) * 100 / len(row_quality_values))
 
         # Perform statistical tests for max constraint cases only
         solid_stats_by_combo = {}
@@ -2366,12 +2556,18 @@ def plot_quality_distributions(quality_data, target_quality_indices, output_figu
                 print()
 
         # Save figure
-        output_filename = output_figure_filenames[quality_index]
-        if debug:  # debug=True means mute_mode=True, show essential info only
-            print(f"✓ Distribution plot saved as: {output_filename}")
-        else:  # debug=False means mute_mode=False, show detailed info
-            print(f"✓ Distribution plot saved as: {output_filename}")
-            print(f"✓ Analysis complete for {quality_index}!")
+        if output_figure_filenames and quality_index in output_figure_filenames:
+            output_filename = output_figure_filenames[quality_index]
+            if debug:  # debug=True means mute_mode=True, show essential info only
+                print(f"✓ Distribution plot saved as: {output_filename}")
+            else:  # debug=False means mute_mode=False, show detailed info
+                print(f"✓ Distribution plot saved as: {output_filename}")
+                print(f"✓ Analysis complete for {quality_index}!")
+        else:
+            if debug:  # debug=True means mute_mode=True, show essential info only
+                print(f"✓ Distribution plot completed for {quality_index}")
+            else:  # debug=False means mute_mode=False, show detailed info
+                print(f"✓ Analysis complete for {quality_index}!")
 
         # Get display name for quality index
         def get_quality_display_name(quality_index):
@@ -2591,7 +2787,7 @@ def plot_quality_distributions(quality_data, target_quality_indices, output_figu
         ax_ylim = ax.get_ylim()
         
         # Position arrow in upper left of the plot area
-        arrow_y = ax_ylim[0] + 0.87 * (ax_ylim[1] - ax_ylim[0])  # 87% up from bottom
+        arrow_y = ax_ylim[0] + 0.92 * (ax_ylim[1] - ax_ylim[0])  # 92% up from bottom
         
         # Determine arrow direction and position based on quality index
         if quality_index == 'norm_dtw':
@@ -2620,12 +2816,15 @@ def plot_quality_distributions(quality_data, target_quality_indices, output_figu
 
         plt.tight_layout()
         
-        # Create directory if needed
-        output_dir = os.path.dirname(output_filename)
-        if output_dir:
-            os.makedirs(output_dir, exist_ok=True)
-        
-        plt.savefig(output_filename, dpi=150, bbox_inches='tight')
+        # Save figure if output filename is provided
+        if output_figure_filenames and quality_index in output_figure_filenames:
+            output_filename = output_figure_filenames[quality_index]
+            # Create directory if needed
+            output_dir = os.path.dirname(output_filename)
+            if output_dir:
+                os.makedirs(output_dir, exist_ok=True)
+            
+            plt.savefig(output_filename, dpi=150, bbox_inches='tight')
         
         # Show plot AFTER all printed texts - suppress when debug=True (i.e., mute_mode=True)
         if not debug:  # debug=True means mute_mode=True, so suppress display
@@ -3076,19 +3275,25 @@ def plot_t_statistics_vs_constraints(quality_data, target_quality_indices, outpu
             })
         
         # Save figure
-        base_filename = output_figure_filenames[quality_index]
-        t_stat_filename = base_filename.replace('.png', '_tstat.png').replace('.jpg', '_tstat.jpg')
-        
-        # Create directory if needed
-        output_dir = os.path.dirname(t_stat_filename)
-        if output_dir:
-            os.makedirs(output_dir, exist_ok=True)
-        
-        plt.savefig(t_stat_filename, dpi=150, bbox_inches='tight')
-        if debug:  # debug=True means mute_mode=True, show essential info only
-            print(f"✓ t-statistics plot saved as: {t_stat_filename}")
-        else:  # debug=False means mute_mode=False, show detailed info
-            print(f"✓ t-statistics plot saved as: {t_stat_filename}")
+        if output_figure_filenames and quality_index in output_figure_filenames:
+            base_filename = output_figure_filenames[quality_index]
+            t_stat_filename = base_filename.replace('.png', '_tstat.png').replace('.jpg', '_tstat.jpg')
+            
+            # Create directory if needed
+            output_dir = os.path.dirname(t_stat_filename)
+            if output_dir:
+                os.makedirs(output_dir, exist_ok=True)
+            
+            plt.savefig(t_stat_filename, dpi=150, bbox_inches='tight')
+            if debug:  # debug=True means mute_mode=True, show essential info only
+                print(f"✓ t-statistics plot saved as: {t_stat_filename}")
+            else:  # debug=False means mute_mode=False, show detailed info
+                print(f"✓ t-statistics plot saved as: {t_stat_filename}")
+        else:
+            if debug:  # debug=True means mute_mode=True, show essential info only
+                print(f"✓ t-statistics plot completed for {quality_index}")
+            else:  # debug=False means mute_mode=False, show detailed info
+                print(f"✓ t-statistics plot completed for {quality_index}")
         
         # Display the plot - suppress when debug=True (i.e., mute_mode=True)
         if not debug:  # debug=True means mute_mode=True, so suppress display
@@ -3377,6 +3582,62 @@ def plot_quality_comparison_t_statistics(target_quality_indices, master_csv_file
         CORE_A, CORE_B, mute_mode
     )
     
+    # Check for valid age constraints across all quality indices
+    has_valid_age_constraints = False
+    invalid_age_cores = []
+    
+    for quality_index in target_quality_indices:
+        if quality_index not in quality_data:
+            continue
+            
+        data = quality_data[quality_index]
+        df_all_params = data['df_all_params']
+        
+        # Check if there are multiple constraint levels (indicating valid age analysis)
+        unique_constraints = df_all_params['core_b_constraints_count'].unique()
+        max_constraints = df_all_params['core_b_constraints_count'].max()
+        
+        # Valid age analysis requires more than just 0 constraints
+        if len(unique_constraints) > 1 and max_constraints > 0:
+            has_valid_age_constraints = True
+            break
+        else:
+            # Check if only one row exists (indicating no valid age data)
+            if len(df_all_params) == 1:
+                # Determine which core lacks valid age data based on constraint counts
+                core_a_constraints = df_all_params['core_a_constraints_count'].iloc[0]
+                core_b_constraints = df_all_params['core_b_constraints_count'].iloc[0]
+                
+                if core_a_constraints == 0 and core_b_constraints == 0:
+                    # Both cores lack age data, but we'll report the one that was expected to have it
+                    # This is typically CORE_B based on the analysis pattern
+                    if CORE_B not in invalid_age_cores:
+                        invalid_age_cores.append(CORE_B)
+                elif core_b_constraints == 0:
+                    if CORE_B not in invalid_age_cores:
+                        invalid_age_cores.append(CORE_B)
+                elif core_a_constraints == 0:
+                    if CORE_A not in invalid_age_cores:
+                        invalid_age_cores.append(CORE_A)
+    
+    # Print warning if no valid age constraints found
+    if not has_valid_age_constraints:
+        if invalid_age_cores:
+            for core_name in invalid_age_cores:
+                print(f"⚠️  WARNING: No valid age constraints in {core_name}. Only PDFs without age consideration will be plotted.")
+        else:
+            print("⚠️  WARNING: No valid age constraints found. Only PDFs without age consideration will be plotted.")
+        
+        # Skip GIF generation when no valid age constraints
+        if save_gif:
+            print("⚠️  WARNING: Skipping GIF generation due to insufficient age constraint data.")
+            save_gif = False
+        
+        print("⚠️  WARNING: Skipping t-statistics plots since they require multiple age constraint levels for meaningful analysis.")
+    
+    # Keep track of created GIFs for display at the end
+    created_gifs = []
+    
     # Process each quality index: distribution plot followed by t-statistics plot
     for quality_index in target_quality_indices:
         if quality_index not in quality_data:
@@ -3392,36 +3653,61 @@ def plot_quality_comparison_t_statistics(target_quality_indices, master_csv_file
             distribution_plot_info = plot_quality_distributions(
                 quality_data, [quality_index], output_figure_filenames if save_fig else {}, 
                 CORE_A, CORE_B, debug=mute_mode, return_plot_info=True,
-                plot_real_data_histogram=plot_real_data_histogram, plot_age_removal_step_pdf=plot_age_removal_step_pdf
+                plot_real_data_histogram=plot_real_data_histogram, plot_age_removal_step_pdf=plot_age_removal_step_pdf,
+                synthetic_csv_filenames=synthetic_csv_filenames
             )
             
-            tstat_plot_info = plot_t_statistics_vs_constraints(
-                quality_data, [quality_index], output_figure_filenames if save_fig else {},
-                CORE_A, CORE_B, debug=mute_mode, return_plot_info=True
-            )
+            # Only create t-statistics plots if valid age constraints exist
+            if has_valid_age_constraints:
+                tstat_plot_info = plot_t_statistics_vs_constraints(
+                    quality_data, [quality_index], output_figure_filenames if save_fig else {},
+                    CORE_A, CORE_B, debug=mute_mode, return_plot_info=True
+                )
             
             # Create gifs using the plot info
             distribution_gif_filename = output_gif_filenames[quality_index]
-            tstat_gif_filename = distribution_gif_filename.replace('.gif', '_tstat.gif')
             
             # Create distribution gif
             _create_distribution_gif(distribution_plot_info[quality_index], distribution_gif_filename, mute_mode, max_frames)
 
-            # Create t-statistics gif  
-            _create_tstat_gif(tstat_plot_info[quality_index], tstat_gif_filename, mute_mode, max_frames)
+            # Create t-statistics gif only if valid age constraints exist
+            if has_valid_age_constraints:
+                tstat_gif_filename = distribution_gif_filename.replace('.gif', '_tstat.gif')
+                _create_tstat_gif(tstat_plot_info[quality_index], tstat_gif_filename, mute_mode, max_frames)
+                created_gifs.extend([distribution_gif_filename, tstat_gif_filename])
+            else:
+                created_gifs.append(distribution_gif_filename)
             
         else:
             # Just create static plots
             plot_quality_distributions(
                 quality_data, [quality_index], output_figure_filenames if save_fig else {}, 
                 CORE_A, CORE_B, debug=mute_mode, return_plot_info=False,
-                plot_real_data_histogram=plot_real_data_histogram, plot_age_removal_step_pdf=plot_age_removal_step_pdf
+                plot_real_data_histogram=plot_real_data_histogram, plot_age_removal_step_pdf=plot_age_removal_step_pdf,
+                synthetic_csv_filenames=synthetic_csv_filenames
             )
             
-            plot_t_statistics_vs_constraints(
-                quality_data, [quality_index], output_figure_filenames if save_fig else {},
-                CORE_A, CORE_B, debug=mute_mode, return_plot_info=False
-            )
+            # Only create t-statistics plots if valid age constraints exist
+            if has_valid_age_constraints:
+                plot_t_statistics_vs_constraints(
+                    quality_data, [quality_index], output_figure_filenames if save_fig else {},
+                    CORE_A, CORE_B, debug=mute_mode, return_plot_info=False
+                )
+    
+    # Display all created GIFs at the end when save_gif=True
+    if save_gif and created_gifs:
+        print("\n" + "="*60)
+        print("DISPLAYING CREATED GIFS")
+        print("="*60)
+        for gif_file in created_gifs:
+            if os.path.exists(gif_file):
+                print(f"\nDisplaying: {os.path.basename(gif_file)}")
+                try:
+                    display(IPImage(filename=gif_file))
+                except Exception as e:
+                    print(f"Could not display {gif_file}: {e}")
+            else:
+                print(f"Warning: GIF file not found: {gif_file}")
     
     # Skip verbose completion message when mute_mode=True
 
@@ -3442,7 +3728,8 @@ def _create_distribution_gif(plot_info, gif_filename, mute_mode, max_frames=50):
         fig, ax = plt.subplots(figsize=(10, 4.5))  # Match static plot size
         
         # Plot null hypothesis with exact same styling as static plot
-        ax.hist(plot_info['combined_data'], bins=plot_info['n_bins'], alpha=0.3, color='gray', density=False,
+        ax.hist(plot_info['combined_data'], bins=plot_info['n_bins'], alpha=0.3, color='gray', 
+                density=False,
                 weights=np.ones(len(plot_info['combined_data'])) * 100 / len(plot_info['combined_data']), label='Synthetic data histogram')
         ax.plot(plot_info['x_synth'], plot_info['y_synth'], color='gray', linestyle=':', linewidth=2, alpha=0.8, label='Synthetic data PDF (Null Hypothesis)')
         
@@ -3533,7 +3820,7 @@ def _create_distribution_gif(plot_info, gif_filename, mute_mode, max_frames=50):
         ax_ylim = ax.get_ylim()
         
         # Position arrow in upper left of the plot area
-        arrow_y = ax_ylim[0] + 0.87 * (ax_ylim[1] - ax_ylim[0])  # 87% up from bottom
+        arrow_y = ax_ylim[0] + 0.92 * (ax_ylim[1] - ax_ylim[0])  # 92% up from bottom
         
         # Determine arrow direction and position based on quality index
         quality_index = plot_info['quality_index']
@@ -3602,7 +3889,8 @@ def _create_distribution_gif(plot_info, gif_filename, mute_mode, max_frames=50):
                 fig, ax = plt.subplots(figsize=(10, 4.5))  # Match static plot size
             
                 # Plot null hypothesis first (same as static plot)
-                ax.hist(plot_info['combined_data'], bins=plot_info['n_bins'], alpha=0.3, color='gray', density=False,
+                ax.hist(plot_info['combined_data'], bins=plot_info['n_bins'], alpha=0.3, color='gray', 
+                        density=False,
                         weights=np.ones(len(plot_info['combined_data'])) * 100 / len(plot_info['combined_data']), label='Synthetic data histogram')
                 ax.plot(plot_info['x_synth'], plot_info['y_synth'], color='gray', linestyle=':', linewidth=2, alpha=0.8, label='Synthetic data PDF (Null Hypothesis)')
                 
@@ -3707,7 +3995,7 @@ def _create_distribution_gif(plot_info, gif_filename, mute_mode, max_frames=50):
                 ax_ylim = ax.get_ylim()
                 
                 # Position arrow in upper left of the plot area
-                arrow_y = ax_ylim[0] + 0.87 * (ax_ylim[1] - ax_ylim[0])  # 87% up from bottom
+                arrow_y = ax_ylim[0] + 0.92 * (ax_ylim[1] - ax_ylim[0])  # 92% up from bottom
                 
                 # Determine arrow direction and position based on quality index
                 quality_index = plot_info['quality_index']
@@ -3779,13 +4067,10 @@ def _create_distribution_gif(plot_info, gif_filename, mute_mode, max_frames=50):
             
             if mute_mode:
                 print(f"✓ Distribution gif saved as: {gif_filename}")
+            else:
+                print(f"✓ Distribution gif saved as: {gif_filename}")
                 
-            # Display the gif only when mute_mode=False (suppress when mute_mode=True)
-            if not mute_mode:
-                try:
-                    display(IPImage(filename=gif_filename))
-                except:
-                    pass  # Silent failure when mute_mode=False
+            # Note: GIF will be displayed at the end of the main function
         else:
             # Skip verbose error message
             pass
@@ -4199,13 +4484,10 @@ def _create_tstat_gif(plot_info, gif_filename, mute_mode, max_frames=50):
             
             if mute_mode:
                 print(f"✓ T-statistics gif saved as: {gif_filename}")
+            else:
+                print(f"✓ T-statistics gif saved as: {gif_filename}")
                 
-            # Display the gif only when mute_mode=False (suppress when mute_mode=True)
-            if not mute_mode:
-                try:
-                    display(IPImage(filename=gif_filename))
-                except:
-                    pass  # Silent failure when mute_mode=False
+            # Note: GIF will be displayed at the end of the main function
         else:
             # Skip verbose error message
             pass

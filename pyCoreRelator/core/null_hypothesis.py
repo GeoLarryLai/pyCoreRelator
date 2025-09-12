@@ -77,6 +77,16 @@ def load_segment_pool(core_names, core_log_paths, picked_depth_paths, log_column
                 column_alternatives=column_alternatives
             )
             
+            # Check if all required log columns are available
+            missing_columns = []
+            for col in log_columns:
+                if col not in available_columns:
+                    missing_columns.append(col)
+            
+            if missing_columns:
+                print(f"  Skipping {core_name}: Missing required columns {missing_columns}")
+                continue
+            
             # Store core data
             segment_pool_cores_data[core_name] = {
                 'log_data': log_data,
@@ -1057,6 +1067,106 @@ def run_multi_parameter_analysis(
         if output_dir:
             os.makedirs(output_dir, exist_ok=True)
     
+    # VALIDATE AGE DATA BEFORE PROCESSING
+    print("Validating age data for age-based analysis...")
+    
+    # Check if age data contains valid age values
+    def validate_age_data(age_data, core_name):
+        """Validate age data for a given core"""
+        if age_data is None:
+            return False, f"{core_name}: age_data is None"
+        
+        if 'ages' not in age_data or not age_data['ages']:
+            return False, f"{core_name}: no 'ages' found in age_data"
+        
+        # Check if all ages are NaN or invalid
+        valid_ages = [age for age in age_data['ages'] if isinstance(age, (int, float)) and not np.isnan(age)]
+        if len(valid_ages) == 0:
+            return False, f"{core_name}: all age values in age_data['ages'] are NaN or invalid"
+        
+        return True, f"{core_name}: age_data validation passed"
+    
+    def validate_pickeddepth_ages(pickeddepth_ages, core_name):
+        """Validate pickeddepth ages for a given core"""
+        if pickeddepth_ages is None:
+            return False, f"{core_name}: pickeddepth_ages is None"
+        
+        if 'ages' not in pickeddepth_ages or not pickeddepth_ages['ages']:
+            return False, f"{core_name}: no 'ages' found in pickeddepth_ages"
+        
+        # Check if the last age value is NaN
+        ages = pickeddepth_ages['ages']
+        if len(ages) > 0 and np.isnan(ages[-1]):
+            return False, f"{core_name}: last age value in pickeddepth_ages['ages'] is NaN"
+        
+        # Check if all ages are NaN
+        valid_ages = [age for age in ages if not np.isnan(age)]
+        if len(valid_ages) == 0:
+            return False, f"{core_name}: all age values in pickeddepth_ages['ages'] are NaN"
+        
+        return True, f"{core_name}: pickeddepth_ages validation passed"
+    
+    # Validate age data for both cores
+    age_data_a_valid, age_data_a_msg = validate_age_data(age_data_a, core_a_name)
+    age_data_b_valid, age_data_b_msg = validate_age_data(age_data_b, core_b_name)
+    pickeddepth_ages_a_valid, pickeddepth_ages_a_msg = validate_pickeddepth_ages(pickeddepth_ages_a, core_a_name)
+    pickeddepth_ages_b_valid, pickeddepth_ages_b_msg = validate_pickeddepth_ages(pickeddepth_ages_b, core_b_name)
+    
+    # Determine if age-based analysis can be performed
+    age_analysis_possible = (age_data_a_valid and age_data_b_valid and 
+                           pickeddepth_ages_a_valid and pickeddepth_ages_b_valid)
+    
+    # Determine which cores have invalid age constraints for specific warning
+    core_a_age_valid = age_data_a_valid and pickeddepth_ages_a_valid
+    core_b_age_valid = age_data_b_valid and pickeddepth_ages_b_valid
+    
+    # Print validation results and specific warning
+    if not age_analysis_possible:
+        # Determine which cores have invalid age data
+        invalid_cores = []
+        if not core_a_age_valid:
+            invalid_cores.append(core_a_name)
+        if not core_b_age_valid:
+            invalid_cores.append(core_b_name)
+        
+        if len(invalid_cores) == 2:
+            core_warning = f"{core_a_name} & {core_b_name}"
+        else:
+            core_warning = invalid_cores[0]
+        
+        print(f"⚠️  WARNING: No valid age constraints in CORE {core_warning}. Only compute results without age consideration.")
+    else:
+        print("✓ Age data validation passed - age-based analysis is possible")
+    
+    # Filter parameter combinations based on age data validity
+    original_param_count = len(parameter_combinations)
+    if age_analysis_possible:
+        # Keep all parameter combinations if age analysis is possible
+        filtered_parameter_combinations = parameter_combinations
+    else:
+        # Remove parameter combinations with age_consideration=True if age data is invalid
+        filtered_parameter_combinations = [
+            params for params in parameter_combinations 
+            if not params.get('age_consideration', False)
+        ]
+    
+    filtered_param_count = len(filtered_parameter_combinations)
+    
+    if filtered_param_count < original_param_count:
+        skipped_count = original_param_count - filtered_param_count
+        print(f"   Filtered out {skipped_count} parameter combinations with age_consideration=True")
+        print(f"   Proceeding with {filtered_param_count} parameter combinations")
+    
+    # Disable age constraint removal testing if age data is invalid
+    effective_test_age_constraint_removal = test_age_constraint_removal and age_analysis_possible
+    
+    if test_age_constraint_removal and not effective_test_age_constraint_removal:
+        print("   Age constraint removal testing has been disabled due to invalid age data")
+    
+    # Update parameter_combinations for the rest of the function
+    parameter_combinations = filtered_parameter_combinations
+    test_age_constraint_removal = effective_test_age_constraint_removal
+    
     # Loop through all quality indices
     print(f"Running {len(parameter_combinations)} parameter combinations for {len(target_quality_indices)} quality indices...")
     print(f"Using {n_jobs if n_jobs > 0 else 'all available'} CPU cores for parallel processing")
@@ -1101,6 +1211,9 @@ def run_multi_parameter_analysis(
         print("\n=== PHASE 1: Running original parameter combinations ===")
     else:
         print("\nRunning parameter combinations...")
+    
+    if not age_analysis_possible:
+        print("Note: Only processing parameter combinations with age_consideration=False due to invalid age data")
 
     # Prepare data for parallel processing
     phase1_args = [
@@ -1151,123 +1264,129 @@ def run_multi_parameter_analysis(
         # Calculate additional scenarios
         n_constraints_b = len(age_data_b['in_sequence_ages'])
         age_enabled_params = [p for p in parameter_combinations if p['age_consideration']]
-        constraint_scenarios_per_param = (2 ** n_constraints_b) - 1  # Exclude empty set
-        total_additional_scenarios = len(age_enabled_params) * (constraint_scenarios_per_param - 1)  # Exclude original scenario
-       
-        print(f"- Core B has {n_constraints_b} age constraints")
-        print(f"- Processing {total_additional_scenarios} additional constraint removal scenarios")
         
-        # Get indices of only in-sequence constraints from the original data
-        in_sequence_indices = [i for i, flag in enumerate(age_data_b['in_sequence_flags']) if flag == 1]
-        n_constraints_b = len(in_sequence_indices)  # Count of in-sequence constraints only
+        # Check if there are any valid age constraints and age-enabled parameters
+        if n_constraints_b == 0 or len(age_enabled_params) == 0:
+            print("✓ Phase 2 completed: No age constraint removal scenarios to process")
+        else:
+            constraint_scenarios_per_param = (2 ** n_constraints_b) - 1  # Exclude empty set
+            total_additional_scenarios = len(age_enabled_params) * (constraint_scenarios_per_param - 1)  # Exclude original scenario
+           
+            print(f"- Core B has {n_constraints_b} age constraints")
+            print(f"- Processing {total_additional_scenarios} additional constraint removal scenarios")
+            
+            # Get indices of only in-sequence constraints from the original data
+            in_sequence_indices = [i for i, flag in enumerate(age_data_b['in_sequence_flags']) if flag == 1]
+            n_constraints_b = len(in_sequence_indices)  # Count of in-sequence constraints only
 
-        # Generate subsets from in-sequence constraint indices only
-        all_subsets = generate_constraint_subsets(n_constraints_b)
-        constraint_subsets = [subset for subset in all_subsets if 0 < len(subset) < n_constraints_b]
-        
-        # Apply max_search_per_layer limitation if specified
-        if max_search_per_layer is not None:
-            # Group constraint subsets by layer (number of remaining constraints)
-            print(f"max_search_per_layer is defined: randomly sampling up to {max_search_per_layer} scenarios per layer of search")
-            layers = {}
-            for subset in constraint_subsets:
-                layer_size = len(subset)
-                if layer_size not in layers:
-                    layers[layer_size] = []
-                layers[layer_size].append(subset)
+            # Generate subsets from in-sequence constraint indices only
+            all_subsets = generate_constraint_subsets(n_constraints_b)
+            constraint_subsets = [subset for subset in all_subsets if 0 < len(subset) < n_constraints_b]
             
-            # Sample from each layer if it exceeds max_search_per_layer
-            limited_constraint_subsets = []
-            for layer_size in sorted(layers.keys()):
-                layer_subsets = layers[layer_size]
-                if len(layer_subsets) > max_search_per_layer:
-                    # Use numpy random to avoid conflicts and ensure no repeats within layer
-                    layer_indices = np.arange(len(layer_subsets))
-                    sampled_indices = np.random.choice(layer_indices, size=max_search_per_layer, replace=False)
-                    sampled_subsets = [layer_subsets[i] for i in sampled_indices]
-                    
-                    limited_constraint_subsets.extend(sampled_subsets)
-                    print(f"- Layer {layer_size} constraints: {len(layer_subsets)} scenarios → {max_search_per_layer} sampled")
-                else:
-                    limited_constraint_subsets.extend(layer_subsets)
-                    print(f"- Layer {layer_size} constraints: {len(layer_subsets)} scenarios (all processed)")
-            
-            constraint_subsets = limited_constraint_subsets
-        
-        # Prepare data for Phase 2 parallel processing
-        phase2_args = []
-        for param_idx, params in enumerate(age_enabled_params):
-            for constraint_subset in constraint_subsets:
-                phase2_args.append((
-                    param_idx, params, constraint_subset, in_sequence_indices,
-                    log_a, log_b, md_a, md_b,
-                    all_depths_a_cat1, all_depths_b_cat1,
-                    pickeddepth_ages_a, pickeddepth_ages_b,
-                    age_data_a, age_data_b,
-                    uncertainty_method,
-                    target_quality_indices,
-                    synthetic_csv_filenames,
-                    pca_for_dependent_dtw
-                ))
-        
-        # Run Phase 2 in parallel
-        phase2_results = Parallel(n_jobs=n_jobs, verbose=0)(
-            delayed(_process_single_constraint_scenario)(*args) 
-            for args in tqdm(phase2_args, desc="Age constraint removal scenarios")
-        )
-        
-        # Process Phase 2 results and append to CSV
-        for success, scenario_id, results in phase2_results:
-            if success:
-                # Append results to CSV files
-                for quality_index in target_quality_indices:
-                    if quality_index in results:
-                        fit_params = results[quality_index]
-                        master_csv_filename = output_csv_filenames[quality_index]
+            # Apply max_search_per_layer limitation if specified
+            if max_search_per_layer is not None:
+                # Group constraint subsets by layer (number of remaining constraints)
+                print(f"max_search_per_layer is defined: randomly sampling up to {max_search_per_layer} scenarios per layer of search")
+                layers = {}
+                for subset in constraint_subsets:
+                    layer_size = len(subset)
+                    if layer_size not in layers:
+                        layers[layer_size] = []
+                    layers[layer_size].append(subset)
+                
+                # Sample from each layer if it exceeds max_search_per_layer
+                limited_constraint_subsets = []
+                for layer_size in sorted(layers.keys()):
+                    layer_subsets = layers[layer_size]
+                    if len(layer_subsets) > max_search_per_layer:
+                        # Use numpy random to avoid conflicts and ensure no repeats within layer
+                        layer_indices = np.arange(len(layer_subsets))
+                        sampled_indices = np.random.choice(layer_indices, size=max_search_per_layer, replace=False)
+                        sampled_subsets = [layer_subsets[i] for i in sampled_indices]
                         
-                        df_single = pd.DataFrame([fit_params])
-                        df_single.to_csv(master_csv_filename, mode='a', index=False, header=False)
-                        del df_single
-            else:
-                print(f"✗ Error in {scenario_id}: {results}")
+                        limited_constraint_subsets.extend(sampled_subsets)
+                        print(f"- Layer {layer_size} constraints: {len(layer_subsets)} scenarios → {max_search_per_layer} sampled")
+                    else:
+                        limited_constraint_subsets.extend(layer_subsets)
+                        print(f"- Layer {layer_size} constraints: {len(layer_subsets)} scenarios (all processed)")
+                
+                constraint_subsets = limited_constraint_subsets
+            
+            # Prepare data for Phase 2 parallel processing
+            phase2_args = []
+            for param_idx, params in enumerate(age_enabled_params):
+                for constraint_subset in constraint_subsets:
+                    phase2_args.append((
+                        param_idx, params, constraint_subset, in_sequence_indices,
+                        log_a, log_b, md_a, md_b,
+                        all_depths_a_cat1, all_depths_b_cat1,
+                        pickeddepth_ages_a, pickeddepth_ages_b,
+                        age_data_a, age_data_b,
+                        uncertainty_method,
+                        target_quality_indices,
+                        synthetic_csv_filenames,
+                        pca_for_dependent_dtw
+                    ))
+            
+            # Run Phase 2 in parallel
+            phase2_results = Parallel(n_jobs=n_jobs, verbose=0)(
+                delayed(_process_single_constraint_scenario)(*args) 
+                for args in tqdm(phase2_args, desc="Age constraint removal scenarios")
+            )
+            
+            # Process Phase 2 results and append to CSV
+            for success, scenario_id, results in phase2_results:
+                if success:
+                    # Append results to CSV files
+                    for quality_index in target_quality_indices:
+                        if quality_index in results:
+                            fit_params = results[quality_index]
+                            master_csv_filename = output_csv_filenames[quality_index]
+                            
+                            df_single = pd.DataFrame([fit_params])
+                            df_single.to_csv(master_csv_filename, mode='a', index=False, header=False)
+                            del df_single
+                else:
+                    print(f"✗ Error in {scenario_id}: {results}")
 
-        print("✓ Phase 2 completed: All age constraint removal scenarios processed")
+            print("✓ Phase 2 completed: All age constraint removal scenarios processed")
 
     # Final summary and CSV sorting
     print(f"\n✓ All processing completed")
     
-    # Sort CSV files to match original sequential order
-    print("Sorting CSV files for consistent ordering...")
-    for quality_index in target_quality_indices:
-        filename = output_csv_filenames[quality_index]
-        
-        try:
-            # Read the CSV file
-            df = pd.read_csv(filename)
+    # Sort CSV files to match original sequential order (only needed for age constraint removal scenarios)
+    if age_analysis_possible and test_age_constraint_removal:
+        print("Sorting CSV files for consistent ordering...")
+        for quality_index in target_quality_indices:
+            filename = output_csv_filenames[quality_index]
             
-            # Check if we have enough rows and the required columns
-            if len(df) >= 3 and 'core_b_constraints_count' in df.columns and 'constraint_scenario_description' in df.columns:
-                # Separate header rows (first 2 rows) from data rows (3rd row onwards)
-                header_rows = df.iloc[:2].copy()
-                data_rows = df.iloc[2:].copy()
+            try:
+                # Read the CSV file
+                df = pd.read_csv(filename)
                 
-                # Sort data rows by core_b_constraints_count, then by constraint_scenario_description
-                data_rows_sorted = data_rows.sort_values(
-                    by=['core_b_constraints_count', 'constraint_scenario_description'],
-                    ascending=[True, True]
-                )
-                
-                # Combine header and sorted data
-                df_sorted = pd.concat([header_rows, data_rows_sorted], ignore_index=True)
-                
-                # Write back to CSV
-                df_sorted.to_csv(filename, index=False)
-                print(f"✓ Sorted {filename}")
-            else:
-                print(f"⚠ Skipped sorting {filename} (insufficient rows or missing columns)")
-                
-        except Exception as e:
-            print(f"⚠ Error sorting {filename}: {str(e)}")
+                # Check if we have enough rows and the required columns
+                if len(df) >= 3 and 'core_b_constraints_count' in df.columns and 'constraint_scenario_description' in df.columns:
+                    # Separate header rows (first 2 rows) from data rows (3rd row onwards)
+                    header_rows = df.iloc[:2].copy()
+                    data_rows = df.iloc[2:].copy()
+                    
+                    # Sort data rows by core_b_constraints_count, then by constraint_scenario_description
+                    data_rows_sorted = data_rows.sort_values(
+                        by=['core_b_constraints_count', 'constraint_scenario_description'],
+                        ascending=[True, True]
+                    )
+                    
+                    # Combine header and sorted data
+                    df_sorted = pd.concat([header_rows, data_rows_sorted], ignore_index=True)
+                    
+                    # Write back to CSV
+                    df_sorted.to_csv(filename, index=False)
+                    print(f"✓ Sorted {filename}")
+                else:
+                    print(f"⚠ Skipped sorting {filename} (insufficient rows or missing columns)")
+                    
+            except Exception as e:
+                print(f"⚠ Error sorting {filename}: {str(e)}")
     
     for quality_index in target_quality_indices:
         filename = output_csv_filenames[quality_index]

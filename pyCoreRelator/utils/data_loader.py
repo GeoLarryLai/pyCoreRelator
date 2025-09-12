@@ -616,8 +616,8 @@ def load_and_prepare_quality_data(target_quality_indices, master_csv_filenames, 
     Load and prepare quality data from master and synthetic CSV files for plotting.
     
     Brief summary: This function loads quality index data from CSV files, applies filters,
-    and prepares the data for visualization by reconstructing raw data from histograms
-    and fitting distributions.
+    and prepares the data for visualization using the stored histogram and PDF data directly
+    from CSV files (similar to plot_correlation_distribution approach).
     
     Parameters:
     -----------
@@ -640,9 +640,9 @@ def load_and_prepare_quality_data(target_quality_indices, master_csv_filenames, 
         Dictionary with quality_index as keys and data dictionaries as values.
         Each data dictionary contains:
         - 'df_all_params': filtered master data DataFrame
-        - 'combined_data': reconstructed synthetic data array
-        - 'fitted_mean': fitted normal distribution mean
-        - 'fitted_std': fitted normal distribution standard deviation
+        - 'combined_data': synthetic histogram data (for display only)
+        - 'fitted_mean': fitted normal distribution mean from synthetic data
+        - 'fitted_std': fitted normal distribution standard deviation from synthetic data
         - 'max_core_a_constraints': maximum core A constraints count
         - 'max_core_b_constraints': maximum core B constraints count
         - 'unique_combinations': unique parameter combinations
@@ -722,49 +722,25 @@ def load_and_prepare_quality_data(target_quality_indices, master_csv_filenames, 
                 print(f"   Skipping {quality_index} and moving to next index...")
             continue
 
-        # Reconstruct combined data from binned data
-        all_raw_data = []
-
-        # Process each iteration to reconstruct raw data from binned data
-        for _, row in df_synthetic_params.iterrows():
-            # Extract binned data
-            bins = np.fromstring(row['bins'].strip('[]'), sep=' ') if 'bins' in row and pd.notna(row['bins']) else None
-            hist_percentages = np.fromstring(row['hist'].strip('[]'), sep=' ') if 'hist' in row and pd.notna(row['hist']) else None
-            n_points = row['n_points'] if 'n_points' in row and pd.notna(row['n_points']) else None
-            
-            if bins is not None and hist_percentages is not None and n_points is not None:
-                # IMPORTANT FIX: The hist values in CSV are not actually percentages but 
-                # raw histogram counts from the old buggy normalization code.
-                # We need to properly normalize them to reconstruct the correct data.
-                
-                # First, normalize the histogram values so they represent proper proportions
-                hist_sum = np.sum(hist_percentages)
-                if hist_sum > 0:
-                    # Normalize to get proper proportions, then scale by n_points to get counts
-                    raw_counts = (hist_percentages / hist_sum) * n_points
-                else:
-                    raw_counts = np.zeros_like(hist_percentages)
-                
-                # Reconstruct data points by sampling from each bin
-                bin_centers = (bins[:-1] + bins[1:]) / 2
-                bin_width = bins[1] - bins[0]
-                
-                for i, count in enumerate(raw_counts):
-                    if count > 0:
-                        # Generate random points within each bin
-                        n_samples = int(round(count))
-                        if n_samples > 0:
-                            # Sample uniformly within the bin
-                            bin_samples = np.random.uniform(
-                                bins[i], bins[i+1], n_samples
-                            )
-                            all_raw_data.extend(bin_samples)
-
-        # Convert to numpy array
-        combined_data = np.array(all_raw_data)
-
-        # Fit normal distribution to combined data
-        fitted_mean, fitted_std = stats.norm.fit(combined_data)
+        # Use stored histogram and distribution data directly from the first synthetic row
+        # This approach matches plot_correlation_distribution and ensures consistency
+        first_synthetic_row = df_synthetic_params.iloc[0]
+        
+        # Extract stored histogram data for display purposes
+        bins = np.fromstring(first_synthetic_row['bins'].strip('[]'), sep=' ') if 'bins' in first_synthetic_row and pd.notna(first_synthetic_row['bins']) else None
+        hist_percentages = np.fromstring(first_synthetic_row['hist'].strip('[]'), sep=' ') if 'hist' in first_synthetic_row and pd.notna(first_synthetic_row['hist']) else None
+        
+        # Use fitted distribution parameters from the CSV directly
+        fitted_mean = first_synthetic_row['mean'] if 'mean' in first_synthetic_row and pd.notna(first_synthetic_row['mean']) else 0.5
+        fitted_std = first_synthetic_row['std'] if 'std' in first_synthetic_row and pd.notna(first_synthetic_row['std']) else 0.1
+        
+        # Create a simple combined_data array for compatibility with existing code
+        # This will represent the bin centers for display
+        if bins is not None and len(bins) > 1:
+            combined_data = (bins[:-1] + bins[1:]) / 2  # Bin centers
+        else:
+            # Fallback: create synthetic data based on fitted parameters
+            combined_data = np.linspace(fitted_mean - 3*fitted_std, fitted_mean + 3*fitted_std, 100)
 
         # Get unique combinations available in the CSV
         unique_combinations = df_all_params.drop_duplicates(
