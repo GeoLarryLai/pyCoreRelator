@@ -1993,7 +1993,7 @@ def _create_histogram_and_pdf_like_plot_correlation_distribution(quality_values,
 def plot_quality_distributions(quality_data, target_quality_indices, output_figure_filenames, 
                                CORE_A, CORE_B, debug=True, return_plot_info=False,
                                plot_real_data_histogram=True, plot_age_removal_step_pdf=True,
-                               synthetic_csv_filenames=None):
+                               synthetic_csv_filenames=None, best_datum_values=None):
     """
     Plot quality index distributions comparing real data vs synthetic null hypothesis.
     
@@ -2022,6 +2022,8 @@ def plot_quality_distributions(quality_data, target_quality_indices, output_figu
         If True, plot all PDF curves including dashed lines for partially removed age constraints
     synthetic_csv_filenames : dict, optional
         Dictionary mapping quality_index to synthetic CSV filename paths for loading histogram data
+    best_datum_values : dict, optional
+        Dictionary mapping quality_index to best datum match values to plot as vertical lines
     
     Returns:
     --------
@@ -2186,7 +2188,7 @@ def plot_quality_distributions(quality_data, target_quality_indices, output_figu
                 'unique_combinations': unique_combinations,
                 'min_core_b': df_all_params['core_b_constraints_count'].min(),
                 'max_core_b': df_all_params['core_b_constraints_count'].max(),
-                'plot_limits': {  # Add missing plot_limits
+                'plot_limits': {  # Initial plot_limits - will be updated after plotting real data
                     'x_min': 0 if quality_index == 'norm_dtw' else x_fitted.min(),
                     'x_max': x_fitted.max(),
                     'y_min': 0,
@@ -2357,31 +2359,39 @@ def plot_quality_distributions(quality_data, target_quality_indices, output_figu
                     
                     # Plot histogram for special cases: no age constraints (0) or all age constraints (max)
                     if plot_real_data_histogram and (core_b_constraints == 0 or (core_a_constraints == max_core_a_constraints and core_b_constraints == max_core_b_constraints)):
-                        # Plot histogram EXACTLY like plot_correlation_distribution does
+                        # Use the same approach as plot_correlation_distribution: reconstruct raw data from CSV and use ax.hist()
                         if row_quality_values is not None and len(row_quality_values) > 0:
-                            # Use the exact same binning as plot_correlation_distribution with targeted bin sizing
-                            if row_fit_params is not None and 'bins' in row_fit_params:
-                                # Use the bins calculated by our unified function (same as plot_correlation_distribution)
-                                target_bins = row_fit_params['bins']
-                                ax.hist(row_quality_values, bins=target_bins, alpha=0.3, color=color, 
-                                       edgecolor='none', density=False, zorder=zorder-1,
-                                       weights=np.ones(len(row_quality_values)) * 100 / len(row_quality_values))
+                            # Use ax.hist() exactly like plot_correlation_distribution does
+                            # Extract the bin edges from CSV for this specific row to determine appropriate binning
+                            if 'bins' in row and pd.notna(row['bins']):
+                                try:
+                                    csv_bins = np.fromstring(row['bins'].strip('[]'), sep=' ')
+                                    # Use the same number of bins as in the original CSV data
+                                    n_bins_real = len(csv_bins) - 1
+                                except:
+                                    # Fallback to reasonable number of bins if CSV bins can't be parsed
+                                    n_bins_real = 30
                             else:
-                                # Fallback: use same binning as synthetic data for consistency
-                                if synthetic_quality_values is not None:
-                                    # Use same bins as synthetic data
-                                    ax.hist(row_quality_values, bins=no_bins, alpha=0.3, color=color, 
-                                           edgecolor='none', density=False, zorder=zorder-1,
-                                           weights=np.ones(len(row_quality_values)) * 100 / len(row_quality_values))
-                                else:
-                                    # Fallback: calculate bins using plot_correlation_distribution logic
-                                    fallback_fit_params = _create_histogram_and_pdf_like_plot_correlation_distribution(
-                                        row_quality_values, quality_index
-                                    )
-                                    if fallback_fit_params is not None and 'bins' in fallback_fit_params:
-                                        ax.hist(row_quality_values, bins=fallback_fit_params['bins'], alpha=0.3, color=color, 
-                                               edgecolor='none', density=False, zorder=zorder-1,
-                                               weights=np.ones(len(row_quality_values)) * 100 / len(row_quality_values))
+                                n_bins_real = 30
+                            
+                            # Plot histogram EXACTLY like plot_correlation_distribution
+                            ax.hist(row_quality_values, bins=n_bins_real, alpha=0.3, color=color, 
+                                   edgecolor='none', density=False, zorder=zorder-1,
+                                   weights=np.ones(len(row_quality_values)) * 100 / len(row_quality_values))
+
+        # Update plot limits to include all plotted data (both synthetic and real data)
+        # Get current axis limits after all plotting is done
+        current_xlim = ax.get_xlim()
+        current_ylim = ax.get_ylim()
+        
+        # Update plot_info_dict with the actual plot limits that include all data
+        if return_plot_info:
+            plot_info_dict[quality_index]['plot_limits'].update({
+                'x_min': current_xlim[0],
+                'x_max': current_xlim[1],
+                'y_min': current_ylim[0], 
+                'y_max': current_ylim[1]
+            })
 
         # Perform statistical tests for max constraint cases only
         solid_stats_by_combo = {}
@@ -2616,7 +2626,7 @@ def plot_quality_distributions(quality_data, target_quality_indices, output_figu
         # Add synthetic group
         if synthetic_handles:
             legend_elements.append(Line2D([0], [0], color='white', linewidth=0, alpha=0))
-            legend_labels.append('Synthetic Stratigraphy')
+            legend_labels.append('Synthetic Data Correlations')
             legend_elements.extend(synthetic_handles)
             legend_labels.extend(synthetic_labels)
             legend_elements.append(Line2D([0], [0], color='white', linewidth=0, alpha=0))
@@ -2625,7 +2635,7 @@ def plot_quality_distributions(quality_data, target_quality_indices, output_figu
         # Add constraint level group
         if constraint_handles:
             legend_elements.append(Line2D([0], [0], color='white', linewidth=0, alpha=0))
-            legend_labels.append('Real Stratigraphy')
+            legend_labels.append('Real Data Correlations')
             
             # Filter to only show constraint 0 and max constraint
             filtered_constraint_pairs = []
@@ -2659,10 +2669,25 @@ def plot_quality_distributions(quality_data, target_quality_indices, output_figu
                     constraint_darkened_hsv = (constraint_color_hsv[0], constraint_color_hsv[1], constraint_color_hsv[2] * 0.9)
                     constraint_darkened = colors.hsv_to_rgb(constraint_darkened_hsv)
                     
+                    # Get sample count for this constraint level
+                    # Match the actual histogram plotting logic from line 2361
                     if constraint_count == 0:
-                        histogram_label = f'Histogram w/o {CORE_B}\'s age constraints'
+                        # For no age constraints case, find any row with core_b_constraints_count == 0
+                        constraint_data = df_all_params[df_all_params['core_b_constraints_count'] == 0]
                     else:
-                        histogram_label = f'Histogram w/ all {CORE_B}\'s age constraints'
+                        # For all age constraints case, find max constraints for both cores
+                        constraint_data = df_all_params[
+                            (df_all_params['core_a_constraints_count'] == max_core_a_constraints) &
+                            (df_all_params['core_b_constraints_count'] == max_core_b_constraints)
+                        ]
+                    n_points = constraint_data['n_points'].iloc[0] if not constraint_data.empty else 0
+                    
+                    if constraint_count == 0:
+                        histogram_label = f'Histogram (n = {n_points}): No age constraints'
+                        pdf_label = f'PDF (n = {n_points}): No age constraints'
+                    else:
+                        histogram_label = f'Histogram (n = {n_points}): With age constraints'
+                        pdf_label = f'PDF (n = {n_points}): With age constraints'
                     
                     legend_elements.append(patches.Rectangle((0, 0), 1, 1, facecolor=constraint_darkened, alpha=0.3))
                     legend_labels.append(histogram_label)
@@ -2672,7 +2697,25 @@ def plot_quality_distributions(quality_data, target_quality_indices, output_figu
                     legend_labels.append(pdf_label)
             else:
                 # Just add PDF entries when no histograms are plotted
-                for handle, pdf_label, constraint_count in filtered_constraint_pairs:
+                for handle, old_pdf_label, constraint_count in filtered_constraint_pairs:
+                    # Get sample count for this constraint level
+                    # Match the actual histogram plotting logic from line 2361
+                    if constraint_count == 0:
+                        # For no age constraints case, find any row with core_b_constraints_count == 0
+                        constraint_data = df_all_params[df_all_params['core_b_constraints_count'] == 0]
+                    else:
+                        # For all age constraints case, find max constraints for both cores
+                        constraint_data = df_all_params[
+                            (df_all_params['core_a_constraints_count'] == max_core_a_constraints) &
+                            (df_all_params['core_b_constraints_count'] == max_core_b_constraints)
+                        ]
+                    n_points = constraint_data['n_points'].iloc[0] if not constraint_data.empty else 0
+                    
+                    if constraint_count == 0:
+                        pdf_label = f'PDF (n = {n_points}): No age constraints'
+                    else:
+                        pdf_label = f'PDF (n = {n_points}): With age constraints'
+                        
                     legend_elements.append(handle)
                     legend_labels.append(pdf_label)
             
@@ -2695,13 +2738,15 @@ def plot_quality_distributions(quality_data, target_quality_indices, output_figu
                 legend_labels.append('')
             # For plot_real_data_histogram=True and plot_age_removal_step_pdf=False, no empty lines
 
+        # Best datum match is shown as text annotation, not in legend
+
         # Apply legend with grouping
         legend = ax.legend(legend_elements, legend_labels, bbox_to_anchor=(1.02, 1), loc='upper left')
 
         # Style the group title labels
         for i, label in enumerate(legend_labels):
-            if (label.startswith('Synthetic Stratigraphy') or 
-                label.startswith('Real Stratigraphy') or 
+            if (label.startswith('Synthetic Data Correlations') or 
+                label.startswith('Real Data Correlations') or 
                 label.startswith('# of')):
                 legend.get_texts()[i].set_weight('bold')
                 legend.get_texts()[i].set_fontsize(10)
@@ -2782,24 +2827,53 @@ def plot_quality_distributions(quality_data, target_quality_indices, output_figu
                 'y_max': ax.get_ylim()[1]
             }
 
+        # Add best datum match vertical line if available
+        if best_datum_values and quality_index in best_datum_values:
+            best_value = best_datum_values[quality_index]
+            if pd.notna(best_value):  # Check if value is not NaN
+                # Plot line in dark green with long dash and highest zorder
+                ax.axvline(best_value, color='darkgreen', linestyle='--', linewidth=2, zorder=100)
+                
+                # Add text annotation next to the line
+                ax_xlim = ax.get_xlim()
+                ax_ylim = ax.get_ylim()
+                text_y = ax_ylim[0] + 0.90 * (ax_ylim[1] - ax_ylim[0])  # 90% up from bottom (higher position)
+                
+                # Position text based on arrow direction
+                if quality_index == 'norm_dtw':
+                    # For left-pointing arrows, put text on left side of line
+                    text_x = best_value - 0.01 * (ax_xlim[1] - ax_xlim[0])
+                    ha = 'right'
+                else:
+                    # For right-pointing arrows, put text on right side of line
+                    text_x = best_value + 0.01 * (ax_xlim[1] - ax_xlim[0])
+                    ha = 'left'
+                
+                ax.text(text_x, text_y, 
+                       f'Best\nDatum\nMatch\n({best_value:.3f})', 
+                       color='darkgreen', fontweight='bold', fontsize='x-small',
+                       ha=ha, va='center', zorder=101)
+        else:
+            print("⚠️  WARNING: No valid correlatable datums to be marked.")
+
         # Add horizontal black arrow with 'Better Correlation Quality' text
         ax_xlim = ax.get_xlim()
         ax_ylim = ax.get_ylim()
         
-        # Position arrow in upper left of the plot area
+        # Position arrow in upper area of the plot
         arrow_y = ax_ylim[0] + 0.92 * (ax_ylim[1] - ax_ylim[0])  # 92% up from bottom
         
         # Determine arrow direction and position based on quality index
         if quality_index == 'norm_dtw':
-            # For norm_dtw, lower values are better (arrow points left)
-            arrow_start_x = ax_xlim[0] + 0.22 * (ax_xlim[1] - ax_xlim[0])  # Start 22% from left
-            arrow_end_x = ax_xlim[0] + 0.05 * (ax_xlim[1] - ax_xlim[0])    # End 5% from left  
-            text_x = ax_xlim[0] + 0.15 * (ax_xlim[1] - ax_xlim[0])         # Text centered under arrow
+            # For norm_dtw, lower values are better (arrow points left) - position in upper right, moved slightly left
+            arrow_start_x = ax_xlim[0] + 0.94 * (ax_xlim[1] - ax_xlim[0])  # Start 94% from left (moved left)
+            arrow_end_x = ax_xlim[0] + 0.77 * (ax_xlim[1] - ax_xlim[0])    # End 77% from left  
+            text_x = ax_xlim[0] + 0.855 * (ax_xlim[1] - ax_xlim[0])        # Text centered between 77% and 94%
         else:
-            # For corr_coef and other indices, higher values are better (arrow points right)
-            arrow_start_x = ax_xlim[0] + 0.05 * (ax_xlim[1] - ax_xlim[0])  # Start 5% from left
-            arrow_end_x = ax_xlim[0] + 0.22 * (ax_xlim[1] - ax_xlim[0])    # End 22% from left
-            text_x = ax_xlim[0] + 0.15 * (ax_xlim[1] - ax_xlim[0])         # Text centered under arrow
+            # For corr_coef and other indices, higher values are better (arrow points right) - position in upper left
+            arrow_start_x = ax_xlim[0] + 0.07 * (ax_xlim[1] - ax_xlim[0])  # Start 7% from left
+            arrow_end_x = ax_xlim[0] + 0.24 * (ax_xlim[1] - ax_xlim[0])    # End 24% from left
+            text_x = ax_xlim[0] + 0.155 * (ax_xlim[1] - ax_xlim[0])        # Text centered under arrow
             
         # Add horizontal arrow
         ax.annotate('', 
@@ -3505,7 +3579,8 @@ def plot_quality_comparison_t_statistics(target_quality_indices, master_csv_file
                                         synthetic_csv_filenames, CORE_A, CORE_B, 
                                         mute_mode=False, save_fig=True, output_figure_filenames=None,
                                         save_gif=False, output_gif_filenames=None, max_frames=50,
-                                        plot_real_data_histogram=False, plot_age_removal_step_pdf=True):
+                                        plot_real_data_histogram=False, plot_age_removal_step_pdf=True,
+                                        show_best_datum_match=True, sequential_mappings_csv=None):
     """
     Plot quality index distributions comparing real data vs synthetic null hypothesis
     AND t-statistics vs age constraints using pre-calculated statistics from CSV files.
@@ -3549,6 +3624,15 @@ def plot_quality_comparison_t_statistics(target_quality_indices, master_csv_file
     plot_age_removal_step_pdf : bool, default True
         If True, plot all PDF curves including dashed lines for partially removed age constraints
         and show the legend color bar. If False, skip dashed PDF curves and hide color bar.
+    show_best_datum_match : bool, default True
+        If True, plot a vertical line showing the best datum match value from sequential_mappings_csv
+        where 'Ranking_datums' is 1. If False, skip plotting this vertical line.
+    sequential_mappings_csv : str or dict, optional
+        Path to CSV file(s) containing sequential mappings with 'Ranking_datums' column.
+        Can be either:
+        - str: Single CSV file path containing all quality indices as columns
+        - dict: Dictionary mapping quality_index to CSV file paths for per-index files
+        Only used when show_best_datum_match=True.
         
     Returns:
     --------
@@ -3581,6 +3665,81 @@ def plot_quality_comparison_t_statistics(target_quality_indices, master_csv_file
         target_quality_indices, modified_master_csv_filenames, synthetic_csv_filenames, 
         CORE_A, CORE_B, mute_mode
     )
+    
+    # Load sequential mappings data for best datum match if requested
+    best_datum_values = {}
+    if show_best_datum_match and sequential_mappings_csv is not None:
+        # Handle both dictionary (per quality index) and string (single file) inputs
+        if isinstance(sequential_mappings_csv, dict):
+            # Dictionary format: different CSV files for different quality indices
+            for quality_index in target_quality_indices:
+                if quality_index in sequential_mappings_csv:
+                    csv_file = sequential_mappings_csv[quality_index]
+                    try:
+                        if os.path.exists(csv_file):
+                            df_sequential = pd.read_csv(csv_file)
+                            
+                            # Check if 'Ranking_datums' column exists
+                            if 'Ranking_datums' in df_sequential.columns:
+                                # Find row where Ranking_datums is 1
+                                best_datum_row = df_sequential[df_sequential['Ranking_datums'] == 1]
+                                
+                                if not best_datum_row.empty:
+                                    # Extract quality index values for the best datum match
+                                    if quality_index in best_datum_row.columns:
+                                        best_datum_values[quality_index] = best_datum_row[quality_index].iloc[0]
+                                    elif quality_index == 'corr_coef' and 'pearson_r' in best_datum_row.columns:
+                                        # Handle alternative column name for correlation coefficient
+                                        best_datum_values[quality_index] = best_datum_row['pearson_r'].iloc[0]
+                                else:
+                                    if not mute_mode:
+                                        print(f"⚠️  WARNING: No row with Ranking_datums = 1 found in {csv_file} for {quality_index}.")
+                            else:
+                                if not mute_mode:
+                                    print(f"⚠️  WARNING: 'Ranking_datums' column not found in {csv_file} for {quality_index}.")
+                        else:
+                            if not mute_mode:
+                                print(f"⚠️  WARNING: Sequential mappings CSV file not found for {quality_index}: {csv_file}")
+                    except Exception as e:
+                        if not mute_mode:
+                            print(f"⚠️  WARNING: Error loading sequential mappings CSV for {quality_index}: {str(e)}")
+                else:
+                    if not mute_mode:
+                        print(f"⚠️  WARNING: No sequential mappings CSV specified for quality index: {quality_index}")
+        else:
+            # String format: single CSV file for all quality indices
+            try:
+                if os.path.exists(sequential_mappings_csv):
+                    df_sequential = pd.read_csv(sequential_mappings_csv)
+                    
+                    # Check if 'Ranking_datums' column exists
+                    if 'Ranking_datums' in df_sequential.columns:
+                        # Find row where Ranking_datums is 1
+                        best_datum_row = df_sequential[df_sequential['Ranking_datums'] == 1]
+                        
+                        if not best_datum_row.empty:
+                            # Extract quality index values for the best datum match
+                            for quality_index in target_quality_indices:
+                                if quality_index in best_datum_row.columns:
+                                    best_datum_values[quality_index] = best_datum_row[quality_index].iloc[0]
+                                elif quality_index == 'corr_coef' and 'pearson_r' in best_datum_row.columns:
+                                    # Handle alternative column name for correlation coefficient
+                                    best_datum_values[quality_index] = best_datum_row['pearson_r'].iloc[0]
+                        else:
+                            if not mute_mode:
+                                print("⚠️  WARNING: No row with Ranking_datums = 1 found in sequential mappings CSV.")
+                    else:
+                        if not mute_mode:
+                            print("⚠️  WARNING: 'Ranking_datums' column not found in sequential mappings CSV.")
+                else:
+                    if not mute_mode:
+                        print(f"⚠️  WARNING: Sequential mappings CSV file not found: {sequential_mappings_csv}")
+            except Exception as e:
+                if not mute_mode:
+                    print(f"⚠️  WARNING: Error loading sequential mappings CSV: {str(e)}")
+    elif show_best_datum_match and sequential_mappings_csv is None:
+        if not mute_mode:
+            print("⚠️  WARNING: show_best_datum_match=True but sequential_mappings_csv is None.")
     
     # Check for valid age constraints across all quality indices
     has_valid_age_constraints = False
@@ -3654,7 +3813,8 @@ def plot_quality_comparison_t_statistics(target_quality_indices, master_csv_file
                 quality_data, [quality_index], output_figure_filenames if save_fig else {}, 
                 CORE_A, CORE_B, debug=mute_mode, return_plot_info=True,
                 plot_real_data_histogram=plot_real_data_histogram, plot_age_removal_step_pdf=plot_age_removal_step_pdf,
-                synthetic_csv_filenames=synthetic_csv_filenames
+                synthetic_csv_filenames=synthetic_csv_filenames,
+                best_datum_values=best_datum_values
             )
             
             # Only create t-statistics plots if valid age constraints exist
@@ -3668,7 +3828,7 @@ def plot_quality_comparison_t_statistics(target_quality_indices, master_csv_file
             distribution_gif_filename = output_gif_filenames[quality_index]
             
             # Create distribution gif
-            _create_distribution_gif(distribution_plot_info[quality_index], distribution_gif_filename, mute_mode, max_frames)
+            _create_distribution_gif(distribution_plot_info[quality_index], distribution_gif_filename, mute_mode, max_frames, best_datum_values)
 
             # Create t-statistics gif only if valid age constraints exist
             if has_valid_age_constraints:
@@ -3684,7 +3844,8 @@ def plot_quality_comparison_t_statistics(target_quality_indices, master_csv_file
                 quality_data, [quality_index], output_figure_filenames if save_fig else {}, 
                 CORE_A, CORE_B, debug=mute_mode, return_plot_info=False,
                 plot_real_data_histogram=plot_real_data_histogram, plot_age_removal_step_pdf=plot_age_removal_step_pdf,
-                synthetic_csv_filenames=synthetic_csv_filenames
+                synthetic_csv_filenames=synthetic_csv_filenames,
+                best_datum_values=best_datum_values
             )
             
             # Only create t-statistics plots if valid age constraints exist
@@ -3712,7 +3873,7 @@ def plot_quality_comparison_t_statistics(target_quality_indices, master_csv_file
     # Skip verbose completion message when mute_mode=True
 
 
-def _create_distribution_gif(plot_info, gif_filename, mute_mode, max_frames=50):
+def _create_distribution_gif(plot_info, gif_filename, mute_mode, max_frames=50, best_datum_values=None):
     """
     Create distribution comparison gif using plot info from plot_quality_distributions.
     """
@@ -3745,7 +3906,7 @@ def _create_distribution_gif(plot_info, gif_filename, mute_mode, max_frames=50):
                 ax.set_xlim(0, 1.0)
             else:
                 ax.set_xlim(plot_info['plot_limits']['x_min'], plot_info['plot_limits']['x_max'])
-            ax.set_ylim(0, plot_info['plot_limits']['y_max'])
+                ax.set_ylim(plot_info['plot_limits']['y_min'], plot_info['plot_limits']['y_max'])
         # Get display name from plot_info or create it
         display_name = plot_info.get('display_name', quality_index)
         if not display_name or display_name == quality_index:
@@ -3815,6 +3976,8 @@ def _create_distribution_gif(plot_info, gif_filename, mute_mode, max_frames=50):
         
         ax.grid(True, alpha=0.3)
         
+        # Don't add best datum match line in initial frame - it will be added as final frame
+        
         # Add horizontal black arrow with 'Better Correlation Quality' text (same as static plot)
         ax_xlim = ax.get_xlim()
         ax_ylim = ax.get_ylim()
@@ -3825,15 +3988,15 @@ def _create_distribution_gif(plot_info, gif_filename, mute_mode, max_frames=50):
         # Determine arrow direction and position based on quality index
         quality_index = plot_info['quality_index']
         if quality_index == 'norm_dtw':
-            # For norm_dtw, lower values are better (arrow points left)
-            arrow_start_x = ax_xlim[0] + 0.22 * (ax_xlim[1] - ax_xlim[0])  # Start 22% from left
-            arrow_end_x = ax_xlim[0] + 0.05 * (ax_xlim[1] - ax_xlim[0])    # End 5% from left  
-            text_x = ax_xlim[0] + 0.15 * (ax_xlim[1] - ax_xlim[0])         # Text centered under arrow
+            # For norm_dtw, lower values are better (arrow points left) - position in upper right
+            arrow_start_x = ax_xlim[0] + 0.99 * (ax_xlim[1] - ax_xlim[0])  # Start 99% from left (far right)
+            arrow_end_x = ax_xlim[0] + 0.82 * (ax_xlim[1] - ax_xlim[0])    # End 82% from left  
+            text_x = ax_xlim[0] + 0.905 * (ax_xlim[1] - ax_xlim[0])        # Text centered between 82% and 99%
         else:
-            # For corr_coef and other indices, higher values are better (arrow points right)
-            arrow_start_x = ax_xlim[0] + 0.05 * (ax_xlim[1] - ax_xlim[0])  # Start 5% from left
-            arrow_end_x = ax_xlim[0] + 0.22 * (ax_xlim[1] - ax_xlim[0])    # End 22% from left
-            text_x = ax_xlim[0] + 0.15 * (ax_xlim[1] - ax_xlim[0])         # Text centered under arrow
+            # For corr_coef and other indices, higher values are better (arrow points right) - position in upper left
+            arrow_start_x = ax_xlim[0] + 0.07 * (ax_xlim[1] - ax_xlim[0])  # Start 7% from left
+            arrow_end_x = ax_xlim[0] + 0.24 * (ax_xlim[1] - ax_xlim[0])    # End 24% from left
+            text_x = ax_xlim[0] + 0.155 * (ax_xlim[1] - ax_xlim[0])        # Text centered under arrow
             
         # Add horizontal arrow
         ax.annotate('', 
@@ -3930,7 +4093,7 @@ def _create_distribution_gif(plot_info, gif_filename, mute_mode, max_frames=50):
                         ax.set_xlim(0, 1.0)
                     else:
                         ax.set_xlim(plot_info['plot_limits']['x_min'], plot_info['plot_limits']['x_max'])
-                    ax.set_ylim(0, plot_info['plot_limits']['y_max'])
+                        ax.set_ylim(plot_info['plot_limits']['y_min'], plot_info['plot_limits']['y_max'])
                 ax.set_xlabel(f'{display_name}')
                 ax.set_ylabel('Percentage (%)')
                 ax.set_title(f'{display_name} Distribution Comparison\n{plot_info["CORE_A"]} vs {plot_info["CORE_B"]}')  # Same title as PNG
@@ -3990,6 +4153,8 @@ def _create_distribution_gif(plot_info, gif_filename, mute_mode, max_frames=50):
                 
                 ax.grid(True, alpha=0.3)
                 
+                # Don't add best datum match line in progressive frames - it will be added as final frame
+                
                 # Add horizontal black arrow with 'Better Correlation Quality' text (same as static plot)
                 ax_xlim = ax.get_xlim()
                 ax_ylim = ax.get_ylim()
@@ -4000,15 +4165,15 @@ def _create_distribution_gif(plot_info, gif_filename, mute_mode, max_frames=50):
                 # Determine arrow direction and position based on quality index
                 quality_index = plot_info['quality_index']
                 if quality_index == 'norm_dtw':
-                    # For norm_dtw, lower values are better (arrow points left)
-                    arrow_start_x = ax_xlim[0] + 0.22 * (ax_xlim[1] - ax_xlim[0])  # Start 22% from left
-                    arrow_end_x = ax_xlim[0] + 0.05 * (ax_xlim[1] - ax_xlim[0])    # End 5% from left  
-                    text_x = ax_xlim[0] + 0.15 * (ax_xlim[1] - ax_xlim[0])         # Text centered under arrow
+                    # For norm_dtw, lower values are better (arrow points left) - position in upper right, moved slightly left
+                    arrow_start_x = ax_xlim[0] + 0.94 * (ax_xlim[1] - ax_xlim[0])  # Start 94% from left (moved left)
+                    arrow_end_x = ax_xlim[0] + 0.77 * (ax_xlim[1] - ax_xlim[0])    # End 77% from left  
+                    text_x = ax_xlim[0] + 0.855 * (ax_xlim[1] - ax_xlim[0])        # Text centered between 77% and 94%
                 else:
-                    # For corr_coef and other indices, higher values are better (arrow points right)
-                    arrow_start_x = ax_xlim[0] + 0.05 * (ax_xlim[1] - ax_xlim[0])  # Start 5% from left
-                    arrow_end_x = ax_xlim[0] + 0.22 * (ax_xlim[1] - ax_xlim[0])    # End 22% from left
-                    text_x = ax_xlim[0] + 0.15 * (ax_xlim[1] - ax_xlim[0])         # Text centered under arrow
+                    # For corr_coef and other indices, higher values are better (arrow points right) - position in upper left
+                    arrow_start_x = ax_xlim[0] + 0.07 * (ax_xlim[1] - ax_xlim[0])  # Start 7% from left
+                    arrow_end_x = ax_xlim[0] + 0.24 * (ax_xlim[1] - ax_xlim[0])    # End 24% from left
+                    text_x = ax_xlim[0] + 0.155 * (ax_xlim[1] - ax_xlim[0])        # Text centered under arrow
                     
                 # Add horizontal arrow
                 ax.annotate('', 
@@ -4032,6 +4197,178 @@ def _create_distribution_gif(plot_info, gif_filename, mute_mode, max_frames=50):
                 
                 # Update progress bar
                 pbar.update(1)
+        
+        # Create additional final frame with best datum match line if available
+        if best_datum_values and plot_info['quality_index'] in best_datum_values:
+            best_value = best_datum_values[plot_info['quality_index']]
+            if pd.notna(best_value):  # Check if value is not NaN
+                # Create final frame with all curves plus best datum match line
+                fig, ax = plt.subplots(figsize=(10, 4.5))  # Match static plot size
+            
+                # Plot null hypothesis first (same as static plot)
+                ax.hist(plot_info['combined_data'], bins=plot_info['n_bins'], alpha=0.3, color='gray', 
+                        density=False,
+                        weights=np.ones(len(plot_info['combined_data'])) * 100 / len(plot_info['combined_data']), label='Synthetic data histogram')
+                ax.plot(plot_info['x_synth'], plot_info['y_synth'], color='gray', linestyle=':', linewidth=2, alpha=0.8, label='Synthetic data PDF (Null Hypothesis)')
+                
+                # Plot ALL curves (same styling as static plot)
+                plotted_constraint_levels = set()
+                
+                for curve in individual_curves:
+                    # Use the exact same styling as stored from static plot
+                    label = curve['label']
+                    constraint_count = curve['constraint_count']
+                    
+                    # Only show label if this constraint level hasn't been labeled yet
+                    if constraint_count in plotted_constraint_levels:
+                        label = None
+                    else:
+                        plotted_constraint_levels.add(constraint_count)
+                    
+                    ax.plot(curve['x_range'], curve['y_values'], 
+                           color=curve['color'], 
+                           linestyle=curve['linestyle'],
+                           linewidth=curve['linewidth'], 
+                           alpha=curve['alpha'],
+                           zorder=curve['zorder'],
+                           label=label)
+                
+                # Add best datum match vertical line in dark green with long dash and highest zorder
+                ax.axvline(best_value, color='darkgreen', linestyle='--', linewidth=2, zorder=100)
+                
+                # Add text annotation next to the line
+                ax_xlim = ax.get_xlim()
+                ax_ylim = ax.get_ylim()
+                text_y = ax_ylim[0] + 0.90 * (ax_ylim[1] - ax_ylim[0])  # 90% up from bottom (higher position)
+                
+                # Position text based on arrow direction
+                quality_index = plot_info['quality_index']
+                if quality_index == 'norm_dtw':
+                    # For left-pointing arrows, put text on left side of line
+                    text_x = best_value - 0.01 * (ax_xlim[1] - ax_xlim[0])
+                    ha = 'right'
+                else:
+                    # For right-pointing arrows, put text on right side of line
+                    text_x = best_value + 0.01 * (ax_xlim[1] - ax_xlim[0])
+                    ha = 'left'
+                
+                ax.text(text_x, text_y, 
+                       f'Best\nDatum\nMatch\n({best_value:.3f})', 
+                       color='darkgreen', fontweight='bold', fontsize='x-small',
+                       ha=ha, va='center', zorder=101)
+                
+                # Apply exact same styling as static plot (fixed axis ranges)
+                quality_index = plot_info['quality_index']
+                if 'actual_plot_limits' in plot_info:
+                    # Use actual axis limits from static plot
+                    ax.set_xlim(plot_info['actual_plot_limits']['x_min'], plot_info['actual_plot_limits']['x_max'])
+                    ax.set_ylim(plot_info['actual_plot_limits']['y_min'], plot_info['actual_plot_limits']['y_max'])
+                else:
+                    # Fallback to calculated limits
+                    if quality_index == 'corr_coef':
+                        ax.set_xlim(0, 1.0)
+                    else:
+                        ax.set_xlim(plot_info['plot_limits']['x_min'], plot_info['plot_limits']['x_max'])
+                        ax.set_ylim(plot_info['plot_limits']['y_min'], plot_info['plot_limits']['y_max'])
+                ax.set_xlabel(f'{display_name}')
+                ax.set_ylabel('Percentage (%)')
+                ax.set_title(f'{display_name} Distribution Comparison\n{plot_info["CORE_A"]} vs {plot_info["CORE_B"]}')  # Same title as PNG
+                
+                # Create complete legend (same as static plot, best datum match shown as text)
+                if plot_info['legend_elements'] and plot_info['legend_labels']:
+                    legend = ax.legend(plot_info['legend_elements'], plot_info['legend_labels'], bbox_to_anchor=(1.02, 1), loc='upper left')
+                    
+                    # Style the group title labels (same as static plot)
+                    for i, label in enumerate(plot_info['legend_labels']):
+                        if (label.startswith('Synthetic Data Correlations') or 
+                            label.startswith('Real Data Correlations') or 
+                            label.startswith('# of')):
+                            legend.get_texts()[i].set_weight('bold')
+                            legend.get_texts()[i].set_fontsize(10)
+                            legend.get_texts()[i].set_ha('left')
+                        else:
+                            # Make all other legend text smaller too
+                            legend.get_texts()[i].set_fontsize(9)
+                            
+                    # Add colorbar for age constraint levels (same as static plot)
+                    min_core_b = plot_info['min_core_b']
+                    max_core_b = plot_info['max_core_b']
+                    cmap = cm.get_cmap('Spectral_r')
+                    norm = colors.Normalize(vmin=min_core_b, vmax=max_core_b)
+                    
+                    # Position colorbar directly under the legend box
+                    # First render the plot to get accurate legend positioning
+                    plt.draw()
+                    
+                    # Get legend position in figure coordinates
+                    legend_bbox = legend.get_window_extent()
+                    legend_bbox_axes = legend_bbox.transformed(fig.transFigure.inverted())
+                    
+                    # Position colorbar directly below legend
+                    colorbar_height = 0.025
+                    colorbar_width = legend_bbox_axes.width * 0.9  # Slightly smaller than legend
+                    colorbar_x = legend_bbox_axes.x0 - legend_bbox_axes.width * 0.77  # Center it
+                    colorbar_y = legend_bbox_axes.y0 - colorbar_height + 0.13  # Below legend with gap
+                    
+                    cax = fig.add_axes([colorbar_x, colorbar_y, colorbar_width, colorbar_height])
+                    
+                    # Create a colorbar with the same normalization as the curves
+                    sm = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
+                    sm.set_array([])
+                    
+                    cbar = plt.colorbar(sm, cax=cax, orientation='horizontal')
+                    cbar.set_label(f'# of {plot_info["CORE_B"]} Age Constraints', fontsize=9, fontweight='bold')
+                    
+                    # Set ticks to show actual constraint levels
+                    unique_constraints = plot_info['unique_constraints']
+                    cbar.set_ticks([min_core_b + (max_core_b - min_core_b) * i / (len(unique_constraints) - 1) 
+                                   for i in range(len(unique_constraints))])
+                    cbar.set_ticklabels([str(level) for level in sorted(unique_constraints)])
+                    cbar.ax.tick_params(labelsize=8)
+                else:
+                    ax.legend(bbox_to_anchor=(1.02, 1), loc='upper left')
+                
+                ax.grid(True, alpha=0.3)
+                
+                # Add horizontal black arrow with 'Better Correlation Quality' text (same as static plot)
+                ax_xlim = ax.get_xlim()
+                ax_ylim = ax.get_ylim()
+                
+                # Position arrow in upper left of the plot area
+                arrow_y = ax_ylim[0] + 0.92 * (ax_ylim[1] - ax_ylim[0])  # 92% up from bottom
+                
+                # Determine arrow direction and position based on quality index
+                quality_index = plot_info['quality_index']
+                if quality_index == 'norm_dtw':
+                    # For norm_dtw, lower values are better (arrow points left) - position in upper right, moved slightly left
+                    arrow_start_x = ax_xlim[0] + 0.94 * (ax_xlim[1] - ax_xlim[0])  # Start 94% from left (moved left)
+                    arrow_end_x = ax_xlim[0] + 0.77 * (ax_xlim[1] - ax_xlim[0])    # End 77% from left  
+                    text_x = ax_xlim[0] + 0.855 * (ax_xlim[1] - ax_xlim[0])        # Text centered between 77% and 94%
+                else:
+                    # For corr_coef and other indices, higher values are better (arrow points right) - position in upper left
+                    arrow_start_x = ax_xlim[0] + 0.07 * (ax_xlim[1] - ax_xlim[0])  # Start 7% from left
+                    arrow_end_x = ax_xlim[0] + 0.24 * (ax_xlim[1] - ax_xlim[0])    # End 24% from left
+                    text_x = ax_xlim[0] + 0.155 * (ax_xlim[1] - ax_xlim[0])        # Text centered under arrow
+                    
+                # Add horizontal arrow
+                ax.annotate('', 
+                           xy=(arrow_end_x, arrow_y), 
+                           xytext=(arrow_start_x, arrow_y),
+                           arrowprops=dict(arrowstyle='->', color='black', lw=2),
+                           zorder=5)
+                
+                # Add text under the arrow
+                text_y = arrow_y - 0.03 * (ax_ylim[1] - ax_ylim[0])  # 3% below arrow
+                ax.text(text_x, text_y, 'Better Correlation Quality',
+                       fontsize=8, ha='center', va='top',
+                       color='black', zorder=4)
+                
+                # Save final frame with best datum match
+                final_frame_file = os.path.join(temp_dir, f'frame_final.png')
+                plt.tight_layout()
+                plt.savefig(final_frame_file, dpi=100, bbox_inches='tight', facecolor='white')
+                plt.close()
+                frame_files.append(final_frame_file)
         
         # Create gif from frames
         if frame_files:
