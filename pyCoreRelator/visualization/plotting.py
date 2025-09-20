@@ -1675,14 +1675,14 @@ def plot_correlation_distribution(csv_file, target_mapping_id=None, quality_inde
     
 def process_single_row_parallel(row_data, combined_data, debug=False):
     """
-    Helper function to process a single row for t-statistic and Cohen's d calculation in parallel.
+    Helper function to process a single row using pre-calculated t-statistic and Cohen's d from CSV.
     
     Parameters:
     -----------
     row_data : tuple
         (idx, row, age_consideration, core_b_constraints_count)
     combined_data : array-like
-        Reference data for t-test calculation
+        Reference data (not used anymore, kept for compatibility)
     debug : bool
         Whether to print debug information
     
@@ -1698,53 +1698,26 @@ def process_single_row_parallel(row_data, combined_data, debug=False):
     else:
         x_value = 0
     
-    # Calculate t-statistic and Cohen's d for this row
-    has_histogram = ('bins' in row and 'hist' in row and 'n_points' in row and 
-                   pd.notna(row['bins']) and pd.notna(row['hist']) and pd.notna(row['n_points']))
-    
-    if has_histogram:
-        try:
-            # Reconstruct raw data from histogram
-            bins = np.fromstring(row['bins'].strip('[]'), sep=' ')
-            hist_percentages = np.fromstring(row['hist'].strip('[]'), sep=' ')
-            n_points = row['n_points']
+    # Use pre-calculated t-statistic and Cohen's d from CSV columns
+    try:
+        # Get pre-calculated values from CSV columns
+        t_stat = row.get('t_statistic', 0.0)
+        cohens_d_value = row.get('cohens_d', 0.0)
+        effect_size_category = row.get('effect_size_category', 'negligible')
+        
+        # Handle NaN values
+        if pd.isna(t_stat):
+            t_stat = 0.0
+        if pd.isna(cohens_d_value):
+            cohens_d_value = 0.0
+        if pd.isna(effect_size_category) or effect_size_category == '':
+            effect_size_category = 'negligible'
             
-            raw_data_points = reconstruct_raw_data_from_histogram(bins, hist_percentages, n_points)
-            
-            # Calculate t-statistic and Cohen's d
-            if len(raw_data_points) > 1:
-                t_stat, _ = stats.ttest_ind(raw_data_points, combined_data)
-                # Calculate Cohen's d
-                cohens_d_value = cohens_d(raw_data_points, combined_data)
-            elif len(raw_data_points) == 1:
-                # Single point: use z-score as approximation for t-stat
-                combined_mean = np.mean(combined_data)
-                combined_std = np.std(combined_data)
-                t_stat = (raw_data_points[0] - combined_mean) / combined_std if combined_std > 0 else 0.0
-                # Calculate Cohen's d for single point vs distribution
-                cohens_d_value = cohens_d(raw_data_points, combined_data)
-            else:
-                t_stat = 0.0  # No data
-                cohens_d_value = 0.0
-            
-            # Categorize effect size based on Cohen's d
-            abs_cohens_d = abs(cohens_d_value)
-            if abs_cohens_d < 0.2:
-                effect_size_category = "negligible"
-            elif abs_cohens_d < 0.5:
-                effect_size_category = "small"
-            elif abs_cohens_d < 0.8:
-                effect_size_category = "medium"
-            else:
-                effect_size_category = "large"
-                
-            return x_value, t_stat, cohens_d_value, effect_size_category, True
-            
-        except Exception as e:
-            if debug:
-                print(f"Error processing row {idx}: {e}")
-            return x_value, 0.0, 0.0, "negligible", False
-    else:
+        return x_value, t_stat, cohens_d_value, effect_size_category, True
+        
+    except Exception as e:
+        if debug:
+            print(f"Error processing row {idx}: {e}")
         return x_value, 0.0, 0.0, "negligible", False
 
 

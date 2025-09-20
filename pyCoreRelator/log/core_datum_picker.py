@@ -124,7 +124,7 @@ def get_category_color(category):
         return colors[category % len(colors)] 
 
 
-def onkey_boundary(event, xs, lines, ax, cid, toolbar, categories, current_category, csv_filename=None, status_text=None):
+def onkey_boundary(event, xs, lines, ax, cid, toolbar, categories, current_category, csv_filename=None, status_text=None, sort_csv=True):
     """
     Handle keyboard events: delete to remove last point, enter to finish, numbers 0-9 to change category.
     
@@ -153,6 +153,9 @@ def onkey_boundary(event, xs, lines, ax, cid, toolbar, categories, current_categ
         Full path/filename for the output CSV file
     status_text : matplotlib.text.Text, optional
         Text object for displaying status messages
+    sort_csv : bool, default=True
+        Whether to sort the CSV data by category then by picked_depths_cm
+        when saving the results.
         
     Returns
     -------
@@ -199,16 +202,80 @@ def onkey_boundary(event, xs, lines, ax, cid, toolbar, categories, current_categ
         
         # Export to CSV if filename is provided and we have data
         if csv_filename and xs:
-            # Create DataFrame with picked depths and categories
-            df = pd.DataFrame({
-                'picked_depths_cm': xs,
-                'category': categories
-            })
+            # Check if CSV file already exists and has other columns
+            if os.path.exists(csv_filename):
+                try:
+                    # Load existing CSV to preserve other columns
+                    existing_df = pd.read_csv(csv_filename)
+                    
+                    # Create new DataFrame with current picked data
+                    new_df = pd.DataFrame({
+                        'picked_depths_cm': xs,
+                        'category': categories
+                    })
+                    
+                    # Create DataFrame with new picked data, properly matching other columns by depth value
+                    other_columns = [col for col in existing_df.columns if col not in ['picked_depths_cm', 'category']]
+                    
+                    if other_columns:
+                        # Create a new DataFrame with the same column structure as existing file
+                        df = pd.DataFrame(columns=existing_df.columns)
+                        
+                        # For each new picked depth, try to find matching data in existing CSV
+                        for depth, cat in zip(xs, categories):
+                            new_row = {}
+                            new_row['picked_depths_cm'] = depth
+                            new_row['category'] = cat
+                            
+                            # Try to find this exact depth in existing data to preserve other columns
+                            matching_row = existing_df[existing_df['picked_depths_cm'] == depth]
+                            
+                            if not matching_row.empty:
+                                # Found exact match - preserve other column data
+                                for col in other_columns:
+                                    new_row[col] = matching_row.iloc[0][col]
+                            else:
+                                # No exact match - set other columns to None
+                                for col in other_columns:
+                                    new_row[col] = None
+                            
+                            df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
+                    else:
+                        # No other columns, just use new data
+                        df = new_df
+                        
+                except Exception as e:
+                    print(f"Warning: Could not read existing CSV {csv_filename}: {e}. Creating new file.")
+                    df = pd.DataFrame({
+                        'picked_depths_cm': xs,
+                        'category': categories
+                    })
+            else:
+                # Create new DataFrame for new file
+                df = pd.DataFrame({
+                    'picked_depths_cm': xs,
+                    'category': categories
+                })
             
+            # Sort the data if sort_csv is True (sort all columns together)
+            if sort_csv:
+                # Convert sorting columns to numeric types to ensure correct sorting
+                df_sort = df.copy()
+                df_sort['category'] = pd.to_numeric(df_sort['category'], errors='coerce')
+                df_sort['picked_depths_cm'] = pd.to_numeric(df_sort['picked_depths_cm'], errors='coerce')
+                # Drop rows with conversion issues
+                valid_rows = df_sort.dropna(subset=['category', 'picked_depths_cm']).index
+                df = df.iloc[valid_rows]
+                df_sort = df_sort.iloc[valid_rows]
+                # Sort all columns together based on category, then picked_depths_cm
+                sort_order = df_sort.sort_values(by=['category', 'picked_depths_cm']).index
+                df = df.iloc[sort_order].reset_index(drop=True)
+                
             # Save to CSV
             df.to_csv(csv_filename, index=False)
             if status_text:
-                status_text.set_text(f"Saved {len(xs)} picked depths to {csv_filename}") 
+                sort_msg = " (sorted)" if sort_csv else ""
+                status_text.set_text(f"Saved {len(df)} picked depths to {csv_filename}{sort_msg}") 
 
 
 def create_interactive_figure(md, log, core_img_1=None, core_img_2=None, miny=0, maxy=1):
@@ -332,13 +399,15 @@ def create_interactive_figure(md, log, core_img_1=None, core_img_2=None, miny=0,
         return fig, ax  # Return the log plot axis for interaction
 
 
-def pick_stratigraphic_levels(md, log, core_img_1=None, core_img_2=None, core_name="", csv_filename=None):
+def pick_stratigraphic_levels(md, log, core_img_1=None, core_img_2=None, core_name="", csv_filename=None, sort_csv=True):
     """
     Create an interactive plot for picking stratigraphic levels.
     
     This is the main function that sets up an interactive matplotlib environment
     for manually picking stratigraphic boundaries and datum levels. Users can
     click to select points, categorize them, and save the results to CSV.
+    If a CSV file already exists, it loads the existing data and allows users
+    to continue picking from where they left off.
     
     Parameters
     ----------
@@ -353,7 +422,11 @@ def pick_stratigraphic_levels(md, log, core_img_1=None, core_img_2=None, core_na
     core_name : str, default=""
         Name of the core for display in plot title
     csv_filename : str, optional
-        Full path/filename for the output CSV file
+        Full path/filename for the output CSV file. If file exists, 
+        data will be loaded from it.
+    sort_csv : bool, default=True
+        Whether to sort the CSV data by category then by picked_depths_cm
+        when saving the results.
         
     Returns
     -------
@@ -394,6 +467,37 @@ def pick_stratigraphic_levels(md, log, core_img_1=None, core_img_2=None, core_na
     current_category = ['1']  # Default category is '1'
     selection_complete = [False]
     
+    # Load existing data from CSV if file exists
+    if csv_filename and os.path.exists(csv_filename):
+        try:
+            existing_df = pd.read_csv(csv_filename)
+            if 'picked_depths_cm' in existing_df.columns and 'category' in existing_df.columns:
+                # Load existing data
+                loaded_depths = existing_df['picked_depths_cm'].tolist()
+                loaded_categories = existing_df['category'].tolist()
+                
+                # Add loaded data to lists
+                xs.extend(loaded_depths)
+                categories.extend([str(cat) for cat in loaded_categories])  # Ensure categories are strings
+                
+                # Display loaded data as lines on the plot
+                for depth, category in zip(loaded_depths, loaded_categories):
+                    color = get_category_color(str(category))
+                    line = ax.axvline(x=depth, color=color, linestyle='--')
+                    lines.append(line)
+                
+                # Update status text
+                status_text.set_text(f'Loaded {len(loaded_depths)} existing points from {os.path.basename(csv_filename)}')
+                print(f"Loaded {len(loaded_depths)} existing data points from {csv_filename}")
+            else:
+                print(f"Warning: CSV file {csv_filename} exists but doesn't contain required columns 'picked_depths_cm' and 'category'")
+        except Exception as e:
+            print(f"Warning: Could not load existing data from {csv_filename}: {e}")
+            status_text.set_text(f'Could not load existing data: {e}')
+    elif csv_filename:
+        print(f"CSV file {csv_filename} does not exist yet. Starting fresh.")
+        status_text.set_text('Starting fresh selection...')
+    
     # Get the toolbar instance
     toolbar = fig.canvas.toolbar
     
@@ -402,7 +506,7 @@ def pick_stratigraphic_levels(md, log, core_img_1=None, core_img_2=None, core_na
         fig.canvas.mpl_connect('button_press_event', 
                               lambda event: onclick_boundary(event, xs, lines, ax, toolbar, categories, current_category, status_text)),
         fig.canvas.mpl_connect('key_press_event', 
-                              lambda event: onkey_boundary(event, xs, lines, ax, cid, toolbar, categories, current_category, csv_filename, status_text))
+                              lambda event: onkey_boundary(event, xs, lines, ax, cid, toolbar, categories, current_category, csv_filename, status_text, sort_csv))
     ]
     
     # Display instructions (these should show up)
@@ -413,7 +517,10 @@ def pick_stratigraphic_levels(md, log, core_img_1=None, core_img_2=None, core_na
     print(" - Press Enter when finished selecting points.")
     print(" - Pan and Zoom tools will temporarily disable point selection.")
     if csv_filename:
-        print(f" - Picked depths will be saved to: {csv_filename}")
+        if os.path.exists(csv_filename):
+            print(f" - Picked depths will be updated and saved to: {csv_filename}")
+        else:
+            print(f" - Picked depths will be saved to: {csv_filename}")
     
     fig.suptitle(f'{core_name}', fontsize=16, y=1.02)
     plt.show()

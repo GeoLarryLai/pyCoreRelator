@@ -722,25 +722,34 @@ def load_and_prepare_quality_data(target_quality_indices, master_csv_filenames, 
                 print(f"   Skipping {quality_index} and moving to next index...")
             continue
 
-        # Use stored histogram and distribution data directly from the first synthetic row
-        # This approach matches plot_correlation_distribution and ensures consistency
-        first_synthetic_row = df_synthetic_params.iloc[0]
+        # Reconstruct synthetic (null hypothesis) data from all synthetic rows
+        # This matches the approach in calculate_quality_comparison_t_statistics
+        combined_data = []
+        fitted_mean = None
+        fitted_std = None
         
-        # Extract stored histogram data for display purposes
-        bins = np.fromstring(first_synthetic_row['bins'].strip('[]'), sep=' ') if 'bins' in first_synthetic_row and pd.notna(first_synthetic_row['bins']) else None
-        hist_percentages = np.fromstring(first_synthetic_row['hist'].strip('[]'), sep=' ') if 'hist' in first_synthetic_row and pd.notna(first_synthetic_row['hist']) else None
+        for _, row in df_synthetic_params.iterrows():
+            try:
+                bins = np.fromstring(row['bins'].strip('[]'), sep=' ')
+                hist_percentages = np.fromstring(row['hist'].strip('[]'), sep=' ')
+                n_points = row['n_points']
+                raw_data_points = reconstruct_raw_data_from_histogram(bins, hist_percentages, n_points)
+                combined_data.extend(raw_data_points)
+                
+                # Store fitted parameters from first row for display purposes
+                if fitted_mean is None:
+                    fitted_mean = row['mean'] if 'mean' in row and pd.notna(row['mean']) else 0.5
+                    fitted_std = row['std'] if 'std' in row and pd.notna(row['std']) else 0.1
+            except:
+                continue
         
-        # Use fitted distribution parameters from the CSV directly
-        fitted_mean = first_synthetic_row['mean'] if 'mean' in first_synthetic_row and pd.notna(first_synthetic_row['mean']) else 0.5
-        fitted_std = first_synthetic_row['std'] if 'std' in first_synthetic_row and pd.notna(first_synthetic_row['std']) else 0.1
-        
-        # Create a simple combined_data array for compatibility with existing code
-        # This will represent the bin centers for display
-        if bins is not None and len(bins) > 1:
-            combined_data = (bins[:-1] + bins[1:]) / 2  # Bin centers
-        else:
+        combined_data = np.array(combined_data)
+        if len(combined_data) == 0:
             # Fallback: create synthetic data based on fitted parameters
-            combined_data = np.linspace(fitted_mean - 3*fitted_std, fitted_mean + 3*fitted_std, 100)
+            if fitted_mean is None:
+                fitted_mean = 0.5
+                fitted_std = 0.1
+            combined_data = np.random.normal(fitted_mean, fitted_std, 10000)
 
         # Get unique combinations available in the CSV
         unique_combinations = df_all_params.drop_duplicates(
