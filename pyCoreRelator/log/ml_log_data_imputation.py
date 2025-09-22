@@ -261,7 +261,7 @@ def _resample_to_target_resolution(data, depth_col, target_resolution):
     return resampled_data.astype('float32')
 
 
-def plot_core_logs(data_config, file_type='clean', title=None):
+def plot_core_logs(data_config, file_type='clean', title=None, pickeddepth_csv=None):
     """
     Plot core logs using fully configurable parameters from data_config.
     
@@ -283,6 +283,9 @@ def plot_core_logs(data_config, file_type='clean', title=None):
         Type of data files to plot ('clean' or 'filled')
     title : str, optional
         Custom title for the plot. If None, generates default title
+    pickeddepth_csv : str, optional
+        Path to CSV file containing picked depths. If None, no picked depths
+        column will be displayed.
         
     Returns
     -------
@@ -293,6 +296,10 @@ def plot_core_logs(data_config, file_type='clean', title=None):
     -----
     The function automatically determines plot structure based on column_configs and
     available data files. Supports both image and data plotting panels.
+    For file_type='filled', plots both cleaned data (solid lines on top) and filled 
+    data (dashed lines) for comparison.
+    If pickeddepth_csv is provided, adds a thin leftmost column showing horizontal
+    lines at picked depths with category-based styling.
     """
     # Get primary depth column from config
     depth_col = data_config['depth_column']
@@ -301,9 +308,21 @@ def plot_core_logs(data_config, file_type='clean', title=None):
     if file_type == 'clean':
         data_paths = data_config.get('clean_file_paths', {})
         output_folder = data_config['clean_output_folder']
+        clean_data = None
     else:
         data_paths = data_config.get('filled_file_paths', {})
         output_folder = data_config['filled_output_folder']
+        
+        # Load cleaned data for comparison when plotting filled data
+        clean_paths = data_config.get('clean_file_paths', {})
+        clean_output_folder = data_config['clean_output_folder']
+        clean_data = {}
+        for data_type in clean_paths.keys():
+            clean_full_path = data_config['mother_dir'] + clean_output_folder + clean_paths[data_type]
+            if os.path.exists(clean_full_path):
+                loaded_clean_data = pd.read_csv(clean_full_path)
+                if depth_col in loaded_clean_data.columns:
+                    clean_data[data_type] = loaded_clean_data
     
     # Get available column configs
     available_columns = data_config.get('column_configs', {})
@@ -326,6 +345,24 @@ def plot_core_logs(data_config, file_type='clean', title=None):
     # Load Core Length and Name
     core_length = data_config['core_length']
     core_name = data_config['core_name']
+    
+    # Load picked depths data only if CSV path is explicitly provided
+    picked_depths_data = None
+    if pickeddepth_csv is not None:
+        # Use the provided path directly without combining with mother_dir
+        if os.path.exists(pickeddepth_csv):
+            try:
+                picked_depths_data = pd.read_csv(pickeddepth_csv)
+                print(f"Successfully loaded picked depths CSV with {len(picked_depths_data)} rows")
+                # Validate required columns
+                if 'picked_depths_cm' not in picked_depths_data.columns or 'category' not in picked_depths_data.columns:
+                    print(f"Warning: Required columns 'picked_depths_cm' or 'category' not found in {pickeddepth_csv}")
+                    picked_depths_data = None
+            except Exception as e:
+                print(f"Warning: Could not load picked depths CSV {pickeddepth_csv}: {e}")
+                picked_depths_data = None
+        else:
+            print(f"Warning: Picked depths CSV file not found: {pickeddepth_csv}")
     
     if title is None:
         file_type_title = 'Cleaned' if file_type == 'clean' else 'ML-Filled'
@@ -412,20 +449,49 @@ def plot_core_logs(data_config, file_type='clean', title=None):
     if not plot_panels:
         raise ValueError("No data available to plot")
     
-    # Create subplot
+    # Create subplot - add extra column for picked depths if data is available
     n_plots = len(plot_panels)
-    fig, axes = plt.subplots(1, n_plots, figsize=(1.2*n_plots, 12))
-    if n_plots == 1:
+    has_picked_depths = picked_depths_data is not None
+    total_plots = n_plots + (1 if has_picked_depths else 0)
+    
+    # Adjust figure width - make picked depths column very narrow
+    if has_picked_depths:
+        fig_width = 0.3 + 1.2 * n_plots  # 0.3 for picked depths, 1.2 for each data panel
+    else:
+        fig_width = 1.2 * n_plots
+    
+    fig, axes = plt.subplots(1, total_plots, figsize=(fig_width, 12))
+    if total_plots == 1:
         axes = [axes]
+    
+    # Adjust subplot widths if picked depths column exists
+    if has_picked_depths:
+        # Make all columns the same width as they would be without picked depths
+        width_ratios = [1.0] * total_plots  # All columns same width
+        gs = fig.add_gridspec(1, total_plots, width_ratios=width_ratios)
+        fig.clear()
+        axes = [fig.add_subplot(gs[0, i]) for i in range(total_plots)]
     
     fig.suptitle(title, fontweight='bold', fontsize=14)
     
+    # Plot picked depths column first if available
+    plot_start_index = 0
+    if has_picked_depths:
+        picked_ax = axes[0]
+        _plot_picked_depths(picked_ax, picked_depths_data, core_length, core_name)
+        # Apply the same y-axis properties as other columns
+        picked_ax.invert_yaxis()
+        picked_ax.set_ylim(core_length, 0)
+        picked_ax.set_ylabel('Depth', fontweight='bold')
+        plot_start_index = 1
+    
     # Plot each panel
     for i, panel in enumerate(plot_panels):
-        ax = axes[i]
+        ax_index = i + plot_start_index
+        ax = axes[ax_index]
         
-        # Only set y-label for the leftmost subplot
-        if i == 0:
+        # Only set y-label for the leftmost data subplot if no picked depths column exists
+        if ax_index == plot_start_index and not has_picked_depths:
             ax.set_ylabel('Depth', fontweight='bold')
         
         if panel['type'] == 'image':
@@ -437,24 +503,229 @@ def plot_core_logs(data_config, file_type='clean', title=None):
             
         elif panel['type'] == 'data':
             # Plot data
-            _plot_data_panel(ax, panel, data, depth_col, core_length)
+            _plot_data_panel(ax, panel, data, depth_col, core_length, clean_data, file_type)
         
         # Set common y-axis properties
         ax.invert_yaxis()
         ax.set_ylim(core_length, 0)
-        if i > 0:
+        # Hide y-axis labels for all data columns if picked depths column exists
+        if has_picked_depths or ax_index > plot_start_index:
             ax.tick_params(axis='y', labelleft=False)
     
     plt.tight_layout()
     return fig, axes
 
 
-def _plot_data_panel(ax, panel, data, depth_col, core_length):
+def _plot_picked_depths(ax, picked_depths_data, core_length, core_name):
+    """
+    Helper function to plot picked depths column.
+    
+    This function plots horizontal lines at picked depths with category-based styling,
+    adds interpreted bed names for category 1 entries, and fills intervals with colors
+    based on category transitions.
+    
+    Parameters
+    ----------
+    ax : matplotlib.axes.Axes
+        Axes object to plot on
+    picked_depths_data : pandas.DataFrame
+        DataFrame containing picked depths data with columns:
+        - picked_depths_cm: Depth values
+        - category: Category values (1, 2, 3)
+        - interpreted_bed: Bed names (optional, used for category 1)
+    core_length : float
+        Total core length for axis limits
+    core_name : str
+        Core name for the column title
+        
+    Returns
+    -------
+    None
+        Modifies the axes object in place
+    """
+    # Set only the specific properties for picked depths column
+    ax.set_xlim(0, 1)
+    ax.set_xlabel('Datums', fontweight='bold', fontsize='small')
+    ax.set_xticks([])
+    
+    # Define styling for each category
+    category_styles = {
+        1: {'color': 'black', 'linestyle': '-', 'linewidth': 1.0},
+        2: {'color': 'brown', 'linestyle': '--', 'linewidth': 0.75},
+        3: {'color': 'darkgrey', 'linestyle': '--', 'linewidth': 0.75}
+    }
+    
+    # Define fill colors and patterns
+    fill_styles = {
+        'Ta-d': {'color': '#d9c355', 'alpha': 0.7},
+        'Te': {'color': '#94724b', 'alpha': 0.7},
+        'Pelagic': {'color': '#a3a2a2', 'alpha': 0.7}
+    }
+    
+    # Sort data by depth for interval processing
+    sorted_data = picked_depths_data.sort_values('picked_depths_cm').reset_index(drop=True)
+    
+    # Create intervals for filling
+    intervals = []
+    
+    # Add top boundary (depth 0)
+    boundaries = [(0, None)]
+    
+    # Add all picked depths
+    for _, row in sorted_data.iterrows():
+        if row['category'] in [1, 2, 3]:
+            boundaries.append((row['picked_depths_cm'], row['category']))
+    
+    # Add bottom boundary (core_length)
+    boundaries.append((core_length, None))
+    
+    # Determine fill type for each interval
+    for i in range(len(boundaries) - 1):
+        top_depth, top_cat = boundaries[i]
+        bottom_depth, bottom_cat = boundaries[i + 1]
+        
+        # Determine fill type based on category transitions
+        fill_type = None
+        
+        # Rule 1: Ta-d
+        if ((top_cat == 2 and bottom_cat == 1) or 
+            (top_cat is None and bottom_cat == 1) or 
+            (top_cat == 2 and bottom_cat is None)):
+            fill_type = 'Ta-d'
+        
+        # Rule 2: Te  
+        elif ((top_cat == 3 and bottom_cat == 2) or 
+              (top_cat is None and bottom_cat == 2) or 
+              (top_cat == 3 and bottom_cat is None)):
+            fill_type = 'Te'
+        
+        # Rule 3: Pelagic (same conditions as Te, but different interpretation)
+        # Note: This appears to be a duplicate rule in the original specification
+        # Keeping as Pelagic for areas that don't match Ta-d or Te specifically
+        elif ((top_cat == 1 and bottom_cat == 3) or
+              (top_cat == 2 and bottom_cat == 3) or
+              (top_cat == 1 and bottom_cat == 2) or
+              (top_cat is None and bottom_cat == 3)):
+            fill_type = 'Pelagic'
+        
+        # Store interval information
+        intervals.append({
+            'top': top_depth,
+            'bottom': bottom_depth,
+            'fill_type': fill_type
+        })
+    
+    # Plot fill areas
+    legend_elements = []
+    used_fills = set()
+    
+    for interval in intervals:
+        top = interval['top']
+        bottom = interval['bottom']
+        fill_type = interval['fill_type']
+        
+        if fill_type in fill_styles:
+            style = fill_styles[fill_type]
+            ax.axvspan(0, 1, ymin=(core_length - bottom) / core_length, 
+                      ymax=(core_length - top) / core_length,
+                      color=style['color'], alpha=style['alpha'], zorder=1)
+            
+            if fill_type not in used_fills:
+                legend_elements.append(plt.Rectangle((0, 0), 1, 1, 
+                                     facecolor=style['color'], 
+                                     alpha=style['alpha'], 
+                                     label=fill_type))
+                used_fills.add(fill_type)
+        else:
+            # Fill with crossing pattern for "Others"
+            ax.axvspan(0, 1, ymin=(core_length - bottom) / core_length, 
+                      ymax=(core_length - top) / core_length,
+                      color='lightgray', alpha=0.3, zorder=1,
+                      hatch='///')
+            
+            if 'Others' not in used_fills:
+                legend_elements.append(plt.Rectangle((0, 0), 1, 1, 
+                                     facecolor='lightgray', 
+                                     alpha=0.3, hatch='///',
+                                     label='Others'))
+                used_fills.add('Others')
+    
+    # Plot horizontal lines for each picked depth
+    for _, row in sorted_data.iterrows():
+        depth = row['picked_depths_cm']
+        category = row['category']
+        
+        # Skip if category is not in our defined styles
+        if category not in category_styles:
+            continue
+            
+        # Get style for this category
+        style = category_styles[category]
+        
+        # Plot horizontal line across the width of the subplot
+        ax.axhline(y=depth, xmin=0, xmax=1, 
+                  color=style['color'], 
+                  linestyle=style['linestyle'], 
+                  linewidth=style['linewidth'],
+                  zorder=10)
+    
+    # Add interpreted bed names for category 1
+    text_positions = []
+    if 'interpreted_bed' in sorted_data.columns:
+        for _, row in sorted_data.iterrows():
+            if (row['category'] == 1 and 
+                pd.notna(row['interpreted_bed']) and 
+                str(row['interpreted_bed']).strip() != ''):
+                
+                bed_name = str(row['interpreted_bed']).strip()
+                depth = row['picked_depths_cm']
+                # Place text slightly to the right and above the line
+                ax.text(0.05, depth - 0.5, bed_name, 
+                       fontsize='small', fontweight='bold', 
+                       verticalalignment='bottom',
+                       horizontalalignment='left',
+                       color='black', zorder=15)
+                text_positions.append(depth - 0.5)
+    
+    # Add legend in best position
+    if legend_elements:
+        # Find best position for legend to avoid text
+        legend_y = core_length * 0.85  # Default position
+        
+        # Adjust if there are text labels
+        if text_positions:
+            # Find a gap in text positions
+            text_positions.sort()
+            best_gap = core_length * 0.85
+            
+            for i in range(len(text_positions) - 1):
+                gap_start = text_positions[i] + 2
+                gap_end = text_positions[i + 1] - 2
+                gap_size = gap_end - gap_start
+                
+                if gap_size > 15:  # Minimum gap size needed for legend
+                    best_gap = gap_start + gap_size / 2
+                    break
+            
+            legend_y = best_gap
+        
+        # Ensure legend is within bounds
+        legend_y = max(10, min(legend_y, core_length - 10))
+        
+        legend = ax.legend(handles=legend_elements, loc='center', 
+                          bbox_to_anchor=(0.5, (core_length - legend_y) / core_length),
+                          fontsize='x-small', frameon=True, fancybox=True, 
+                          shadow=True, framealpha=0.9)
+        legend.set_zorder(20)
+
+
+def _plot_data_panel(ax, panel, data, depth_col, core_length, clean_data=None, file_type='clean'):
     """
     Helper function to plot a single data panel.
     
     This function plots data columns with optional standard deviation shading and
-    colormap visualization based on the panel configuration.
+    colormap visualization based on the panel configuration. For file_type='filled',
+    plots both cleaned (solid) and filled (dashed) data.
     
     Parameters
     ----------
@@ -468,6 +739,10 @@ def _plot_data_panel(ax, panel, data, depth_col, core_length):
         Name of the depth column
     core_length : float
         Total core length for axis limits
+    clean_data : dict, optional
+        Dictionary of cleaned data by data type (for comparison when file_type='filled')
+    file_type : str, default='clean'
+        Type of plot being created ('clean' or 'filled')
         
     Returns
     -------
@@ -500,10 +775,22 @@ def _plot_data_panel(ax, panel, data, depth_col, core_length):
         values = df[col].astype(np.float32)
         color = plot_colors[j]
         
-        # Plot main line
-        ax.plot(values, depth_values, color=color, linewidth=0.7)
+        # For filled plots, first plot the filled data as dashed lines
+        if file_type == 'filled':
+            ax.plot(values, depth_values, color=color, linewidth=0.7, linestyle='--', alpha=0.7, zorder=10)
+            
+            # Then plot cleaned data as solid lines on top if available
+            if clean_data and data_type in clean_data:
+                clean_df = clean_data[data_type]
+                if col in clean_df.columns:
+                    clean_values = clean_df[col].astype(np.float32)
+                    clean_depth_values = clean_df[depth_col].astype(np.float32)
+                    ax.plot(clean_values, clean_depth_values, color=color, linewidth=0.7, linestyle='-', zorder=20)
+        else:
+            # Plot main line for clean data
+            ax.plot(values, depth_values, color=color, linewidth=0.7)
         
-        # Add standard deviation if available
+        # Add standard deviation if available (only for the main data)
         std_col = None
         if 'std_col' in config:
             std_col = config['std_col']
@@ -515,16 +802,16 @@ def _plot_data_panel(ax, panel, data, depth_col, core_length):
             ax.fill_betweenx(depth_values,
                            values - std_values,
                            values + std_values,
-                           color=color, alpha=0.2, linewidth=0)
+                           color=color, alpha=0.2, linewidth=0, zorder=1)
         
-        # Add colormap visualization if configured
+        # Add colormap visualization if configured (only for the main data)
         show_colormap = config.get('show_colormap', False)
         if show_colormap:
             colormap_name = config.get('colormap', 'viridis')
-            _add_colormap_visualization(ax, values, depth_values, colormap_name)
+            _add_colormap_visualization(ax, values, depth_values, colormap_name, zorder=0)
         elif 'colormap_cols' in config and col in config['colormap_cols']:
             colormap_name = config.get('colormap', 'viridis')
-            _add_colormap_visualization(ax, values, depth_values, colormap_name)
+            _add_colormap_visualization(ax, values, depth_values, colormap_name, zorder=0)
     
     # Set axis labels and styling
     plot_label = config.get('plot_label', columns[0] if len(columns) == 1 else 'Data')
@@ -533,7 +820,7 @@ def _plot_data_panel(ax, panel, data, depth_col, core_length):
     ax.tick_params(axis='x', labelsize='x-small')
 
 
-def _add_colormap_visualization(ax, values, depths, colormap_name):
+def _add_colormap_visualization(ax, values, depths, colormap_name, zorder=0):
     """
     Helper function to add colormap visualization using PolyCollection.
     
@@ -550,6 +837,8 @@ def _add_colormap_visualization(ax, values, depths, colormap_name):
         Corresponding depth values
     colormap_name : str
         Name of the matplotlib colormap to use
+    zorder : int, default=0
+        Z-order for the colormap visualization
         
     Returns
     -------
@@ -589,7 +878,7 @@ def _add_colormap_visualization(ax, values, depths, colormap_name):
             facecolors.append(cmap(norm(avg_val)))
     
     if polys:
-        pc = mcoll.PolyCollection(polys, facecolors=facecolors, edgecolors='none', alpha=0.95)
+        pc = mcoll.PolyCollection(polys, facecolors=facecolors, edgecolors='none', alpha=0.95, zorder=zorder)
         ax.add_collection(pc) 
 
 
