@@ -797,43 +797,38 @@ def _process_single_constraint_scenario(
     
     try:
         # Map subset indices to original constraint indices (in-sequence only)
-        # Filter out NaN values to prevent unpacking errors
+        # No NaN filtering - user confirmed the data_columns fields are valid
         original_indices = []
         for i in constraint_subset:
             idx = in_sequence_indices[i]
-            if not any(np.isnan(val) for val in [
-                age_data_b['depths'][idx], 
-                age_data_b['ages'][idx],
-                age_data_b['pos_errors'][idx], 
-                age_data_b['neg_errors'][idx]
-            ]):
-                original_indices.append(idx)
+            original_indices.append(idx)
         
-        # Check if we have any valid constraints after filtering
+        # Check if we have any constraints (should always be true)
         if len(original_indices) == 0:
-            return False, f"{combo_id}_no_valid_constraints", "No valid age constraints after NaN filtering"
+            return False, f"{combo_id}_no_constraints", "No constraints in subset"
         
         # Create modified age_data_b using original indices
+        # Convert pandas Series to lists and ensure proper data types
         age_data_b_current = {
-            'depths': [age_data_b['depths'][i] for i in original_indices],
-            'ages': [age_data_b['ages'][i] for i in original_indices],
-            'pos_errors': [age_data_b['pos_errors'][i] for i in original_indices],
-            'neg_errors': [age_data_b['neg_errors'][i] for i in original_indices],
+            'depths': [float(age_data_b['depths'].iloc[i]) if hasattr(age_data_b['depths'], 'iloc') else float(age_data_b['depths'][i]) for i in original_indices],
+            'ages': [float(age_data_b['ages'][i]) for i in original_indices],
+            'pos_errors': [float(age_data_b['pos_errors'][i]) for i in original_indices],
+            'neg_errors': [float(age_data_b['neg_errors'][i]) for i in original_indices],
             'in_sequence_flags': [age_data_b['in_sequence_flags'][i] for i in original_indices],
-            'in_sequence_depths': [age_data_b['depths'][i] for i in original_indices],
-            'in_sequence_ages': [age_data_b['ages'][i] for i in original_indices],
-            'in_sequence_pos_errors': [age_data_b['pos_errors'][i] for i in original_indices],
-            'in_sequence_neg_errors': [age_data_b['neg_errors'][i] for i in original_indices],
+            'in_sequence_depths': [float(age_data_b['depths'].iloc[i]) if hasattr(age_data_b['depths'], 'iloc') else float(age_data_b['depths'][i]) for i in original_indices],
+            'in_sequence_ages': [float(age_data_b['ages'][i]) for i in original_indices],
+            'in_sequence_pos_errors': [float(age_data_b['pos_errors'][i]) for i in original_indices],
+            'in_sequence_neg_errors': [float(age_data_b['neg_errors'][i]) for i in original_indices],
             'core': [age_data_b['core'][i] for i in original_indices]
         }
         
         # Recalculate interpolated ages for core B with reduced constraints
         pickeddepth_ages_b_current = calculate_interpolated_ages(
             picked_depths=all_depths_b_cat1,
-            age_constraints_depths=age_data_b_current['depths'],
-            age_constraints_ages=age_data_b_current['ages'],
-            age_constraints_pos_errors=age_data_b_current['pos_errors'],
-            age_constraints_neg_errors=age_data_b_current['neg_errors'],
+            age_constraints_depths=np.array(age_data_b_current['depths']),
+            age_constraints_ages=np.array(age_data_b_current['ages']),
+            age_constraints_pos_errors=np.array(age_data_b_current['pos_errors']),
+            age_constraints_neg_errors=np.array(age_data_b_current['neg_errors']),
             age_constraints_in_sequence_flags=age_data_b_current['in_sequence_flags'],
             age_constraint_source_core=age_data_b_current['core'],
             top_bottom=True,
@@ -1276,7 +1271,20 @@ def run_multi_parameter_analysis(
             print(f"- Processing {total_additional_scenarios} additional constraint removal scenarios")
             
             # Get indices of only in-sequence constraints from the original data
-            in_sequence_indices = [i for i, flag in enumerate(age_data_b['in_sequence_flags']) if flag == 1]
+            in_sequence_indices = []
+            for i, flag in enumerate(age_data_b['in_sequence_flags']):
+                # Handle various flag formats (string, boolean, numeric)
+                is_in_sequence = False
+                if isinstance(flag, str):
+                    is_in_sequence = flag.upper() == 'TRUE'
+                elif isinstance(flag, (bool, np.bool_)):
+                    is_in_sequence = flag
+                else:
+                    is_in_sequence = flag == 1
+                
+                if is_in_sequence:
+                    in_sequence_indices.append(i)
+            
             n_constraints_b = len(in_sequence_indices)  # Count of in-sequence constraints only
 
             # Generate subsets from in-sequence constraint indices only

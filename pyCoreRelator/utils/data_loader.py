@@ -300,25 +300,28 @@ def load_age_constraints_from_csv(csv_file_path, data_columns, mute_mode=False):
         return result
     
     # Check which columns are available and create a working dataset
-    working_data = pd.DataFrame()
+    # First, check if in_sequence column exists and filter for TRUE values only
     available_mappings = {}
     
+    # Map available columns
     for standard_col, csv_col in data_columns.items():
         if csv_col in data.columns:
-            # Only keep rows where this column has data (except for interpreted_bed which is optional)
-            if standard_col != 'interpreted_bed':
-                valid_mask = data[csv_col].notna()
-                if working_data.empty:
-                    working_data = data[valid_mask].copy()
-                else:
-                    working_data = working_data[working_data[csv_col].notna()]
-            else:
-                # For interpreted_bed, don't filter rows - just mark as available
-                if working_data.empty:
-                    working_data = data.copy()
             available_mappings[standard_col] = csv_col
         else:
             print(f"Warning: Column '{csv_col}' not found in {csv_file_path}")
+    
+    # Start with all data, then filter based on in_sequence if available
+    working_data = data.copy()
+    
+    # If in_sequence column is available, filter for TRUE values first
+    if 'in_sequence' in available_mappings:
+        in_seq_col = available_mappings['in_sequence']
+        # Filter for rows where in_sequence is TRUE (case-insensitive)
+        in_seq_mask = working_data[in_seq_col].astype(str).str.upper() == 'TRUE'
+        working_data = working_data[in_seq_mask]
+        
+        if not mute_mode and len(working_data) > 0:
+            print(f"Filtered to {len(working_data)} rows with in_sequence=TRUE from {os.path.basename(csv_file_path)}")
     
     if working_data.empty:
         print(f"Warning: No valid data found in {csv_file_path}")

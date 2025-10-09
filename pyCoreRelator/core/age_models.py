@@ -26,7 +26,7 @@ def calculate_interpolated_ages(picked_depths, age_constraints_depths, age_const
                                 age_constraints_in_sequence_flags=None, top_bottom=True, top_age=0, top_age_pos_error=0, 
                                 top_age_neg_error=0, top_depth=0.0, bottom_depth=None, 
                                 uncertainty_method='MonteCarlo', n_monte_carlo=10000,
-                                show_plot=False, core_name=None, export_csv=True, csv_filename=None,
+                                show_plot=False, save_plot=False, plot_filename=None, core_name=None, export_csv=True, csv_filename=None,
                                 mute_mode=False):
     """
     Calculate interpolated/extrapolated ages for picked depths based on age constraints.
