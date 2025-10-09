@@ -588,7 +588,7 @@ def plot_segment_pair_correlation(log_a, log_b, md_a, md_b,
         if visualize_pairs:
             # Highlight each segment pair with unique color
             for idx, (a_idx, b_idx) in enumerate(segment_pairs):
-                color = plt.cm.tab10(idx % 10)
+                color = plt.cm.Set1(idx % 9)
                 
                 a_start = depth_boundaries_a[segments_a[a_idx][0]]
                 a_end = depth_boundaries_a[segments_a[a_idx][1]]

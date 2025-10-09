@@ -344,7 +344,19 @@ def load_age_constraints_from_csv(csv_file_path, data_columns, mute_mode=False):
     
     # Separate in-sequence and out-of-sequence constraints
     for i in range(len(result['in_sequence_flags'])):
-        if not pd.isna(result['in_sequence_flags'][i]) and result['in_sequence_flags'][i] == 1:
+        flag_value = result['in_sequence_flags'][i]
+        
+        # Check if flag indicates in-sequence (handle string, numeric, and boolean values)
+        is_in_sequence = False
+        if not pd.isna(flag_value):
+            if isinstance(flag_value, str):
+                is_in_sequence = flag_value.upper() == 'TRUE'
+            elif isinstance(flag_value, (bool, np.bool_)):
+                is_in_sequence = flag_value
+            else:
+                is_in_sequence = flag_value == 1
+        
+        if is_in_sequence:
             result['in_sequence_depths'].append(result['depths'].iloc[i] if isinstance(result['depths'], pd.Series) else result['depths'][i])
             result['in_sequence_ages'].append(result['ages'][i])
             result['in_sequence_pos_errors'].append(result['pos_errors'][i])
@@ -433,7 +445,17 @@ def combine_age_constraints(age_constraint_list):
         
         # Separate in-sequence and out-of-sequence constraints
         for i, in_seq_flag in enumerate(combined['in_sequence_flags']):
-            if not pd.isna(in_seq_flag) and in_seq_flag == 1:
+            # Check if flag indicates in-sequence (handle string, numeric, and boolean values)
+            is_in_sequence = False
+            if not pd.isna(in_seq_flag):
+                if isinstance(in_seq_flag, str):
+                    is_in_sequence = in_seq_flag.upper() == 'TRUE'
+                elif isinstance(in_seq_flag, (bool, np.bool_)):
+                    is_in_sequence = in_seq_flag
+                else:
+                    is_in_sequence = in_seq_flag == 1
+            
+            if is_in_sequence:
                 combined['in_sequence_depths'].append(combined['depths'][i])
                 combined['in_sequence_ages'].append(combined['ages'][i])
                 combined['in_sequence_pos_errors'].append(combined['pos_errors'][i])

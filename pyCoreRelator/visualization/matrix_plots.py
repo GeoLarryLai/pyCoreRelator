@@ -414,7 +414,7 @@ def plot_dtw_matrix_with_paths(dtw_distance_matrix_full,
     
     plt_max = np.nanpercentile(dtw_matrix_to_plot, 95)
     im = ax.imshow(dtw_matrix_to_plot, aspect='auto', vmin=0, vmax=plt_max, 
-                   cmap='magma_r', origin='lower')
+                   cmap='YlGnBu', origin='lower')
     plt.colorbar(im, label='DTW distance')
     
     # Add age constraint lines after heatmap but before other plot elements
@@ -452,7 +452,7 @@ def plot_dtw_matrix_with_paths(dtw_distance_matrix_full,
                 b_start = depth_boundaries_b[segments_b[b_idx][0]]
                 b_end = depth_boundaries_b[segments_b[b_idx][1]]
                 
-                color = plt.cm.tab10(idx % 10)
+                color = plt.cm.Dark2(idx % 20)
                 
                 # Plot each path
                 for wp_idx, wp in enumerate(paths):
@@ -479,7 +479,7 @@ def plot_dtw_matrix_with_paths(dtw_distance_matrix_full,
         if visualize_pairs:
             # Highlight each segment pair with unique colors
             for idx, (a_idx, b_idx) in enumerate(segment_pairs):
-                color = plt.cm.tab10(idx % 10)
+                color = plt.cm.Set1(idx % 20)
                 
                 # Get segment boundaries
                 a_start = depth_boundaries_a[segments_a[a_idx][0]]
@@ -528,7 +528,7 @@ def plot_dtw_matrix_with_paths(dtw_distance_matrix_full,
             if color_metric is None:
                 color_values = df['mapping_id'].tolist() if 'mapping_id' in df.columns else list(range(len(combined_wp_list)))
                 colorbar_label = 'Mapping ID'
-                colormap = 'tab10'
+                colormap = 'Dark2'
             else:
                 if color_metric not in df.columns:
                     print(f"Error: '{color_metric}' column not found in CSV")
@@ -547,7 +547,7 @@ def plot_dtw_matrix_with_paths(dtw_distance_matrix_full,
                 }
                 
                 colorbar_label = metric_labels.get(color_metric, color_metric)
-                colormap = 'viridis'
+                colormap = 'magma'
             
         except Exception as e:
             print(f"Error reading CSV file: {e}")

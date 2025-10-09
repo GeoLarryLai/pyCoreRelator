@@ -1624,7 +1624,21 @@ def run_comprehensive_dtw_analysis(log_a, log_b, md_a, md_b, picked_depths_a=Non
     if create_dtw_matrix and dtwmatrix_output_file and os.path.exists(dtwmatrix_output_file):
         if not mute_mode:
             print(f"\nDisplaying DTW matrix visualization from: {dtwmatrix_output_file}")
-        display(IPImage(filename=dtwmatrix_output_file))
+        try:
+            # Check if file is SVG format which cannot be embedded
+            if dtwmatrix_output_file.lower().endswith('.svg'):
+                if not mute_mode:
+                    print(f"SVG format detected. File saved at: {dtwmatrix_output_file}")
+            else:
+                display(IPImage(filename=dtwmatrix_output_file))
+        except ValueError as e:
+            if "Cannot embed" in str(e) and "image format" in str(e):
+                if not mute_mode:
+                    print(f"Image format not supported for display. File saved at: {dtwmatrix_output_file}")
+            else:
+                pass
+        except:
+            pass
 
     gc.collect()
     

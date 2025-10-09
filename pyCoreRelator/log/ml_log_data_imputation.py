@@ -454,11 +454,10 @@ def plot_core_logs(data_config, file_type='clean', title=None, pickeddepth_csv=N
     has_picked_depths = picked_depths_data is not None
     total_plots = n_plots + (1 if has_picked_depths else 0)
     
-    # Adjust figure width - make picked depths column very narrow
-    if has_picked_depths:
-        fig_width = 0.3 + 1.2 * n_plots  # 0.3 for picked depths, 1.2 for each data panel
-    else:
-        fig_width = 1.2 * n_plots
+    # Calculate figure width to maintain consistent column widths
+    # Use a standard width per column (1.2) regardless of content type
+    standard_width_per_column = 1.2
+    fig_width = standard_width_per_column * total_plots
     
     fig, axes = plt.subplots(1, total_plots, figsize=(fig_width, 12))
     if total_plots == 1:
