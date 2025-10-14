@@ -439,8 +439,12 @@ def plot_dtw_matrix_with_paths(dtw_distance_matrix_full,
     
     # Plot paths based on selected mode
     if mode == 'segment_paths':
+        # Count total number of paths
+        total_paths = sum(len(dtw_results.get((a_idx, b_idx), ([], [], []))[0]) 
+                         for a_idx, b_idx in valid_dtw_pairs)
+        
         if visualize_pairs:
-            # Draw all segment paths with unique colors
+            # Draw all segment paths with unique colors (or red if only one path)
             for idx, (a_idx, b_idx) in enumerate(valid_dtw_pairs):
                 paths, _, quality_metrics = dtw_results.get((a_idx, b_idx), ([], [], []))
                 if not paths or len(paths) == 0:
@@ -452,7 +456,8 @@ def plot_dtw_matrix_with_paths(dtw_distance_matrix_full,
                 b_start = depth_boundaries_b[segments_b[b_idx][0]]
                 b_end = depth_boundaries_b[segments_b[b_idx][1]]
                 
-                color = plt.cm.Dark2(idx % 20)
+                # Use red if only one path total, otherwise use color scheme
+                color = 'red' if total_paths == 1 else plt.cm.Dark2(idx % 20)
                 
                 # Plot each path
                 for wp_idx, wp in enumerate(paths):
@@ -464,22 +469,26 @@ def plot_dtw_matrix_with_paths(dtw_distance_matrix_full,
                         f"({a_idx+1},{b_idx+1})", ha='center', va='center', fontsize=8,
                         bbox=dict(facecolor='white', alpha=0.7))
         else:
-            # Draw all paths in red without labels
+            # Draw all paths (red if only one, white otherwise) without labels
+            path_color = 'red' if total_paths == 1 else 'white'
             for idx, (a_idx, b_idx) in enumerate(valid_dtw_pairs):
                 paths, _, _ = dtw_results.get((a_idx, b_idx), ([], [], []))
                 if not paths or len(paths) == 0:
                     continue
                 
                 for wp_idx, wp in enumerate(paths):
-                    ax.plot(wp[:, 1], wp[:, 0], color='white', linewidth=2, alpha=0.8)
+                    ax.plot(wp[:, 1], wp[:, 0], color=path_color, linewidth=2, alpha=0.8)
         
         ax.set_title('DTW Matrix with All Segment Paths')
     
     elif mode == 'combined_path':
         if visualize_pairs:
-            # Highlight each segment pair with unique colors
+            # Count total number of segment pairs
+            total_pairs = len(segment_pairs)
+            
+            # Highlight each segment pair with unique colors (or red if only one pair)
             for idx, (a_idx, b_idx) in enumerate(segment_pairs):
-                color = plt.cm.Set1(idx % 20)
+                color = 'red' if total_pairs == 1 else plt.cm.Set1(idx % 20)
                 
                 # Get segment boundaries
                 a_start = depth_boundaries_a[segments_a[a_idx][0]]
@@ -509,7 +518,7 @@ def plot_dtw_matrix_with_paths(dtw_distance_matrix_full,
         else:
             # Add combined path in red
             if combined_wp is not None and len(combined_wp) > 0:
-                ax.plot(combined_wp[:, 1], combined_wp[:, 0], 'c-', linewidth=2, label="DTW Path")
+                ax.plot(combined_wp[:, 1], combined_wp[:, 0], 'r-', linewidth=2, label="DTW Path")
                 ax.set_title('DTW Matrix with Combined Path')
     
     elif mode == 'all_paths_colored':
@@ -558,48 +567,74 @@ def plot_dtw_matrix_with_paths(dtw_distance_matrix_full,
         valid_wp_list = [combined_wp_list[i] for i in valid_indices]
         valid_color_values = [color_values[i] for i in valid_indices]
         
-        # Sort paths by metric values for better visualization layering
-        if color_metric in ['norm_dtw', 'dtw_ratio', 'dtw_warp_eff']:
-            sorted_indices = sorted(range(len(valid_color_values)), key=lambda i: valid_color_values[i])
+        # Check if there's only one valid path
+        only_one_path = len(valid_wp_list) == 1
+        
+        if only_one_path:
+            # If only one path, use red color
+            def process_path(i, wp_str, color_value):
+                """Process individual warping path for parallel execution."""
+                try:
+                    wp = parse_compact_warping_path(wp_str)
+                    return wp, 'red'
+                except Exception as e:
+                    warnings.warn(f"Error processing path {i}: {e}")
+                    return None, None
+            
+            # Process paths in parallel
+            results = Parallel(n_jobs=n_jobs)(
+                delayed(process_path)(i, wp_str, color_value) 
+                for i, (wp_str, color_value) in enumerate(zip(valid_wp_list, valid_color_values))
+            )
+            
+            # Plot all processed paths
+            for wp, color in tqdm(results, desc="Plotting paths"):
+                if wp is not None and len(wp) > 0:
+                    ax.plot(wp[:, 1], wp[:, 0], color=color, alpha=0.7, linewidth=2)
         else:
-            sorted_indices = sorted(range(len(valid_color_values)), key=lambda i: valid_color_values[i])
-        
-        sorted_wp_list = [valid_wp_list[i] for i in sorted_indices]
-        sorted_color_values = [valid_color_values[i] for i in sorted_indices]
-        
-        # Create colormap normalization
-        norm = plt.Normalize(min(sorted_color_values), max(sorted_color_values))
-        cmap = cm.ScalarMappable(norm=norm, cmap=colormap)
-        
-        def process_path(i, wp_str, color_value):
-            """Process individual warping path for parallel execution."""
-            try:
-                wp = parse_compact_warping_path(wp_str)
-                return wp, cmap.to_rgba(color_value)
-            except Exception as e:
-                warnings.warn(f"Error processing path {i}: {e}")
-                return None, None
-        
-        # Process paths in parallel
-        results = Parallel(n_jobs=n_jobs)(
-            delayed(process_path)(i, wp_str, color_value) 
-            for i, (wp_str, color_value) in enumerate(zip(sorted_wp_list, sorted_color_values))
-        )
-        
-        # Plot all processed paths
-        for wp, color in tqdm(results, desc="Plotting paths"):
-            if wp is not None and len(wp) > 0:
-                ax.plot(wp[:, 1], wp[:, 0], color=color, alpha=0.7, linewidth=2)
-                
-        # Add colorbar legend in upper left corner
-        rect_ax = fig.add_axes([0.06, 0.82, 0.28, 0.12])
-        rect_ax.add_patch(plt.Rectangle((0, 0), 1, 1, facecolor='white', alpha=0.9, 
-                                    edgecolor='black', linewidth=1))
-        rect_ax.axis('off')
+            # Multiple paths - use color scheme
+            # Sort paths by metric values for better visualization layering
+            if color_metric in ['norm_dtw', 'dtw_ratio', 'dtw_warp_eff']:
+                sorted_indices = sorted(range(len(valid_color_values)), key=lambda i: valid_color_values[i])
+            else:
+                sorted_indices = sorted(range(len(valid_color_values)), key=lambda i: valid_color_values[i])
+            
+            sorted_wp_list = [valid_wp_list[i] for i in sorted_indices]
+            sorted_color_values = [valid_color_values[i] for i in sorted_indices]
+            
+            # Create colormap normalization
+            norm = plt.Normalize(min(sorted_color_values), max(sorted_color_values))
+            cmap = cm.ScalarMappable(norm=norm, cmap=colormap)
+            
+            def process_path(i, wp_str, color_value):
+                """Process individual warping path for parallel execution."""
+                try:
+                    wp = parse_compact_warping_path(wp_str)
+                    return wp, cmap.to_rgba(color_value)
+                except Exception as e:
+                    warnings.warn(f"Error processing path {i}: {e}")
+                    return None, None
+            
+            # Process paths in parallel
+            results = Parallel(n_jobs=n_jobs)(
+                delayed(process_path)(i, wp_str, color_value) 
+                for i, (wp_str, color_value) in enumerate(zip(sorted_wp_list, sorted_color_values))
+            )
+            
+            # Plot all processed paths
+            for wp, color in tqdm(results, desc="Plotting paths"):
+                if wp is not None and len(wp) > 0:
+                    ax.plot(wp[:, 1], wp[:, 0], color=color, alpha=0.7, linewidth=2)
+                    
+            # Add colorbar legend in upper left corner
+            rect_ax = fig.add_axes([0.06, 0.82, 0.28, 0.12])
+            rect_ax.add_patch(plt.Rectangle((0, 0), 1, 1, facecolor='white', alpha=0.9, 
+                                        edgecolor='black', linewidth=1))
+            rect_ax.axis('off')
 
-        cax = fig.add_axes([0.075, 0.875, 0.25, 0.05])
-        cbar = plt.colorbar(cmap, cax=cax, orientation='horizontal')
-        cbar.set_label(colorbar_label)
+            cax = fig.add_axes([0.075, 0.875, 0.25, 0.05])
+            cbar = plt.colorbar(cmap, cax=cax, orientation='horizontal')
+            cbar.set_label(colorbar_label)
         
         ax.set_title('DTW Distance Matrix with Correlation Paths')
     
