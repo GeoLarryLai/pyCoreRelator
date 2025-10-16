@@ -2538,20 +2538,6 @@ def plot_quality_distributions(quality_data, target_quality_indices, output_figu
                     print(f"  Interpretation: no statistical significance (p-value = {stats_dict['p_value']:.2e})")
                 print()
 
-        # Save figure
-        if output_figure_filenames and quality_index in output_figure_filenames:
-            output_filename = output_figure_filenames[quality_index]
-            if debug:  # debug=True means mute_mode=True, show essential info only
-                print(f"✓ Distribution plot saved as: {output_filename}")
-            else:  # debug=False means mute_mode=False, show detailed info
-                print(f"✓ Distribution plot saved as: {output_filename}")
-                print(f"✓ Analysis complete for {quality_index}!")
-        else:
-            if debug:  # debug=True means mute_mode=True, show essential info only
-                print(f"✓ Distribution plot completed for {quality_index}")
-            else:  # debug=False means mute_mode=False, show detailed info
-                print(f"✓ Analysis complete for {quality_index}!")
-
         # Get display name for quality index
         def get_quality_display_name(quality_index):
             if quality_index == 'corr_coef':
@@ -2872,6 +2858,17 @@ def plot_quality_distributions(quality_data, target_quality_indices, output_figu
                 os.makedirs(output_dir, exist_ok=True)
             
             plt.savefig(output_filename, dpi=150, bbox_inches='tight')
+            
+            if debug:  # debug=True means mute_mode=True, show essential info only
+                print(f"✓ Distribution plot saved as: {output_filename}")
+            else:  # debug=False means mute_mode=False, show detailed info
+                print(f"✓ Distribution plot saved as: {output_filename}")
+                print(f"✓ Analysis complete for {quality_index}!")
+        else:
+            if debug:  # debug=True means mute_mode=True, show essential info only
+                print(f"✓ Distribution plot completed for {quality_index}")
+            else:  # debug=False means mute_mode=False, show detailed info
+                print(f"✓ Analysis complete for {quality_index}!")
         
         # Show plot AFTER all printed texts - suppress when debug=True (i.e., mute_mode=True)
         if not debug:  # debug=True means mute_mode=True, so suppress display
@@ -3324,7 +3321,9 @@ def plot_t_statistics_vs_constraints(quality_data, target_quality_indices, outpu
         # Save figure
         if output_figure_filenames and quality_index in output_figure_filenames:
             base_filename = output_figure_filenames[quality_index]
-            t_stat_filename = base_filename.replace('.png', '_tstat.png').replace('.jpg', '_tstat.jpg')
+            # Extract the file extension and insert '_tstat' before it
+            file_parts = os.path.splitext(base_filename)
+            t_stat_filename = file_parts[0] + '_tstat' + file_parts[1]
             
             # Create directory if needed
             output_dir = os.path.dirname(t_stat_filename)
