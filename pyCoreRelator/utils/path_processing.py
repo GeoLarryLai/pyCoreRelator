@@ -517,6 +517,12 @@ def find_best_mappings(csv_file_path,
                 print(f"  valid_pairs_to_combine={pairs_display}")
             else:
                 print(f"  valid_pairs_to_combine=[]")
+            
+            # Print matched datums if available
+            if 'matched_datums' in row and row['matched_datums']:
+                datums_list = row['matched_datums'].split(',')
+                print(f"  matched_datums={datums_list}")
+            
             print("")
         
         # Handle case where no valid mappings found
@@ -654,45 +660,6 @@ def find_best_mappings(csv_file_path,
                 
                 # Sort matching details from top to bottom (by boundary index)
                 matching_details.sort(key=lambda x: x['sort_key'])
-                
-                # Filter out partial matches that are covered by complete matches
-                # Step 1: Find bed names that appear in complete matches (both top and bottom)
-                complete_match_beds = set()
-                
-                # First pass: identify complete matches and collect their bed names
-                for detail in matching_details:
-                    description = detail['description']
-                    # Check if this is a complete match (has both top: and bottom:)
-                    if 'top:' in description and 'bottom:' in description:
-                        # Extract bed names from "[top:T15,bottom:T16]"
-                        import re
-                        bed_names = re.findall(r'(?:top|bottom):(\w+)', description)
-                        complete_match_beds.update(bed_names)
-                
-                # Step 2: Filter out partial matches whose bed names are in complete matches
-                filtered_pairs = []
-                filtered_details = []
-                
-                for i, detail in enumerate(matching_details):
-                    description = detail['description']
-                    
-                    # Check if this is a complete match
-                    if 'top:' in description and 'bottom:' in description:
-                        # Always keep complete matches
-                        filtered_pairs.append(matching_pairs[i])
-                        filtered_details.append(detail)
-                    else:
-                        # This is a partial match - check if its bed name is in complete matches
-                        import re
-                        bed_names = re.findall(r'(?:top|bottom):(\w+)', description)
-                        # Keep only if none of its bed names are in complete matches
-                        if not any(bed in complete_match_beds for bed in bed_names):
-                            filtered_pairs.append(matching_pairs[i])
-                            filtered_details.append(detail)
-                
-                # Update the lists with filtered results
-                matching_pairs = filtered_pairs
-                matching_details = filtered_details
 
             # Convert matching_pairs to set for faster lookup
             if matching_pairs:
@@ -705,41 +672,67 @@ def find_best_mappings(csv_file_path,
             for detail in matching_details:
                 print(f"  {detail['description']}")
 
-        # Step 2: Find DTW results that contain all boundary-correlated segment pairs
-        if matching_pairs:
-            target_mappings = []
+    # Step 2: Find DTW results that cover all matching datums
+    if matching_pairs:
+        target_mappings = []
+        
+        # Convert boundary pairs to 1-based format for comparison with CSV path values
+        boundary_pairs_1based = set((seg_a_idx + 3, seg_b_idx + 3) for seg_a_idx, seg_b_idx in valid_pairs_set)
+        
+        # Extract all datum names from matching_details to check coverage
+        import re
+        all_datums_in_pairs = set()
+        for detail in matching_details:
+            description = detail['description']
+            bed_names = re.findall(r'(?:top|bottom):(\w+)', description)
+            all_datums_in_pairs.update(bed_names)
+        
+        for _, mapping_row in dtw_results_df.iterrows():
+            path_str = mapping_row.get('path')
             
-            # Convert boundary pairs to 1-based format for comparison with CSV path values
-            boundary_pairs_1based = set((seg_a_idx + 3, seg_b_idx + 3) for seg_a_idx, seg_b_idx in valid_pairs_set)
+            if pd.isna(path_str) or path_str == '':
+                continue
             
-            for _, mapping_row in dtw_results_df.iterrows():
-                path_str = mapping_row.get('path')
-                
-                if pd.isna(path_str) or path_str == '':
-                    continue
-                
-                # Parse path: "2,2;4,4;6,6" -> {(2,2), (4,4), (6,6)}
-                try:
-                    path_pairs = set()
-                    for pair_str in path_str.split(';'):
-                        a, b = pair_str.split(',')
-                        path_pairs.add((int(a), int(b)))
-                except:
-                    continue  # Skip if parsing fails
-                
-                # Check if ALL boundary pairs are contained in this path
-                if boundary_pairs_1based.issubset(path_pairs):
-                    target_mappings.append(mapping_row)
+            # Parse path: "2,2;4,4;6,6" -> {(2,2), (4,4), (6,6)}
+            try:
+                path_pairs = set()
+                for pair_str in path_str.split(';'):
+                    a, b = pair_str.split(',')
+                    path_pairs.add((int(a), int(b)))
+            except:
+                continue  # Skip if parsing fails
             
-            # Convert to DataFrame if mappings found
-            if target_mappings:
-                target_mappings_df = pd.DataFrame(target_mappings).reset_index(drop=True)
+            # Check which segment pairs from our list are in this path
+            matched_pairs = boundary_pairs_1based.intersection(path_pairs)
+            
+            # Extract datums covered by the matched segment pairs
+            covered_datums = set()
+            for i, detail in enumerate(matching_details):
+                seg_pair_display = detail['description'].split(':')[0].strip().replace('Segment pair ', '')
+                # Check if this segment pair is in the matched set
+                if matching_pairs[i] in valid_pairs_set:
+                    seg_a_idx, seg_b_idx = matching_pairs[i]
+                    if (seg_a_idx + 3, seg_b_idx + 3) in matched_pairs:
+                        # Extract datums from this matched pair
+                        bed_names = re.findall(r'(?:top|bottom):(\w+)', detail['description'])
+                        covered_datums.update(bed_names)
+            
+            # Check if ALL datums are covered
+            if all_datums_in_pairs.issubset(covered_datums):
+                # Store the matched datums with this mapping
+                mapping_dict = mapping_row.to_dict()
+                mapping_dict['matched_datums'] = ','.join(sorted(covered_datums))
+                target_mappings.append(mapping_dict)
+        
+        # Convert to DataFrame if mappings found
+        if target_mappings:
+            target_mappings_df = pd.DataFrame(target_mappings).reset_index(drop=True)
     
     # Determine which dataframe to use for ranking
     if target_mappings_df is not None and not target_mappings_df.empty:
         working_df = target_mappings_df
         mode_title = "Target Mappings (Boundary Correlation)"
-        print(f"\n{len(target_mappings_df)}/{len(dtw_results_df)} mappings found with matched datums")
+        print(f"\n{len(target_mappings_df)}/{len(dtw_results_df)} mappings found with all {len(matching_boundary_names)} matched datums ({len(matching_pairs)} segment pairs)")
     elif use_boundary_mode and matching_pairs:
         # No mappings contain ALL segment pairs, but we have segment pairs
         # Find mappings that contain the MOST segment pairs from our list
@@ -748,7 +741,15 @@ def find_best_mappings(csv_file_path,
         # Convert boundary pairs to 1-based format for comparison with CSV path values
         boundary_pairs_1based = set((seg_a_idx + 3, seg_b_idx + 3) for seg_a_idx, seg_b_idx in valid_pairs_set)
         
-        # Count how many matching segment pairs each mapping contains
+        # Extract all datum names for counting
+        import re
+        all_datums_in_pairs = set()
+        for detail in matching_details:
+            description = detail['description']
+            bed_names = re.findall(r'(?:top|bottom):(\w+)', description)
+            all_datums_in_pairs.update(bed_names)
+        
+        # Count how many matching segment pairs and datums each mapping contains
         mapping_scores = []
         for _, mapping_row in dtw_results_df.iterrows():
             path_str = mapping_row.get('path')
@@ -766,23 +767,38 @@ def find_best_mappings(csv_file_path,
                 continue  # Skip if parsing fails
             
             # Count how many of our target segment pairs are in this mapping
-            matching_count = len(boundary_pairs_1based.intersection(path_pairs))
+            matched_pairs = boundary_pairs_1based.intersection(path_pairs)
+            matching_count = len(matched_pairs)
+            
+            # Count how many datums are covered
+            covered_datums = set()
+            for i, detail in enumerate(matching_details):
+                if matching_pairs[i] in valid_pairs_set:
+                    seg_a_idx, seg_b_idx = matching_pairs[i]
+                    if (seg_a_idx + 3, seg_b_idx + 3) in matched_pairs:
+                        bed_names = re.findall(r'(?:top|bottom):(\w+)', detail['description'])
+                        covered_datums.update(bed_names)
+            datum_count = len(covered_datums)
             
             if matching_count > 0:
                 # Add the mapping with its matching count
                 mapping_dict = mapping_row.to_dict()
                 mapping_dict['matching_segment_count'] = matching_count
+                mapping_dict['matching_datum_count'] = datum_count
+                mapping_dict['matched_datums'] = ','.join(sorted(covered_datums))
                 mapping_scores.append(mapping_dict)
         
         if mapping_scores:
-            # Convert to DataFrame and find mappings with the highest matching count
+            # Convert to DataFrame and find mappings with the highest datum count first, then segment pairs
             scored_df = pd.DataFrame(mapping_scores)
-            max_count = scored_df['matching_segment_count'].max()
-            best_partial_mappings = scored_df[scored_df['matching_segment_count'] == max_count]
+            max_datum_count = scored_df['matching_datum_count'].max()
+            best_by_datum = scored_df[scored_df['matching_datum_count'] == max_datum_count]
+            max_segment_count = best_by_datum['matching_segment_count'].max()
+            best_partial_mappings = best_by_datum[best_by_datum['matching_segment_count'] == max_segment_count]
             
             working_df = best_partial_mappings
-            mode_title = f"Best Partial Mappings ({max_count}/{len(boundary_pairs_1based)} segment pairs)"
-            print(f"\n{len(best_partial_mappings)}/{len(dtw_results_df)} mappings found with {max_count} matched segment pairs")
+            mode_title = f"Best Partial Mappings ({max_datum_count}/{len(all_datums_in_pairs)} datums, {max_segment_count}/{len(boundary_pairs_1based)} segment pairs)"
+            print(f"\n{len(best_partial_mappings)}/{len(dtw_results_df)} mappings found with {max_datum_count}/{len(all_datums_in_pairs)} matched datums ({max_segment_count}/{len(boundary_pairs_1based)} segment pairs)")
         else:
             # No mappings contain any of our segment pairs - fall back to standard
             working_df = dtw_results_df
@@ -846,13 +862,8 @@ def find_best_mappings(csv_file_path,
         return top_mapping_ids, top_mapping_pairs, standard_ranked_df
     
     # Step 3: Proceed with boundary mode processing since we have matching names
-    # Use the same working_df and mode_title that were already determined above
-    if target_mappings_df is not None and not target_mappings_df.empty:
-        working_df = target_mappings_df
-        mode_title = "Target Mappings (Boundary Correlation)"
-    else:
-        working_df = dtw_results_df
-        mode_title = "Overall Best Mappings"
+    # The working_df and mode_title were already set above (lines 740-800)
+    # Do NOT overwrite them here - they contain the filtered mappings we want to use
     
     # Clean the working dataframe for boundary mode
     existing_cols = [col for col in required_cols if col in working_df.columns]
