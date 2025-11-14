@@ -44,15 +44,12 @@ from scipy import stats
 from IPython.display import Image as IPImage
 
 # Import from other modules
-from .quality_metrics import compute_quality_indicators, calculate_age_overlap_percentage
+from .quality import compute_quality_indicators, calculate_age_overlap_percentage
 from .age_models import check_age_constraint_compatibility
-from .segment_operations import find_all_segments, filter_dead_end_pairs
-from ..utils.helpers import find_nearest_index
-from ..visualization.plotting import plot_segment_pair_correlation
-from ..visualization.matrix_plots import plot_dtw_matrix_with_paths
-from ..visualization.animation import create_segment_dtw_animation
+from .segments import find_all_segments, filter_dead_end_pairs, build_connectivity_graph, identify_special_segments
+from .quality import find_nearest_index
 from .diagnostics import diagnose_chain_breaks
-from .segment_operations import build_connectivity_graph, identify_special_segments
+# Note: plotting imports (plot_dtw_matrix_with_paths, create_segment_dtw_animation) moved to function level to avoid circular imports
 
 def force_bottom_segment_pairing(valid_dtw_pairs, segments_a, segments_b, depth_boundaries_a, depth_boundaries_b, 
                                 log_a, log_b, final_dtw_results, independent_dtw=False, mute_mode=False, pca_for_dependent_dtw=False):
@@ -212,7 +209,7 @@ def has_complete_paths(valid_pairs, segments_a, segments_b, depth_boundaries_a, 
         }
     
     # Import the existing function to reuse the same logic
-    from .segment_operations import identify_special_segments
+    from .segments import identify_special_segments
     
     # Use the same identification logic as diagnose_chain_breaks
     top_segments, bottom_segments, dead_ends, orphans, successors, predecessors = identify_special_segments(
@@ -1547,6 +1544,9 @@ def run_comprehensive_dtw_analysis(log_a, log_b, md_a, md_b, picked_depths_a=Non
             matrix_age_constraint_b_ages = None
             matrix_age_constraint_b_source_cores = None
         
+        # Import here to avoid circular imports
+        from ..utils.matrix_plots import plot_dtw_matrix_with_paths
+        
         dtwmatrix_output_file = plot_dtw_matrix_with_paths(
                                 dtw_distance_matrix_full, 
                                 mode='segment_paths',
@@ -1576,6 +1576,9 @@ def run_comprehensive_dtw_analysis(log_a, log_b, md_a, md_b, picked_depths_a=Non
 
     # Create animation if requested
     if creategif:
+        # Import here to avoid circular imports
+        from ..utils.animation import create_segment_dtw_animation
+        
         if not mute_mode:
             print("\nCreating GIF animation of all segment pairs...")
         gif_output_file = create_segment_dtw_animation(

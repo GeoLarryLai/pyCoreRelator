@@ -343,6 +343,11 @@ def plot_core_data(md, log, title, core_img_1=None, core_img_2=None, figsize=(20
             valid_categories = requested_categories & available_categories
             if not valid_categories:
                 print("Error: None of the requested categories exist in the data. No category markers will be shown.")
+                # Set empty lists so the code below doesn't fail
+                picked_depths_filtered = []
+                picked_categories_filtered = []
+                picked_uncertainties_filtered = []
+                show_interpreted_bed_name_filtered = None
             else:
                 # Filter the data to only include requested categories
                 if show_interpreted_bed_name is not None:

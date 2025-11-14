@@ -35,10 +35,10 @@ from joblib import Parallel, delayed
 from IPython.display import display, Image as IPImage
 from PIL import Image
 import imageio
-from ..utils.path_processing import combine_segment_dtw_results
-from ..visualization.matrix_plots import plot_dtw_matrix_with_paths
-from ..utils.data_loader import load_and_prepare_quality_data, reconstruct_raw_data_from_histogram
-from ..utils.helpers import cohens_d
+from ..analysis.path_combining import combine_segment_dtw_results
+from .matrix_plots import plot_dtw_matrix_with_paths
+from .data_loader import load_and_prepare_quality_data, reconstruct_raw_data_from_histogram
+from ..analysis.quality import cohens_d
 
 def plot_segment_pair_correlation(log_a, log_b, md_a, md_b, 
                                   segment_pairs=None, dtw_results=None, segments_a=None, segments_b=None,
@@ -1368,7 +1368,7 @@ def plot_correlation_distribution(csv_file, target_mapping_id=None, quality_inde
         if not mute_mode:
             print("Error: quality_index parameter is required")
             print("Available quality indices: perc_diag, norm_dtw, dtw_ratio, corr_coef, wrapping_deviation, mean_matching_function, perc_age_overlap")
-        return
+        return None, None, {}
     
     # Load the file - auto-detect format
     try:
@@ -1379,18 +1379,18 @@ def plot_correlation_distribution(csv_file, target_mapping_id=None, quality_inde
     except FileNotFoundError:
         if not mute_mode:
             print(f"File not found: {csv_file}")
-        return
+        return None, None, {}
     except Exception as e:
         if not mute_mode:
             print(f"Error reading file {csv_file}: {e}")
-        return
+        return None, None, {}
     
     # Check if quality_index column exists
     if quality_index not in df.columns:
         if not mute_mode:
             print(f"Error: '{quality_index}' column not found in the file")
             print(f"Available columns: {list(df.columns)}")
-        return
+        return None, None, {}
     
     # Convert to numpy array and remove NaN values
     quality_values = np.array(df[quality_index])
@@ -2601,7 +2601,8 @@ def plot_quality_distributions(quality_data, target_quality_indices, output_figu
             constraint_pairs = list(zip(constraint_handles, constraint_labels))
             
             for handle, label in constraint_pairs:
-                constraint_count = int(label.split(': ')[-1])
+                # Handle both integer and float string formats (e.g., '0' or '0.0')
+                constraint_count = int(float(label.split(': ')[-1]))
                 if constraint_count == 0:
                     # Rename to use the core B name
                     new_label = f'PDF w/o {CORE_B}\'s age constraints'
@@ -3133,7 +3134,7 @@ def plot_t_statistics_vs_constraints(quality_data, target_quality_indices, outpu
         
         # Set x-axis
         all_constraints = df_all_params['core_b_constraints_count'].unique()
-        x_min, x_max = 0, max(all_constraints)
+        x_min, x_max = 0, int(max(all_constraints))
         ax.set_xlim(-0.5, x_max + 0.5)
         ax.set_xticks(range(0, x_max + 1))
         

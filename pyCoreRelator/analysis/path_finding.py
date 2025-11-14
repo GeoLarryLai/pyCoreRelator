@@ -1,24 +1,13 @@
 """
-Segment analysis and path finding functions for core correlation.
+Path finding algorithms for core correlation analysis.
 
 Included Functions:
-- find_all_segments: Find segments in two logs using depth boundaries.
-- build_connectivity_graph: Build predecessor and successor relationships between valid segment pairs.
-- identify_special_segments: Identify special types of segments: tops, bottoms, dead ends, and orphans.
-- filter_dead_end_pairs: Remove dead end and orphan segment pairs from the valid set.
 - compute_total_complete_paths: Compute the total number of complete paths using dynamic programming.
 - find_complete_core_paths: Find complete core paths through the segment network.
-- diagnose_chain_breaks: Diagnose chain breaks in the segment network.
 
-This module provides comprehensive segment analysis and path finding functionality for 
-geological core correlation workflows. It enables the decomposition of well log data into 
-analyzable segments using depth boundaries, constructs connectivity graphs to model 
-predecessor-successor relationships between valid segment pairs, identifies special 
-segment types including starting points (tops), ending points (bottoms), dead ends, 
-and isolated segments (orphans), filters out problematic segment pairs that cannot 
-contribute to complete correlation paths, and employs dynamic programming algorithms 
-to efficiently compute the total number of viable complete correlation paths through 
-the segment network.
+This module provides comprehensive path finding functionality for geological core 
+correlation workflows, using dynamic programming and database optimization for 
+efficient enumeration of correlation paths through large segment networks.
 """
 
 import numpy as np
@@ -40,261 +29,7 @@ import sqlite3
 import json
 import random
 import math
-
-
-def find_all_segments(log_a, log_b, md_a, md_b, picked_depths_a=None, picked_depths_b=None, top_bottom=True, top_depth=0.0, mute_mode=False):
-    """
-    Find segments in two logs using depth boundaries to create consecutive and single-point segments.
-    
-    Converts user-picked depth values to indices in the log arrays and generates all possible
-    segment combinations for DTW analysis.
-    
-    Args:
-        log_a (array): Log data for core A
-        log_b (array): Log data for core B
-        md_a (array): Measured depth values corresponding to log_a
-        md_b (array): Measured depth values corresponding to log_b
-        picked_depths_a (list, optional): User-selected depth values for core A boundaries
-        picked_depths_b (list, optional): User-selected depth values for core B boundaries
-        top_bottom (bool): Whether to add top and bottom boundaries automatically
-        top_depth (float): Depth value to use for top boundary
-        mute_mode (bool, default=False): If True, suppress all print output
-        
-    Returns:
-        tuple: (segments_a, segments_b, depth_boundaries_a, depth_boundaries_b, depth_values_a, depth_values_b)
-            - segments_a/b: List of (start_idx, end_idx) tuples for each segment
-            - depth_boundaries_a/b: List of indices corresponding to depth values
-            - depth_values_a/b: List of actual depth values used
-    
-    Example:
-        >>> segments_a, segments_b, bounds_a, bounds_b, depths_a, depths_b = find_all_segments(
-        ...     log_a, log_b, md_a, md_b, 
-        ...     picked_depths_a=[0, 100, 200], 
-        ...     picked_depths_b=[0, 150, 300]
-        ... )
-        >>> print(f"Core A has {len(segments_a)} segments")
-        >>> print(f"First segment A spans indices {segments_a[0]}")
-    """
-    
-    # Initialize depth lists
-    if picked_depths_a is None:
-        picked_depths_a = []
-    if picked_depths_b is None:
-        picked_depths_b = []
-    
-    # Ensure picked_depths are Python lists
-    if isinstance(picked_depths_a, np.ndarray):
-        depth_values_a = picked_depths_a.tolist()
-    else:
-        depth_values_a = list(picked_depths_a)
-        
-    if isinstance(picked_depths_b, np.ndarray):
-        depth_values_b = picked_depths_b.tolist()
-    else:
-        depth_values_b = list(picked_depths_b)
-    
-    # Add top and bottom boundaries if requested
-    if top_bottom:
-        if top_depth not in depth_values_a:
-            depth_values_a.append(top_depth)
-        if md_a[-1] not in depth_values_a:
-            depth_values_a.append(md_a[-1])
-            
-        if top_depth not in depth_values_b:
-            depth_values_b.append(top_depth)
-        if md_b[-1] not in depth_values_b:
-            depth_values_b.append(md_b[-1])
-    
-    # Sort and remove duplicates
-    depth_values_a = sorted(list(set(depth_values_a)))
-    depth_values_b = sorted(list(set(depth_values_b)))
-    
-    # Create default segments if no depths specified
-    if len(depth_values_a) == 0:
-        if not mute_mode:
-            print("Warning: No depth boundaries specified for log A. Using evenly spaced boundaries.")
-        depth_values_a = [top_depth, md_a[len(log_a) // 3], md_a[2 * len(log_a) // 3], md_a[-1]]
-    
-    if len(depth_values_b) == 0:
-        if not mute_mode:
-            print("Warning: No depth boundaries specified for log B. Using evenly spaced boundaries.")
-        depth_values_b = [top_depth, md_b[len(log_b) // 3], md_b[2 * len(log_b) // 3], md_b[-1]]
-    
-    def find_nearest_index(depth_array, depth_value):
-        """Find the index in depth_array closest to the given depth_value."""
-        return np.abs(np.array(depth_array) - depth_value).argmin()
-    
-    # Convert depth values to array indices
-    depth_boundaries_a = [find_nearest_index(md_a, depth) for depth in depth_values_a]
-    depth_boundaries_b = [find_nearest_index(md_b, depth) for depth in depth_values_b]
-    
-    # Generate consecutive and single-point segments
-    segments_a = []
-    for i in range(len(depth_boundaries_a)):
-        segments_a.append((i, i))  # Single point segment
-        if i < len(depth_boundaries_a) - 1:
-            segments_a.append((i, i+1))  # Consecutive segment
-    
-    segments_b = []
-    for i in range(len(depth_boundaries_b)):
-        segments_b.append((i, i))  # Single point segment
-        if i < len(depth_boundaries_b) - 1:
-            segments_b.append((i, i+1))  # Consecutive segment
-
-    # Print summary information
-    if not mute_mode:
-        print(f"\nLog A depth values: {[float(d) for d in depth_values_a]}")
-        print(f"Log A depth boundaries: {[int(i) for i in depth_boundaries_a]}")
-        print(f"\nLog B depth values: {[float(d) for d in depth_values_b]}")
-        print(f"Log B depth boundaries: {[int(i) for i in depth_boundaries_b]}")
-        print(f"Generated {len(segments_a)} possible segments for log A")
-        print(f"Generated {len(segments_b)} possible segments for log B")
-    
-    return segments_a, segments_b, depth_boundaries_a, depth_boundaries_b, depth_values_a, depth_values_b
-
-
-def build_connectivity_graph(valid_dtw_pairs, detailed_pairs):
-    """
-    Build predecessor and successor relationships between valid segment pairs.
-    
-    Two segments are connected if the end depth of one segment matches the start depth
-    of another segment for both cores A and B.
-    
-    Parameters:
-        valid_dtw_pairs (set): Valid segment pairs from DTW analysis
-        detailed_pairs (dict): Dictionary mapping segment pairs to their depth details
-        
-    Returns:
-        tuple: (successors, predecessors) dictionaries mapping segments to connected segments
-    
-    Example:
-        >>> successors, predecessors = build_connectivity_graph(valid_pairs, details)
-        >>> # Check what follows segment (1,2)
-        >>> next_segments = successors.get((1,2), [])
-        >>> print(f"Segment (1,2) connects to: {next_segments}")
-    """
-    
-    successors = defaultdict(list)
-    predecessors = defaultdict(list)
-    
-    # Build connectivity by comparing end/start depths
-    for a_idx, b_idx in valid_dtw_pairs:
-        pair_details = detailed_pairs[(a_idx, b_idx)]
-        a_end = pair_details['a_end']
-        b_end = pair_details['b_end']
-        
-        for next_a_idx, next_b_idx in valid_dtw_pairs:
-            if (a_idx, b_idx) != (next_a_idx, next_b_idx):
-                next_details = detailed_pairs[(next_a_idx, next_b_idx)]
-                next_a_start = next_details['a_start']
-                next_b_start = next_details['b_start']
-                
-                # Check if segments connect exactly
-                if (abs(next_a_start - a_end) < 1e-6 and 
-                    abs(next_b_start - b_end) < 1e-6):
-                    successors[(a_idx, b_idx)].append((next_a_idx, next_b_idx))
-                    predecessors[(next_a_idx, next_b_idx)].append((a_idx, b_idx))
-    
-    return dict(successors), dict(predecessors)
-
-def identify_special_segments(valid_dtw_pairs, detailed_pairs, max_depth_a, max_depth_b):
-    """
-    Identify special types of segments: tops, bottoms, dead ends, and orphans.
-    
-    - Top segments: Start at depth 0 for both cores
-    - Bottom segments: End at maximum depth for both cores  
-    - Dead ends: Have no successors (but aren't bottom segments)
-    - Orphans: Have no predecessors (but aren't top segments)
-    
-    Parameters:
-        valid_dtw_pairs (set): Valid segment pairs
-        detailed_pairs (dict): Segment depth details
-        max_depth_a (float): Maximum depth for core A
-        max_depth_b (float): Maximum depth for core B
-        
-    Returns:
-        tuple: (top_segments, bottom_segments, dead_ends, orphans, successors, predecessors)
-    
-    Example:
-        >>> tops, bottoms, dead, orphans, succ, pred = identify_special_segments(
-        ...     valid_pairs, details, 1000.0, 1200.0
-        ... )
-        >>> print(f"Found {len(tops)} top segments and {len(bottoms)} bottom segments")
-        >>> print(f"Warning: {len(dead)} dead ends and {len(orphans)} orphans detected")
-    """
-    
-    # Build connectivity graph first
-    successors, predecessors = build_connectivity_graph(valid_dtw_pairs, detailed_pairs)
-    
-    # Classify segments based on position and connectivity
-    top_segments = []
-    bottom_segments = []
-    dead_ends = []
-    orphans = []
-    
-    for a_idx, b_idx in valid_dtw_pairs:
-        details = detailed_pairs[(a_idx, b_idx)]
-        
-        # Top segments start at depth 0 for both cores
-        if abs(details['a_start']) < 1e-6 and abs(details['b_start']) < 1e-6:
-            top_segments.append((a_idx, b_idx))
-        
-        # Bottom segments end at maximum depth for both cores
-        if (abs(details['a_end'] - max_depth_a) < 1e-6 and 
-            abs(details['b_end'] - max_depth_b) < 1e-6):
-            bottom_segments.append((a_idx, b_idx))
-        
-        # Dead ends have no successors but aren't bottom segments
-        if len(successors.get((a_idx, b_idx), [])) == 0 and (a_idx, b_idx) not in bottom_segments:
-            dead_ends.append((a_idx, b_idx))
-        
-        # Orphans have no predecessors but aren't top segments
-        if len(predecessors.get((a_idx, b_idx), [])) == 0 and (a_idx, b_idx) not in top_segments:
-            orphans.append((a_idx, b_idx))
-    
-    return top_segments, bottom_segments, dead_ends, orphans, successors, predecessors
-
-
-def filter_dead_end_pairs(valid_dtw_pairs, detailed_pairs, max_depth_a, max_depth_b, debug=False):
-    """
-    Remove dead end and orphan segment pairs from the valid set.
-    
-    This filtering improves path finding by removing segments that cannot be part
-    of complete paths from top to bottom.
-    
-    Parameters:
-        valid_dtw_pairs (set): Valid segment pairs to filter
-        detailed_pairs (dict): Segment depth details  
-        max_depth_a (float): Maximum depth for core A
-        max_depth_b (float): Maximum depth for core B
-        debug (bool): Whether to print filtering statistics
-        
-    Returns:
-        set: Filtered segment pairs without dead ends and orphans
-    
-    Example:
-        >>> filtered_pairs = filter_dead_end_pairs(valid_pairs, details, 1000, 1200, debug=True)
-        >>> print(f"Retained {len(filtered_pairs)} viable segments")
-    """
-    
-    # Get special segment classifications
-    top_segments, bottom_segments, dead_ends, orphans, successors, predecessors = identify_special_segments(
-        valid_dtw_pairs, detailed_pairs, max_depth_a, max_depth_b
-    )
-    
-    # Combine problematic segments
-    dead_end_pairs = set(dead_ends + orphans)
-    
-    # Filter out problematic segments
-    filtered_pairs = set(valid_dtw_pairs) - dead_end_pairs
-    
-    if debug:
-        print(f"Dead end filtering: {len(filtered_pairs)}/{len(valid_dtw_pairs)} segments retained")
-        print(f"Removed {len(dead_end_pairs)} dead-end pairs:")
-        print(f"  - {len(dead_ends)} dead ends (no successors)")
-        print(f"  - {len(orphans)} orphans (no predecessors)")
-    
-    return filtered_pairs
+from .segments import identify_special_segments
 
 
 def compute_total_complete_paths(valid_dtw_pairs, detailed_pairs, max_depth_a, max_depth_b, mute_mode=False):
@@ -405,6 +140,7 @@ def compute_total_complete_paths(valid_dtw_pairs, detailed_pairs, max_depth_a, m
         'paths_from_tops': paths_from_tops
     }
 
+
 def find_complete_core_paths(
     valid_dtw_pairs,
     segments_a,
@@ -413,7 +149,8 @@ def find_complete_core_paths(
     log_b,
     depth_boundaries_a,
     depth_boundaries_b,
-    dtw_results,  
+    dtw_results, 
+    dtw_distance_matrix_full,
     output_csv="complete_core_paths.csv",
     debug=False,
     start_from_top_only=True,
@@ -422,8 +159,9 @@ def find_complete_core_paths(
     shortest_path_search=True,
     shortest_path_level=2,
     max_search_path=5000,
-    output_metric_only=False,  # Add this new parameter
-    mute_mode=False  # Add this new parameter
+    output_metric_only=False,
+    mute_mode=False,
+    pca_for_dependent_dtw=False
 ):
     """
     Find and enumerate all complete core-to-core correlation paths with advanced optimization features.
@@ -447,6 +185,7 @@ def find_complete_core_paths(
         max_search_path (int): Maximum complete paths to find before stopping
         output_metric_only (bool): Only output quality metrics in the output CSV, no paths info
         mute_mode (bool): If True, suppress all print output
+        pca_for_dependent_dtw (bool): If True, perform PCA for dependent DTW
         
     Returns:
         dict: Comprehensive results including:
@@ -467,6 +206,13 @@ def find_complete_core_paths(
         >>> print(f"Results saved to: {results['output_csv']}")
     """
 
+    # Import helper functions from path_helpers module
+    from .path_helpers import (
+        check_memory, calculate_diagonality, compress_path, decompress_path,
+        remove_duplicates_from_db, filter_shortest_paths, compute_path_metrics_lazy,
+        setup_database, insert_compressed_path, prune_shared_database_if_needed
+    )
+
     # Create directory structure if needed
     output_dir = os.path.dirname(output_csv)
     if output_dir:
@@ -476,239 +222,6 @@ def find_complete_core_paths(
     if max_search_path is None and not mute_mode:
         print("⚠️  WARNING: max_search_path=None can be very time consuming and require high memory usage!")
         print("   Consider setting max_search_path to a reasonable limit (e.g., 50000) for better performance.")
-
-    def check_memory(threshold_percent=85):
-        """Check if memory usage is high and force cleanup if needed."""
-        memory_percent = psutil.virtual_memory().percent
-        if memory_percent > threshold_percent:
-            if not mute_mode:
-                print(f"⚠️ Memory usage high ({memory_percent}%)! Forcing cleanup...")
-            gc.collect()
-            return True
-        return False
-
-    def calculate_diagonality(wp):
-        """Calculate how diagonal/linear the DTW path is (0-1, higher is better)."""
-        if len(wp) < 2:
-            return 1.0
-            
-        # Measure deviation from perfect diagonal
-        a_indices = wp[:, 0]
-        b_indices = wp[:, 1]
-        
-        a_range = np.max(a_indices) - np.min(a_indices)
-        b_range = np.max(b_indices) - np.min(b_indices)
-        
-        if a_range == 0 or b_range == 0:
-            return 0.0  # Perfectly horizontal or vertical
-        
-        # Normalize and calculate distance from diagonal
-        a_norm = (a_indices - np.min(a_indices)) / a_range
-        b_norm = (b_indices - np.min(b_indices)) / b_range
-        distances = np.abs(a_norm - b_norm)
-        avg_distance = np.mean(distances)
-        
-        return float(1.0 - avg_distance)
-    
-    # Path compression for memory efficiency
-    def compress_path(path_segment_pairs):
-        """Compress path to save memory: [(1,2), (2,4)] -> "1,2|2,4" """
-        if not path_segment_pairs:
-            return ""
-        return "|".join(f"{a},{b}" for a, b in path_segment_pairs)
-    
-    def decompress_path(compressed_path):
-        """Decompress path: "1,2|2,4" -> [(1,2), (2,4)]"""
-        if not compressed_path:
-            return []
-        return [tuple(map(int, segment.split(','))) for segment in compressed_path.split('|')]
-    
-    def remove_duplicates_from_db(conn, debug_info=""):
-        """Remove duplicate paths from database and return count of removed duplicates."""
-        if debug and not mute_mode:
-            print(f"Removing duplicates from database... {debug_info}")
-        
-        # Create temporary table for unique paths
-        conn.execute("""
-            CREATE TEMPORARY TABLE temp_unique_paths AS
-            SELECT MIN(rowid) as keep_rowid, compressed_path, COUNT(*) as duplicate_count
-            FROM compressed_paths 
-            GROUP BY compressed_path
-        """)
-        
-        # Count duplicates
-        cursor = conn.execute("""
-            SELECT SUM(duplicate_count - 1) FROM temp_unique_paths 
-            WHERE duplicate_count > 1
-        """)
-        total_duplicates = cursor.fetchone()[0] or 0
-        
-        if total_duplicates > 0:
-            # Delete duplicates, keep only first occurrence
-            conn.execute("""
-                DELETE FROM compressed_paths 
-                WHERE rowid NOT IN (SELECT keep_rowid FROM temp_unique_paths)
-            """)
-            
-            if debug and not mute_mode:
-                print(f"  Removed {total_duplicates} duplicate paths")
-        
-        conn.execute("DROP TABLE temp_unique_paths")
-        conn.commit()
-        
-        return total_duplicates
-    
-    def filter_shortest_paths(paths_data, shortest_path_level):
-        """Filter paths to keep only the shortest path lengths."""
-        if not paths_data:
-            return paths_data
-        
-        # Get unique lengths and keep shortest ones
-        lengths = [length for _, length, _ in paths_data]
-        unique_lengths = sorted(set(lengths))
-        keep_lengths = set(unique_lengths[:shortest_path_level])
-        
-        # Filter paths
-        filtered_paths = [(path, length, is_complete) for path, length, is_complete in paths_data 
-                         if length in keep_lengths]
-        
-        if debug and not mute_mode and len(filtered_paths) < len(paths_data):
-            print(f"  Shortest path filtering: kept {len(filtered_paths)}/{len(paths_data)} paths with lengths {sorted(keep_lengths)}")
-        
-        return filtered_paths
-    
-    def compute_path_metrics_lazy(compressed_path, log_a, log_b):
-        """Compute quality metrics lazily only when needed for final output."""
-        path_segment_pairs = decompress_path(compressed_path)
-        
-        # Collect DTW results for path segments
-        all_quality_indicators = []
-        age_overlap_values = []
-        all_wps = []
-        
-        for a_idx, b_idx in path_segment_pairs:
-            if (a_idx, b_idx) in dtw_results:
-                paths, _, quality_indicators = dtw_results[(a_idx, b_idx)]
-                
-                if not paths or len(paths) == 0:
-                    continue
-                    
-                all_wps.append(paths[0])
-                
-                if quality_indicators and len(quality_indicators) > 0:
-                    qi = quality_indicators[0]
-                    all_quality_indicators.append(qi)
-                    
-                    if 'perc_age_overlap' in qi:
-                        age_overlap_values.append(float(qi['perc_age_overlap']))
-        
-        # Combine warping paths
-        if all_wps:
-            combined_wp = np.vstack(all_wps)
-            combined_wp = np.unique(combined_wp, axis=0)
-            combined_wp = combined_wp[combined_wp[:, 0].argsort()]
-        else:
-            combined_wp = np.array([])
-        
-        # Compute combined metrics
-        from ..utils.path_processing import compute_combined_path_metrics
-        metrics = compute_combined_path_metrics(combined_wp, log_a, log_b, all_quality_indicators, age_overlap_values)
-        
-        return combined_wp, metrics
-
-    # Database setup and operations
-    def setup_database(db_path, read_only=False):
-        """Setup SQLite database with performance optimizations."""
-        conn = sqlite3.connect(db_path)
-        
-        # SQLite performance optimizations
-        conn.execute("PRAGMA journal_mode = WAL")
-        conn.execute("PRAGMA synchronous = NORMAL")
-        conn.execute("PRAGMA cache_size = 10000")
-        conn.execute("PRAGMA temp_store = MEMORY")
-        
-        if not read_only:
-            # Create tables and indexes
-            conn.execute("""
-                CREATE TABLE IF NOT EXISTS compressed_paths (
-                    path_id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    start_segment TEXT NOT NULL,
-                    last_segment TEXT NOT NULL,
-                    compressed_path TEXT NOT NULL,
-                    length INTEGER NOT NULL,
-                    is_complete BOOLEAN DEFAULT 0
-                )
-            """)
-            
-            # Performance indexes
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_last_segment ON compressed_paths(last_segment)")
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_start_segment ON compressed_paths(start_segment)")
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_is_complete ON compressed_paths(is_complete)")
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_compressed_path ON compressed_paths(compressed_path)")
-        
-        conn.commit()
-        return conn
-
-    def insert_compressed_path(conn, start_segment, last_segment, compressed_path, length, is_complete=False):
-        """Insert a compressed path into database."""
-        conn.execute("""
-            INSERT INTO compressed_paths (start_segment, last_segment, compressed_path, length, is_complete)
-            VALUES (?, ?, ?, ?, ?)
-        """, (f"{start_segment[0]},{start_segment[1]}", 
-              f"{last_segment[0]},{last_segment[1]}", 
-              compressed_path, length, is_complete))
-        
-    def prune_shared_database_if_needed(shared_conn, max_paths, debug=False):
-        """Prune intermediate paths in shared database when they exceed the maximum limit."""
-        if max_paths is None:
-            return 0
-        
-        # Count only intermediate paths (is_complete = 0)
-        cursor = shared_conn.execute("SELECT COUNT(*) FROM compressed_paths WHERE is_complete = 0")
-        current_intermediate_count = cursor.fetchone()[0]
-        
-        if current_intermediate_count <= max_paths:
-            return 0  # No pruning needed
-        
-        paths_to_remove = current_intermediate_count - max_paths
-        
-        if debug and not mute_mode:
-            print(f"  Shared DB pruning: {current_intermediate_count} intermediate paths exceed limit of {max_paths}")
-            print(f"  Randomly excluding {paths_to_remove} intermediate paths from shared database")
-        
-        # Get only intermediate paths with their rowids for random selection
-        cursor = shared_conn.execute("""
-            SELECT rowid, start_segment 
-            FROM compressed_paths
-            WHERE is_complete = 0
-        """)
-        intermediate_paths = cursor.fetchall()
-        
-        # Randomly select intermediate paths to remove
-        if len(intermediate_paths) > max_paths:
-            selected_for_removal = random.sample(intermediate_paths, paths_to_remove)
-            rowids_to_remove = [rowid for rowid, _ in selected_for_removal]
-            
-            # Remove selected intermediate paths from database
-            if rowids_to_remove:
-                placeholders = ",".join("?" * len(rowids_to_remove))
-                shared_conn.execute(f"""
-                    DELETE FROM compressed_paths 
-                    WHERE rowid IN ({placeholders})
-                """, rowids_to_remove)
-                
-                shared_conn.commit()
-                
-                if debug and not mute_mode:
-                    print(f"  Removed {len(rowids_to_remove)} intermediate paths")
-                    # Verify final count
-                    cursor = shared_conn.execute("SELECT COUNT(*) FROM compressed_paths WHERE is_complete = 0")
-                    final_count = cursor.fetchone()[0]
-                    print(f"  Final intermediate path count after pruning: {final_count}")
-            
-            return len(rowids_to_remove)
-        
-        return 0
 
     # Setup boundary constraints and segment classification
     if not mute_mode:
@@ -1055,7 +568,7 @@ def find_complete_core_paths(
             
             # STEP 2: Apply shortest path filtering if enabled
             if shortest_path_search:
-                new_paths_data = filter_shortest_paths(new_paths_data, shortest_path_level)
+                new_paths_data = filter_shortest_paths(new_paths_data, shortest_path_level, debug, mute_mode)
             
             # STEP 3: Apply random pruning to intermediate paths if exceeding limit
             if max_search_path is not None:
@@ -1104,7 +617,7 @@ def find_complete_core_paths(
             """, batch_inserts)
         
         # Remove duplicates
-        duplicates_removed = remove_duplicates_from_db(group_write_conn, f"Group {group_idx+1}")
+        duplicates_removed = remove_duplicates_from_db(group_write_conn, debug, mute_mode)
         
         # Recalculate complete paths after deduplication
         cursor = group_write_conn.execute("SELECT COUNT(*) FROM compressed_paths WHERE is_complete = 1")
@@ -1186,13 +699,13 @@ def find_complete_core_paths(
 
             # **NEW: Apply pruning to shared database after sync**
             if max_search_path is not None:
-                shared_pruned = prune_shared_database_if_needed(shared_read_conn, max_search_path, debug)
+                shared_pruned = prune_shared_database_if_needed(shared_read_conn, max_search_path, debug, mute_mode)
                 if shared_pruned > 0 and debug and not mute_mode:
                     print(f"  Pruned {shared_pruned} paths from shared database after sync")
 
             # Remove duplicates after sync
             if len(group_results) > 1:
-                shared_duplicates = remove_duplicates_from_db(shared_read_conn, f"Shared DB after sync")
+                shared_duplicates = remove_duplicates_from_db(shared_read_conn, debug, mute_mode)
                 total_duplicates_removed += shared_duplicates
             
             # Clear the results batch
@@ -1229,7 +742,7 @@ def find_complete_core_paths(
     # Final deduplication on shared database
     if not mute_mode:
         print("Performing final deduplication on complete database...")
-    final_duplicates = remove_duplicates_from_db(shared_read_conn, "Final cleanup")
+    final_duplicates = remove_duplicates_from_db(shared_read_conn, debug, mute_mode)
     total_duplicates_removed += final_duplicates
     
     # Get final count after all deduplication
@@ -1249,17 +762,30 @@ def find_complete_core_paths(
     
     # Create output CSV with batch processing for memory efficiency
     def generate_output_csv():
-        """Generate final CSV output directly from deduplicated database using parallel processing."""
+        """Generate final output directly from deduplicated database using parallel processing."""
         
-        # Create output CSV with header
-        with open(output_csv, 'w', newline='') as f:
-            writer = csv.writer(f)
+        # Auto-detect file format based on extension
+        use_pickle = output_csv.lower().endswith('.pkl')
+        
+        if use_pickle:
+            # For Pickle: collect all data first, then save as DataFrame
+            all_results = []
+            
+            # Define column names
             if output_metric_only:
-                writer.writerow(['mapping_id', 'length', 
-                            'norm_dtw', 'dtw_ratio', 'perc_diag', 'dtw_warp_eff', 'corr_coef', 'perc_age_overlap'])
+                columns = ['mapping_id', 'length', 'norm_dtw', 'dtw_ratio', 'perc_diag', 'dtw_warp_eff', 'corr_coef', 'perc_age_overlap']
             else:
-                writer.writerow(['mapping_id', 'path', 'length', 'combined_wp', 
-                            'norm_dtw', 'dtw_ratio', 'perc_diag', 'dtw_warp_eff', 'corr_coef', 'perc_age_overlap'])
+                columns = ['mapping_id', 'path', 'length', 'combined_wp', 'norm_dtw', 'dtw_ratio', 'perc_diag', 'dtw_warp_eff', 'corr_coef', 'perc_age_overlap']
+        else:
+            # For CSV: create file with header as before
+            with open(output_csv, 'w', newline='') as f:
+                writer = csv.writer(f)
+                if output_metric_only:
+                    writer.writerow(['mapping_id', 'length', 
+                                'norm_dtw', 'dtw_ratio', 'perc_diag', 'dtw_warp_eff', 'corr_coef', 'perc_age_overlap'])
+                else:
+                    writer.writerow(['mapping_id', 'path', 'length', 'combined_wp', 
+                                'norm_dtw', 'dtw_ratio', 'perc_diag', 'dtw_warp_eff', 'corr_coef', 'perc_age_overlap'])
         
         # Get total number of complete paths for progress reporting
         cursor = shared_read_conn.execute("""
@@ -1299,7 +825,7 @@ def find_complete_core_paths(
                 formatted_path_compact = ";".join(f"{a+1},{b+1}" for a, b in full_path)
                 
                 # Compute metrics and warping path
-                combined_wp, metrics = compute_path_metrics_lazy(compressed_path, log_a, log_b)
+                combined_wp, metrics = compute_path_metrics_lazy(compressed_path, log_a, log_b, dtw_results, dtw_distance_matrix_full, pca_for_dependent_dtw=pca_for_dependent_dtw)
                 
                 # Format warping path compactly
                 if combined_wp is not None and len(combined_wp) > 0:
@@ -1315,6 +841,7 @@ def find_complete_core_paths(
                         round(metrics['norm_dtw'], 6),
                         round(metrics['dtw_ratio'], 6),
                         round(metrics['perc_diag'], 2),
+                        round(metrics['dtw_warp_eff'], 6),
                         round(metrics['corr_coef'], 6),
                         round(metrics['perc_age_overlap'], 2)
                     ])
@@ -1350,10 +877,14 @@ def find_complete_core_paths(
             # Process this batch
             batch_results = process_batch(batch, start_id)
             
-            # Write batch results
-            with open(output_csv, 'a', newline='') as f:
-                writer = csv.writer(f)
-                writer.writerows(batch_results)
+            if use_pickle:
+                # For Pickle: collect results
+                all_results.extend(batch_results)
+            else:
+                # For CSV: write batch results immediately
+                with open(output_csv, 'a', newline='') as f:
+                    writer = csv.writer(f)
+                    writer.writerows(batch_results)
             
             if not mute_mode:
                 pbar.update(1)
@@ -1364,6 +895,13 @@ def find_complete_core_paths(
         
         if not mute_mode:
             pbar.close()
+        
+        # Save Pickle file if needed
+        if use_pickle:
+            df = pd.DataFrame(all_results, columns=columns)
+            df.to_pickle(output_csv)
+            del df, all_results
+            gc.collect()
         
         return total_paths
     
@@ -1410,198 +948,4 @@ def find_complete_core_paths(
         'output_csv': output_csv,
         'duplicates_removed': total_duplicates_removed,
         'search_limit_reached': search_limit_reached
-    }
-
-
-def diagnose_chain_breaks(valid_dtw_pairs, segments_a, segments_b, 
-                          depth_boundaries_a, depth_boundaries_b):
-    """
-    Comprehensive diagnostic to find exactly where segment chains break.
-    
-    This function will trace all possible paths and identify missing connections.
-    Additionally computes total complete paths and finds the "far most" bounding complete paths.
-    
-    Parameters:
-    -----------
-    valid_dtw_pairs : set or list
-        Valid segment pairs
-    segments_a, segments_b : list
-        Segments in log_a and log_b
-    depth_boundaries_a, depth_boundaries_b : list
-        Depth boundaries for log_a and log_b
-    
-    Returns:
-    --------
-    dict: Enhanced results including complete path counts and bounding paths
-    """
-    
-    print("=== CHAIN BREAK DIAGNOSTIC ===")
-    
-    # Get max depths
-    max_depth_a = max(depth_boundaries_a)
-    max_depth_b = max(depth_boundaries_b)
-    
-    # Create detailed segment info
-    detailed_pairs = {}
-    for a_idx, b_idx in valid_dtw_pairs:
-        a_start = depth_boundaries_a[segments_a[a_idx][0]]
-        a_end = depth_boundaries_a[segments_a[a_idx][1]]
-        b_start = depth_boundaries_b[segments_b[b_idx][0]]
-        b_end = depth_boundaries_b[segments_b[b_idx][1]]
-        
-        detailed_pairs[(a_idx, b_idx)] = {
-            'a_start': a_start, 'a_end': a_end,
-            'b_start': b_start, 'b_end': b_end,
-            'a_len': a_end - a_start + 1,
-            'b_len': b_end - b_start + 1
-        }
-    
-    # Use the standalone helper functions
-    top_segments, bottom_segments, dead_ends, orphans, successors, predecessors = identify_special_segments(
-        valid_dtw_pairs, detailed_pairs, max_depth_a, max_depth_b
-    )
-    
-    print(f"\n=== SEGMENT INVENTORY & CONNECTIVITY ===")
-    print(f"Core A max depth: {max_depth_a}, Core B max depth: {max_depth_b}")
-    print(f"Total valid segment pairs: {len(valid_dtw_pairs)}")
-    print(f"Top segments (start at 0,0): {[(a+1, b+1) for a, b in top_segments]}")
-    print(f"Bottom segments (end at max): {[(a+1, b+1) for a, b in bottom_segments]}")
-    print(f"Dead ends (no successors): {len(dead_ends)} - {[(a+1, b+1) for a, b in dead_ends[:5]]}{'...' if len(dead_ends) > 5 else ''}")
-    print(f"Orphans (no predecessors): {len(orphans)} - {[(a+1, b+1) for a, b in orphans[:5]]}{'...' if len(orphans) > 5 else ''}")
-    
-    if not top_segments:
-        print("❌ FATAL: No top segments found!")
-        return None
-        
-    if not bottom_segments:
-        print("❌ FATAL: No bottom segments found!")
-        return None
-    
-    # Trace reachability from each top segment
-    print(f"\n=== DETAILED SEGMENT ANALYSIS ===")
-    
-    # Print all segments with their connectivity and types
-    for i, (a_idx, b_idx) in enumerate(sorted(valid_dtw_pairs)):
-        details = detailed_pairs[(a_idx, b_idx)]
-        pred_count = len(predecessors.get((a_idx, b_idx), []))
-        succ_count = len(successors.get((a_idx, b_idx), []))
-        
-        # Determine segment type
-        segment_types = []
-        if (a_idx, b_idx) in top_segments:
-            segment_types.append("TOP")
-        if (a_idx, b_idx) in bottom_segments:
-            segment_types.append("BOTTOM")
-        if (a_idx, b_idx) in dead_ends:
-            segment_types.append("DEAD_END")
-        if (a_idx, b_idx) in orphans:
-            segment_types.append("ORPHAN")
-        if not segment_types:
-            segment_types.append("MIDDLE")
-        
-        print(f"{i+1:3d}. Segment ({a_idx+1:2d},{b_idx+1:2d}): "
-              f"A[{details['a_start']:6.1f}:{details['a_end']:6.1f}] "
-              f"B[{details['b_start']:6.1f}:{details['b_end']:6.1f}] "
-              f"(A_len={details['a_len']:3.0f}, B_len={details['b_len']:3.0f}) "
-              f"pred:{pred_count} succ:{succ_count} {'/'.join(segment_types)}")
-    
-    print(f"\n=== REACHABILITY ANALYSIS ===")
-    
-    def trace_reachable_segments(start_segment):
-        """Trace all segments reachable from a starting segment"""
-        visited = set()
-        queue = deque([(start_segment, 0, [start_segment])])  # (segment, depth, path)
-        all_paths = []
-        max_depth_reached = 0
-        
-        while queue:
-            current, depth, path = queue.popleft()
-            
-            if current in visited:
-                continue
-                
-            visited.add(current)
-            max_depth_reached = max(max_depth_reached, depth)
-            
-            # Check if this is a bottom segment
-            if current in bottom_segments:
-                all_paths.append(path)
-                continue
-            
-            # Add successors to queue
-            for successor in successors.get(current, []):
-                if successor not in visited:
-                    new_path = path + [successor]
-                    queue.append((successor, depth + 1, new_path))
-        
-        return visited, all_paths, max_depth_reached
-    
-    # Analyze each top segment
-    all_complete_paths = []
-    
-    for i, top_seg in enumerate(top_segments):
-        print(f"\nTop Segment ({top_seg[0]+1},{top_seg[1]+1}):")
-        
-        reachable, complete_paths, max_depth = trace_reachable_segments(top_seg)
-        
-        print(f"  Reachable segments: {len(reachable)}, Complete paths: {len(complete_paths)}, Max chain depth: {max_depth}")
-        
-        if len(complete_paths) == 0:
-            print(f"  ❌ NO COMPLETE PATHS - Chain breaks detected")
-            
-            # Find the deepest reachable segments
-            deepest_segments = []
-            for seg in reachable:
-                seg_details = detailed_pairs[seg]
-                deepest_segments.append((seg, seg_details['a_end'], seg_details['b_end']))
-            
-            # Sort by depth and show the deepest reachable segments
-            deepest_segments.sort(key=lambda x: (x[1], x[2]), reverse=True)
-            
-            print(f"  🔍 Deepest reachable segments:")
-            for j, (seg, a_depth, b_depth) in enumerate(deepest_segments[:3]):
-                print(f"    {j+1}. ({seg[0]+1},{seg[1]+1}): A ends at {a_depth}, B ends at {b_depth}")
-                
-                # Check what's missing to continue
-                missing_connections = []
-                for next_seg in valid_dtw_pairs:
-                    next_details = detailed_pairs[next_seg]
-                    if (abs(next_details['a_start'] - a_depth) < 1e-6 and 
-                        abs(next_details['b_start'] - b_depth) < 1e-6):
-                        if next_seg not in reachable:
-                            missing_connections.append(next_seg)
-                
-                if missing_connections:
-                    print(f"       💡 Could connect to: {[(a+1,b+1) for a,b in missing_connections]} (but not reachable)")
-                else:
-                    print(f"       ⛔ No valid next segments available")
-        else:
-            print(f"  ✅ Complete paths exist")
-            all_complete_paths.extend(complete_paths)
-            # Show first complete path as example
-            if complete_paths:
-                example_path = complete_paths[0]
-                path_str = " → ".join([f"({seg[0]+1},{seg[1]+1})" for seg in example_path])
-                print(f"  Example path: {path_str}")
-
-    
-    # ===== COMPLETE PATH ANALYSIS =====
-    # Execute new functionality using the standalone functions
-    total_paths_results = compute_total_complete_paths(valid_dtw_pairs, detailed_pairs, max_depth_a, max_depth_b)
-    
-    return {
-        'top_segments': top_segments,
-        'bottom_segments': bottom_segments,
-        'complete_paths': all_complete_paths,
-        'successors': successors,
-        'predecessors': predecessors,
-        'dead_ends': dead_ends,
-        'orphans': orphans,
-        'detailed_pairs': detailed_pairs,
-        # New additions from standalone functions
-        'total_complete_paths': total_paths_results['total_complete_paths'],
-        'viable_segments': total_paths_results['viable_segments'],
-        'viable_tops': total_paths_results['viable_tops'],
-        'viable_bottoms': total_paths_results['viable_bottoms'],
-        'paths_from_tops': total_paths_results['paths_from_tops']
-    }
+    } 

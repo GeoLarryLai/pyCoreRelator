@@ -151,7 +151,7 @@ def compute_path_metrics_lazy(compressed_path, log_a, log_b, dtw_results, dtw_di
         combined_wp = np.array([])
     
     # Compute combined metrics
-    from ..utils.path_processing import compute_combined_path_metrics
+    from .path_combining import compute_combined_path_metrics
     metrics = compute_combined_path_metrics(combined_wp, log_a, log_b, all_quality_indicators, dtw_distance_matrix_full, age_overlap_values, pca_for_dependent_dtw=pca_for_dependent_dtw)
     
     return combined_wp, metrics
@@ -233,4 +233,5 @@ def prune_shared_database_if_needed(shared_conn, max_paths, debug=False, mute_mo
         shared_conn.execute(f"DELETE FROM compressed_paths WHERE rowid IN ({placeholders})", rowids_to_remove)
         shared_conn.commit()
     
-    return paths_to_remove 
+    return paths_to_remove
+

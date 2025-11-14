@@ -10,7 +10,7 @@ of breaks in correlation chains.
 """
 
 from collections import deque
-from .segment_operations import identify_special_segments
+from .segments import identify_special_segments
 from .path_finding import compute_total_complete_paths
 
 

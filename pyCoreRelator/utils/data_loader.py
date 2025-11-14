@@ -691,21 +691,21 @@ def load_and_prepare_quality_data(target_quality_indices, master_csv_filenames, 
         # Check if master CSV exists
         if not os.path.exists(master_csv_filename):
             if debug:
-                print(f"✗ Error: Master CSV file not found: {master_csv_filename}")
+                print(f"Error: Master CSV file not found: {master_csv_filename}")
             else:
-                print(f"✗ Error: Master CSV file not found: {master_csv_filename}")
+                print(f"Error: Master CSV file not found: {master_csv_filename}")
                 print(f"   Skipping {quality_index} and moving to next index...")
             continue
         
         try:
             df_all_params = pd.read_csv(master_csv_filename)
             if not debug:
-                print(f"✓ Loaded master CSV: {master_csv_filename}")
+                print(f"Loaded master CSV: {master_csv_filename}")
         except Exception as e:
             if debug:
-                print(f"✗ Error loading master CSV {master_csv_filename}: {str(e)}")
+                print(f"Error loading master CSV {master_csv_filename}: {str(e)}")
             else:
-                print(f"✗ Error loading master CSV {master_csv_filename}: {str(e)}")
+                print(f"Error loading master CSV {master_csv_filename}: {str(e)}")
                 print(f"   Skipping {quality_index} and moving to next index...")
             continue
 
@@ -806,3 +806,62 @@ def load_and_prepare_quality_data(target_quality_indices, master_csv_filenames, 
         }
     
     return quality_data
+
+# Path I/O functions (merged from path_processing)
+
+def load_sequential_mappings(csv_path):
+    """
+    Load sequential mappings from a CSV file.
+    
+    This function reads warping path data stored in compact format from CSV files.
+    It handles the parsing of compressed path strings back into lists of coordinate tuples.
+    
+    Parameters
+    ----------
+    csv_path : str
+        Path to the CSV file containing sequential mappings
+    
+    Returns
+    -------
+    list
+        List of warping paths, where each path is a list of (x, y) coordinate tuples
+    
+    Example
+    -------
+    >>> mappings = load_sequential_mappings('path_data.csv')
+    >>> print(f"Loaded {len(mappings)} paths")
+    >>> print(f"First path: {mappings[0][:3]}...")  # Show first 3 points
+    """
+    def parse_compact_path(compact_path_str):
+        """Parse compact path format "2,3;4,5;6,7" back to list of tuples"""
+        if not compact_path_str or compact_path_str == "":
+            return []
+        return [tuple(map(int, pair.split(','))) for pair in compact_path_str.split(';')]
+    
+    mappings = []
+    try:
+        # Try pandas for efficient CSV reading
+        df = pd.read_csv(csv_path)
+        
+        for _, row in df.iterrows():
+            try:
+                path = parse_compact_path(row['path'])
+                mappings.append(path)
+            except:
+                continue
+                
+    except ImportError:
+        # Fallback to csv module if pandas not available
+        with open(csv_path, 'r', newline='') as csvfile:
+            reader = csv.DictReader(csvfile)
+            
+            for row in reader:
+                try:
+                    path = parse_compact_path(row['path'])
+                    mappings.append(path)
+                except:
+                    continue
+    
+    return mappings
+
+

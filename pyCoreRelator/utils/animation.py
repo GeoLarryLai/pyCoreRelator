@@ -20,8 +20,8 @@ from joblib import Parallel, delayed
 from tqdm import tqdm
 import csv
 import random
-from ..visualization.plotting import visualize_combined_segments
-from ..visualization.plotting import plot_segment_pair_correlation
+from .plotting import visualize_combined_segments
+from .plotting import plot_segment_pair_correlation
 
 
 def create_gif(frame_folder, output_filename, duration=300):

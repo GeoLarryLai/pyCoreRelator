@@ -279,6 +279,9 @@ def calculate_interpolated_ages(picked_depths, age_constraints_depths, age_const
                 depth_fraction = (depth - all_constraint_depths_with_top[start_idx]) / (all_constraint_depths_with_top[end_idx] - all_constraint_depths_with_top[start_idx])
                 age = sampled_ages[start_idx] + depth_fraction * (sampled_ages[end_idx] - sampled_ages[start_idx])
             else:
+                # Initialize with default values in case loop doesn't find a match
+                start_idx = 0
+                end_idx = 1
                 for i in range(len(all_constraint_depths_with_top) - 1):
                     if all_constraint_depths_with_top[i] <= depth <= all_constraint_depths_with_top[i+1]:
                         start_idx = i
@@ -325,6 +328,9 @@ def calculate_interpolated_ages(picked_depths, age_constraints_depths, age_const
                 start_idx = len(all_constraint_depths_with_top) - 2
                 end_idx = len(all_constraint_depths_with_top) - 1
         else:
+            # Initialize with default values in case loop doesn't find a match
+            start_idx = 0
+            end_idx = 1
             for i in range(len(all_constraint_depths_with_top) - 1):
                 if all_constraint_depths_with_top[i] <= depth <= all_constraint_depths_with_top[i+1]:
                     start_idx = i
@@ -375,6 +381,9 @@ def calculate_interpolated_ages(picked_depths, age_constraints_depths, age_const
                     start_idx = len(all_constraint_depths_with_top) - 2
                     end_idx = len(all_constraint_depths_with_top) - 1
             else:
+                # Initialize with default values in case loop doesn't find a match
+                start_idx = 0
+                end_idx = 1
                 for j in range(len(all_constraint_depths_with_top) - 1):
                     if all_constraint_depths_with_top[j] <= depth <= all_constraint_depths_with_top[j+1]:
                         start_idx = j
@@ -481,6 +490,9 @@ def calculate_interpolated_ages(picked_depths, age_constraints_depths, age_const
                     start_idx = len(all_constraint_depths_with_top) - 2
                     end_idx = len(all_constraint_depths_with_top) - 1
             else:
+                # Initialize with default values in case loop doesn't find a match
+                start_idx = 0
+                end_idx = 1
                 for j in range(len(all_constraint_depths_with_top) - 1):
                     if all_constraint_depths_with_top[j] <= depth <= all_constraint_depths_with_top[j+1]:
                         start_idx = j
