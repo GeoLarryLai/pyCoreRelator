@@ -1,10 +1,10 @@
 # pyCoreRelator Function Documentation
 
-This document provides detailed documentation for all functions in the pyCoreRelator package, focusing on recent enhancements and new capabilities for geological core correlation analysis.
+This document provides detailed documentation for all functions in the pyCoreRelator package, organized by the current module structure for geological core correlation analysis.
 
-## Core Module (`pyCoreRelator.core`)
+## Analysis Module (`pyCoreRelator.analysis`)
 
-### DTW Analysis (`dtw_analysis.py`)
+### DTW Analysis (`dtw_core.py`)
 
 #### `run_comprehensive_dtw_analysis(log_a, log_b, md_a, md_b, **kwargs)`
 
@@ -99,7 +99,7 @@ Custom implementation of Dynamic Time Warping for well log correlation that hand
 - `wp` (np.ndarray): Optimal warping path as sequence of index pairs
 - `QIdx` (dict, optional): Quality indicators including correlation coefficient, diagonality, and DTW metrics if QualityIndex=True
 
-### Quality Metrics (`quality_metrics.py`)
+### Quality Metrics (`quality.py`)
 
 #### `compute_quality_indicators(log1, log2, p, q, D)`
 
@@ -167,9 +167,9 @@ Checks compatibility between two segment pairs based on their age ranges and con
 **Returns:**
 - `tuple`: (is_compatible, age_overlap_percentage) indicating whether segments are age-compatible and their overlap percentage
 
-### Segment Analysis (`segment_analysis.py`)
+### Segment Operations (`segments.py`)
 
-#### `find_all_segments(log_a, log_b, md_a, md_b, picked_depths_a=None, picked_depths_b=None, top_bottom=True, top_depth=0.0)`
+#### `find_all_segments(log_a, log_b, md_a, md_b, picked_depths_a=None, picked_depths_b=None, top_bottom=True, top_depth=0.0, mute_mode=False)`
 
 Identifies segments in two logs using picked depths, creating consecutive boundary segments and single point segments for correlation analysis.
 
@@ -228,28 +228,75 @@ Computes the total number of complete paths connecting top and bottom segments f
 **Returns:**
 - `int`: Total count of complete paths from top to bottom segments
 
-### Segment Operations (`segment_operations.py`)
+#### `build_connectivity_graph(valid_dtw_pairs, detailed_pairs)`
 
-#### `find_all_segments(log_a, log_b, md_a, md_b, picked_depths_a=None, picked_depths_b=None, top_bottom=True, top_depth=0.0, mute_mode=False)`
-
-Identifies segments in two logs using picked depths, creating consecutive boundary segments and single point segments for correlation analysis.
+Builds predecessor and successor relationships between valid segment pairs for advanced path finding algorithms.
 
 **Parameters:**
-- `log_a, log_b` (array-like): Log data arrays for cores A and B
-- `md_a, md_b` (array-like): Measured depth arrays corresponding to logs
-- `picked_depths_a, picked_depths_b` (list, optional): User-picked depth values (not indices)
-- `top_bottom` (bool, default=True): Whether to include top and bottom boundaries
-- `top_depth` (float, default=0.0): Depth value for top boundary
-- `mute_mode` (bool, default=False): Whether to suppress print output
+- `valid_dtw_pairs` (set): Valid segment pairs from DTW analysis
+- `detailed_pairs` (dict): Dictionary mapping segment pairs to their depth details
 
 **Returns:**
-- `segments_a, segments_b` (list): Lists of segment boundary index pairs for each core
-- `depth_boundaries_a, depth_boundaries_b` (list): Lists of depth boundary indices
-- `depth_values_a, depth_values_b` (list): Lists of actual depth values used as boundaries
+- `tuple`: (successors, predecessors) dictionaries mapping segments to connected segments
 
-## Log Module (`pyCoreRelator.log`)
+#### `identify_special_segments(valid_dtw_pairs, detailed_pairs, max_depth_a, max_depth_b)`
 
-### RGB Image Processing (`rgb_image2log.py`)
+Identifies special types of segments: tops, bottoms, dead ends, and orphans for path analysis.
+
+**Parameters:**
+- `valid_dtw_pairs` (set): Valid segment pairs
+- `detailed_pairs` (dict): Segment depth details
+- `max_depth_a, max_depth_b` (float): Maximum depths for cores A and B
+
+**Returns:**
+- `tuple`: (top_segments, bottom_segments, dead_ends, orphans, successors, predecessors)
+
+#### `filter_dead_end_pairs(valid_dtw_pairs, detailed_pairs, max_depth_a, max_depth_b, debug=False)`
+
+Removes dead end and orphan segment pairs from the valid set to improve path connectivity.
+
+**Parameters:**
+- `valid_dtw_pairs` (set): Valid segment pairs
+- `detailed_pairs` (dict): Segment depth details
+- `max_depth_a, max_depth_b` (float): Maximum depths for cores A and B
+- `debug` (bool, default=False): Whether to print debugging information
+
+**Returns:**
+- `set`: Filtered set of valid segment pairs excluding dead ends and orphans
+
+### Path Combining (`path_combining.py`)
+
+#### `combine_segment_dtw_results(dtw_results, segment_pairs, segments_a, segments_b, depth_boundaries_a, depth_boundaries_b, log_a, log_b)`
+
+Combines DTW results from multiple segment pairs into a unified correlation result by concatenating warping paths and averaging quality metrics.
+
+**Parameters:**
+- `dtw_results` (dict): Dictionary containing DTW results for each segment pair
+- `segment_pairs` (list): List of (a_idx, b_idx) tuples for segments to combine
+- `segments_a, segments_b` (list): Segment definitions for each core
+- `depth_boundaries_a, depth_boundaries_b` (list): Depth boundary indices
+- `log_a, log_b` (array-like): Original log data for quality assessment
+
+**Returns:**
+- `combined_wp` (np.ndarray): Combined warping path spanning all selected segments
+- `combined_quality` (dict): Averaged quality metrics across all segments
+
+#### `compute_combined_path_metrics(combined_wp, log_a, log_b, segment_quality_indicators, age_overlap_values=None)`
+
+Computes quality metrics for combined correlation paths by aggregating segment-level indicators.
+
+**Parameters:**
+- `combined_wp` (np.ndarray): Combined warping path
+- `log_a, log_b` (array-like): Original log data
+- `segment_quality_indicators` (list): List of quality indicator dictionaries from segments
+- `age_overlap_values` (list, optional): Age overlap percentages for each segment
+
+**Returns:**
+- `dict`: Combined quality metrics including normalized DTW, correlation, and age overlap
+
+## Preprocessing Module (`pyCoreRelator.preprocessing`)
+
+### RGB Image Processing (`rgb_processing.py`)
 
 #### `extract_rgb_profile(image_path, upper_rgb_threshold=100, lower_rgb_threshold=0, buffer=20, top_trim=0, bottom_trim=0, target_luminance=130, bin_size=10, width_start_pct=0.25, width_end_pct=0.75)`
 
@@ -267,6 +314,19 @@ Extracts RGB color profiles along the y-axis of an image file, analyzing the cen
 
 **Returns:**
 - `tuple`: (depths_pixels, widths_pixels, r_means, g_means, b_means, r_stds, g_stds, b_stds, lum_means, lum_stds, img_array) containing depth positions, RGB statistics, and processed image
+
+#### `trim_image(img_array, top_trim=0, bottom_trim=0)`
+
+Removes specified pixels from top and bottom edges of image array to eliminate borders or artifacts.
+
+**Parameters:**
+- `img_array` (array-like): Input image array with shape (height, width, channels)
+- `top_trim, bottom_trim` (int, default=0): Pixels to trim from edges
+
+**Returns:**
+- `array-like`: Trimmed image array with reduced height
+
+### RGB Image Plotting (`rgb_plotting.py`)
 
 #### `plot_rgb_profile(depths, r, g, b, r_std, g_std, b_std, lum, lum_std, img, core_name=None, save_figs=False, output_dir=None)`
 
@@ -298,18 +358,7 @@ Stitches multiple core section images by processing RGB profiles with section-sp
 **Returns:**
 - `tuple`: (all_depths, all_r, all_g, all_b, all_r_std, all_g_std, all_b_std, all_lum, all_lum_std, stitched_image) containing continuous RGB data and combined image
 
-#### `trim_image(img_array, top_trim=0, bottom_trim=0)`
-
-Removes specified pixels from top and bottom edges of image array to eliminate borders or artifacts.
-
-**Parameters:**
-- `img_array` (array-like): Input image array with shape (height, width, channels)
-- `top_trim, bottom_trim` (int, default=0): Pixels to trim from edges
-
-**Returns:**
-- `array-like`: Trimmed image array with reduced height
-
-### CT Image Processing (`ct_image2log.py`)
+### CT Image Processing (`ct_processing.py`)
 
 #### `load_dicom_files(dir_path, force=True)`
 
@@ -440,56 +489,52 @@ Orchestrates complete processing workflow for multi-segment core with rescaling 
 **Returns:**
 - `tuple`: (final_stitched_slice, final_stitched_brightness, final_stitched_stddev, final_stitched_depth, px_spacing_x, px_spacing_y) containing complete core data
 
-**ENHANCED** - Finds segments in two logs using depth boundaries to create consecutive and single-point segments with improved connectivity handling.
+### CT Image Plotting (`ct_plotting.py`)
+
+#### `display_slice(slice_data, px_spacing_x, px_spacing_y, core_name='', depth_units='mm')`
+
+Display CT slice with proper aspect ratio and axis labels.
 
 **Parameters:**
-- `log_a, log_b` (array): Log data for cores A and B
-- `md_a, md_b` (array): Measured depth values corresponding to logs
-- `picked_depths_a, picked_depths_b` (list, optional): User-selected depth values for boundaries
-- `top_bottom` (bool, default=True): Whether to add top and bottom boundaries automatically
-- `top_depth` (float, default=0.0): Depth value to use for top boundary
-- `mute_mode` (bool, default=False): If True, suppress all print output
+- `slice_data` (array-like): 2D CT scan slice data
+- `px_spacing_x, px_spacing_y` (float): Pixel spacing values
+- `core_name` (str, default=''): Core identifier for title
+- `depth_units` (str, default='mm'): Units for depth axis
 
 **Returns:**
-- `tuple`: (segments_a, segments_b, depth_boundaries_a, depth_boundaries_b, depth_values_a, depth_values_b)
+- None (displays plot)
 
-#### `build_connectivity_graph(valid_dtw_pairs, detailed_pairs)`
+#### `display_slice_bt_std(slice_data, brightness, stddev, depths, px_spacing_x, px_spacing_y, core_name='', depth_units='mm')`
 
-**NEW** - Builds predecessor and successor relationships between valid segment pairs for advanced path finding algorithms.
+Display CT slices with brightness traces and standard deviation plots.
 
 **Parameters:**
-- `valid_dtw_pairs` (set): Valid segment pairs from DTW analysis
-- `detailed_pairs` (dict): Dictionary mapping segment pairs to their depth details
+- `slice_data` (array-like): 2D CT scan slice data
+- `brightness` (array-like): Brightness values
+- `stddev` (array-like): Standard deviation values
+- `depths` (array-like): Depth values
+- `px_spacing_x, px_spacing_y` (float): Pixel spacing values
+- `core_name` (str, default=''): Core identifier for title
+- `depth_units` (str, default='mm'): Units for depth axis
 
 **Returns:**
-- `tuple`: (successors, predecessors) dictionaries mapping segments to connected segments
+- None (displays plot)
 
-#### `identify_special_segments(valid_dtw_pairs, detailed_pairs, max_depth_a, max_depth_b)`
+#### `plot_stitched_curves(st_bright, st_std, st_depth, core_name='', depth_units='cm')`
 
-**NEW** - Identifies special types of segments: tops, bottoms, dead ends, and orphans for path analysis.
+Plot stitched brightness curves with standard deviation shading.
 
 **Parameters:**
-- `valid_dtw_pairs` (set): Valid segment pairs
-- `detailed_pairs` (dict): Segment depth details
-- `max_depth_a, max_depth_b` (float): Maximum depths for cores A and B
+- `st_bright` (array-like): Stitched brightness values
+- `st_std` (array-like): Stitched standard deviation values
+- `st_depth` (array-like): Stitched depth values
+- `core_name` (str, default=''): Core identifier for title
+- `depth_units` (str, default='cm'): Units for depth axis
 
 **Returns:**
-- `tuple`: (top_segments, bottom_segments, dead_ends, orphans, successors, predecessors)
+- None (displays plot)
 
-#### `filter_dead_end_pairs(valid_dtw_pairs, detailed_pairs, max_depth_a, max_depth_b, debug=False)`
-
-**NEW** - Removes dead end and orphan segment pairs from the valid set to improve path connectivity.
-
-**Parameters:**
-- `valid_dtw_pairs` (set): Valid segment pairs
-- `detailed_pairs` (dict): Segment depth details
-- `max_depth_a, max_depth_b` (float): Maximum depths for cores A and B
-- `debug` (bool, default=False): Whether to print debugging information
-
-**Returns:**
-- `set`: Filtered set of valid segment pairs excluding dead ends and orphans
-
-### Machine Learning Data Imputation (`ml_log_data_imputation.py`)
+### Machine Learning Gap Filling (`gap_filling.py`)
 
 #### `preprocess_core_data(data_config)`
 
@@ -578,401 +623,35 @@ Process and fill gaps in log data using ML methods with fully configurable param
 **`train_model(model)`**
 - Helper function for parallel model training
 
-### Path Finding (`path_finding.py`)
+### Gap Filling Plots (`gap_filling_plots.py`)
 
-#### `compute_total_complete_paths(valid_dtw_pairs, detailed_pairs, max_depth_a, max_depth_b, mute_mode=False)`
+#### `plot_core_logs(data_config, file_type='clean', title=None)`
 
-**NEW** - Computes the total number of complete paths using dynamic programming for complexity assessment.
-
-**Parameters:**
-- `valid_dtw_pairs` (set): Valid segment pairs
-- `detailed_pairs` (dict): Segment depth details
-- `max_depth_a, max_depth_b` (float): Maximum depths for cores A and B
-- `mute_mode` (bool, default=False): If True, suppress all print output
-
-**Returns:**
-- `dict`: Path computation results including total complete paths, viable segments, and path counts
-
-#### `find_complete_core_paths(valid_dtw_pairs, segments_a, segments_b, log_a, log_b, depth_boundaries_a, depth_boundaries_b, dtw_results, dtw_distance_matrix_full, **kwargs)`
-
-**MAJOR ENHANCEMENT** - Finds and enumerates all complete core-to-core correlation paths with advanced optimization features including memory management, path pruning, and parallel processing.
+Plot core logs using fully configurable parameters from data_config.
 
 **Parameters:**
-- `valid_dtw_pairs` (set): Valid segment pairs from DTW analysis
-- `segments_a, segments_b` (list): Segment definitions for both cores
-- `log_a, log_b` (array): Core log data for metric computation
-- `depth_boundaries_a, depth_boundaries_b` (list): Depth boundary indices
-- `dtw_results` (dict): DTW results for quality metrics
-- `dtw_distance_matrix_full` (np.ndarray): Full DTW distance matrix for reference
-- `output_csv` (str, default="complete_core_paths.csv"): Output CSV filename
-- `debug` (bool, default=False): Enable detailed progress reporting
-- `start_from_top_only` (bool, default=True): Only start paths from top segments
-- `batch_size` (int, default=1000): Processing batch size for parallel operations
-- `n_jobs` (int, default=-1): Number of parallel jobs (-1 for all cores)
-- `shortest_path_search` (bool, default=True): Keep only shortest path lengths during search
-- `shortest_path_level` (int, default=2): Number of shortest unique lengths to keep
-- `max_search_path` (int, default=5000): Maximum intermediate paths to maintain per segment
-- `output_metric_only` (bool, default=False): Only output quality metrics in CSV, exclude path details
-- `mute_mode` (bool, default=False): If True, suppress all print output
+- `data_config` (dict): Configuration dictionary containing plotting parameters
+- `file_type` (str, default='clean'): Type of data files to plot ('clean' or 'filled')
+- `title` (str, optional): Custom title for the plot
 
 **Returns:**
-- `dict`: Comprehensive results including:
-  - `total_complete_paths_theoretical`: Theoretical path count
-  - `total_complete_paths_found`: Actually enumerated paths
-  - `viable_segments`: Set of viable segments
-  - `output_csv`: Path to generated CSV file
-  - `duplicates_removed`: Number of duplicates removed
-  - `search_limit_reached`: Whether search limit was hit
+- `tuple`: (fig, axes) - matplotlib figure and axes objects
 
-### Path Helpers (`path_helpers.py`)
+#### `plot_filled_data(target_log, original_data, filled_data, data_config, ML_type='ML')`
 
-#### `check_memory(threshold_percent=85, mute_mode=False)`
-
-Checks if memory usage is high and forces cleanup if needed.
+Plot original and ML-filled data for a given log.
 
 **Parameters:**
-- `threshold_percent` (float, default=85): Memory usage threshold percentage
-- `mute_mode` (bool, default=False): If True, suppress print output
+- `target_log` (str): Name of the log to plot
+- `original_data` (pandas.DataFrame): Original data containing the log with gaps
+- `filled_data` (pandas.DataFrame): Data with ML-filled gaps
+- `data_config` (dict): Configuration containing all parameters
+- `ML_type` (str, default='ML'): Type of ML method used for title
 
 **Returns:**
-- `bool`: True if memory cleanup was performed
+- None (displays the plot)
 
-#### `calculate_diagonality(wp)`
-
-Calculates how diagonal/linear the DTW path is (0-1, higher is better).
-
-**Parameters:**
-- `wp` (np.ndarray): Warping path as sequence of index pairs
-
-**Returns:**
-- `float`: Diagonality score between 0 and 1
-
-#### `compress_path(path_segment_pairs)`
-
-**NEW** - Compresses path to save memory by converting to string format for efficient database storage.
-
-**Parameters:**
-- `path_segment_pairs` (list): List of segment pair tuples
-
-**Returns:**
-- `str`: Compressed path string in format "a1,b1|a2,b2|..."
-
-#### `decompress_path(compressed_path)`
-
-**NEW** - Decompresses path from string format back to list of tuples.
-
-**Parameters:**
-- `compressed_path` (str): Compressed path string
-
-**Returns:**
-- `list`: List of segment pair tuples
-
-### Diagnostics (`diagnostics.py`)
-
-#### `diagnose_chain_breaks(valid_dtw_pairs, segments_a, segments_b, depth_boundaries_a, depth_boundaries_b)`
-
-Comprehensive diagnostic to find exactly where segment chains break and analyze connectivity issues.
-
-**Parameters:**
-- `valid_dtw_pairs` (set): Valid segment pairs
-- `segments_a, segments_b` (list): Segments in cores A and B
-- `depth_boundaries_a, depth_boundaries_b` (list): Depth boundaries for cores
-
-**Returns:**
-- `dict`: Enhanced results including complete path counts, missing connections, and bounding paths
-
-### Null Hypothesis Testing (`null_hypothesis.py`)
-
-#### `run_multi_parameter_analysis(log_a, log_b, md_a, md_b, all_depths_a_cat1, all_depths_b_cat1, pickeddepth_ages_a, pickeddepth_ages_b, age_data_a, age_data_b, uncertainty_method, parameter_combinations, target_quality_indices, test_age_constraint_removal, core_a_name, core_b_name, output_csv_filenames, **kwargs)`
-
-**NEW** - Comprehensive multi-parameter analysis framework for systematic evaluation of correlation quality across different age constraint combinations with null hypothesis testing.
-
-**Parameters:**
-- `log_a, log_b` (array-like): Core log data
-- `md_a, md_b` (array-like): Measured depth arrays
-- `all_depths_a_cat1, all_depths_b_cat1` (array-like): Category 1 picked depths for both cores
-- `pickeddepth_ages_a, pickeddepth_ages_b` (dict): Interpolated age data for picked depths
-- `age_data_a, age_data_b` (dict): Complete age constraint datasets
-- `uncertainty_method` (str): Age uncertainty calculation method
-- `parameter_combinations` (list): List of parameter combination dictionaries to test
-- `target_quality_indices` (list): Quality metrics to analyze ('corr_coef', 'norm_dtw', etc.)
-- `test_age_constraint_removal` (bool): Whether to test constraint removal scenarios
-- `core_a_name, core_b_name` (str): Core identifiers
-- `output_csv_filenames` (dict): Output file mapping for each quality index
-- `log_columns` (list, optional): Log column names to use
-
-**Returns:**
-- `None`: Results saved to specified CSV files with comprehensive statistical analysis
-
-#### `load_segment_pool(core_names, core_log_paths, picked_depth_paths, log_columns, depth_column, column_alternatives, boundary_category=1)`
-
-Loads segment pool data from turbidite database for synthetic core generation.
-
-**Parameters:**
-- `core_names` (list): List of core names to process
-- `core_log_paths` (dict): Dictionary mapping core names to log file paths
-- `picked_depth_paths` (dict): Dictionary mapping core names to picked depth file paths
-- `log_columns` (list): List of log column names to load
-- `depth_column` (str): Name of depth column
-- `column_alternatives` (dict): Dictionary of alternative column names
-- `boundary_category` (int, default=1): Category number for turbidite boundaries
-
-**Returns:**
-- `tuple`: (segment_pool_cores_data, turb_logs, depth_logs, target_dimensions)
-
-#### `modify_segment_pool(segment_logs, segment_depths, remove_list=None)`
-
-Remove unwanted segments from the pool data and return the modified pool.
-
-**Parameters:**
-- `segment_logs` (list): List of log data arrays (segments)
-- `segment_depths` (list): List of depth arrays corresponding to each segment
-- `remove_list` (list, optional): List of 1-based segment numbers to remove. If None or empty, no segments are removed
-
-**Returns:**
-- `tuple`: (modified_segment_logs, modified_segment_depths) containing the remaining segments
-
-#### `create_synthetic_log_with_depths(thickness, turb_logs, depth_logs, exclude_inds=None, plot_results=True, save_plot=False, plot_filename=None)`
-
-Creates synthetic log using turbidite database approach for null hypothesis testing.
-
-**Parameters:**
-- `thickness` (float): Target thickness for synthetic log
-- `turb_logs` (list): List of turbidite log segments
-- `depth_logs` (list): List of turbidite depth segments
-- `exclude_inds` (list, optional): Indices of segments to exclude
-- `plot_results` (bool, default=True): Whether to plot the synthetic log
-- `save_plot` (bool, default=False): Whether to save the plot
-- `plot_filename` (str, optional): Filename for saving plot
-
-**Returns:**
-- `tuple`: (synthetic_log, synthetic_depths) containing the generated synthetic data
-
-#### `create_and_plot_synthetic_core_pair(core_a_length, core_b_length, turb_logs, depth_logs, log_columns, plot_results=True, save_plot=False, plot_filename=None)`
-
-Generates synthetic core pair and optionally plots the results for correlation testing.
-
-**Parameters:**
-- `core_a_length, core_b_length` (float): Target lengths for synthetic cores
-- `turb_logs` (list): List of turbidite log segments
-- `depth_logs` (list): List of turbidite depth segments
-- `log_columns` (list): List of log column names
-- `plot_results` (bool, default=True): Whether to plot the results
-- `save_plot` (bool, default=False): Whether to save the plot
-- `plot_filename` (str, optional): Filename for saving plot
-
-**Returns:**
-- `tuple`: (synthetic_core_a, synthetic_core_b, depths_a, depths_b) containing the generated synthetic cores
-
-### Path Helpers (`path_helpers.py`)
-
-#### `check_memory(threshold_percent=85, mute_mode=False)`
-
-Checks if memory usage is high and forces cleanup if needed.
-
-**Parameters:**
-- `threshold_percent` (float, default=85): Memory usage threshold percentage
-- `mute_mode` (bool, default=False): If True, suppress print output
-
-**Returns:**
-- `bool`: True if memory cleanup was performed
-
-#### `calculate_diagonality(wp)`
-
-Calculates how diagonal/linear the DTW path is (0-1, higher is better).
-
-**Parameters:**
-- `wp` (np.ndarray): Warping path as sequence of index pairs
-
-**Returns:**
-- `float`: Diagonality score between 0 and 1
-
-#### `compress_path(path_segment_pairs)`
-
-**NEW** - Compresses path to save memory by converting to string format for efficient database storage.
-
-**Parameters:**
-- `path_segment_pairs` (list): List of segment pair tuples
-
-**Returns:**
-- `str`: Compressed path string in format "a1,b1|a2,b2|..."
-
-#### `decompress_path(compressed_path)`
-
-**NEW** - Decompresses path from string format back to list of tuples.
-
-**Parameters:**
-- `compressed_path` (str): Compressed path string
-
-**Returns:**
-- `list`: List of segment pair tuples
-
-### Diagnostics (`diagnostics.py`)
-
-#### `diagnose_chain_breaks(valid_dtw_pairs, segments_a, segments_b, depth_boundaries_a, depth_boundaries_b)`
-
-Comprehensive diagnostic to find exactly where segment chains break and analyze connectivity issues.
-
-**Parameters:**
-- `valid_dtw_pairs` (set): Valid segment pairs
-- `segments_a, segments_b` (list): Segments in cores A and B
-- `depth_boundaries_a, depth_boundaries_b` (list): Depth boundaries for cores
-
-**Returns:**
-- `dict`: Enhanced results including complete path counts, missing connections, and bounding paths
-
-## Utilities Module (`pyCoreRelator.utils`)
-
-### Data Loader (`data_loader.py`)
-
-#### `load_log_data(log_paths, img_paths, log_columns, depth_column='SB_DEPTH_cm', normalize=True, column_alternatives=None)`
-
-Loads and preprocesses well log data and core images from multiple file sources with automatic normalization and resampling.
-
-**Parameters:**
-- `log_paths` (dict): Dictionary mapping log names to file paths
-- `img_paths` (dict): Dictionary mapping image types ('rgb', 'ct') to file paths
-- `log_columns` (list): List of log column names to load from files
-- `depth_column` (str, default='SB_DEPTH_cm'): Name of depth column in data files
-- `normalize` (bool, default=True): Whether to normalize log data to [0,1] range
-- `column_alternatives` (dict, optional): Alternative column names to try if primary names not found
-
-**Returns:**
-- `log` (np.ndarray): Log data with shape (n_samples, n_logs) or (n_samples,) for single log
-- `md` (np.ndarray): Measured depths corresponding to log data
-- `available_columns` (list): Names of successfully loaded log columns
-- `rgb_img, ct_img` (np.ndarray or None): RGB and CT images if available
-
-#### `load_core_age_constraints(core_name, age_base_path, consider_adjacent_core=False, data_columns=None, mute_mode=False)`
-
-**NEW** - Loads age constraint data from CSV files with support for adjacent cores and flexible column mapping.
-
-**Parameters:**
-- `core_name` (str): Name of the core to load age constraints for
-- `age_base_path` (str): Base directory path containing age constraint CSV files
-- `consider_adjacent_core` (bool, default=False): Whether to also search for similar core names
-- `data_columns` (list, optional): Specific column names to load from CSV files
-- `mute_mode` (bool, default=False): If True, suppress print output
-
-**Returns:**
-- `dict`: Age constraint data with keys: 'depths', 'ages', 'pos_errors', 'neg_errors', 'core', 'in_sequence_flags'
-
-#### `resample_datasets(datasets, target_resolution_factor=2)`
-
-Resamples multiple datasets to a common depth scale with improved resolution for consistent analysis.
-
-**Parameters:**
-- `datasets` (list): List of dictionaries containing depth and data arrays
-- `target_resolution_factor` (float, default=2): Factor to improve resolution by dividing lowest resolution
-
-**Returns:**
-- `dict`: Dictionary with resampled data arrays and common depth scale
-
-### Path Processing (`path_processing.py`)
-
-#### `combine_segment_dtw_results(dtw_results, segment_pairs, segments_a, segments_b, depth_boundaries_a, depth_boundaries_b, log_a, log_b)`
-
-Combines DTW results from multiple segment pairs into a unified correlation result by concatenating warping paths and averaging quality metrics.
-
-**Parameters:**
-- `dtw_results` (dict): Dictionary containing DTW results for each segment pair
-- `segment_pairs` (list): List of (a_idx, b_idx) tuples for segments to combine
-- `segments_a, segments_b` (list): Segment definitions for each core
-- `depth_boundaries_a, depth_boundaries_b` (list): Depth boundary indices
-- `log_a, log_b` (array-like): Original log data for quality assessment
-
-**Returns:**
-- `combined_wp` (np.ndarray): Combined warping path spanning all selected segments
-- `combined_quality` (dict): Averaged quality metrics across all segments
-
-#### `compute_combined_path_metrics(combined_wp, log_a, log_b, segment_quality_indicators, age_overlap_values=None)`
-
-**NEW** - Computes quality metrics for combined correlation paths by aggregating segment-level indicators.
-
-**Parameters:**
-- `combined_wp` (np.ndarray): Combined warping path
-- `log_a, log_b` (array-like): Original log data
-- `segment_quality_indicators` (list): List of quality indicator dictionaries from segments
-- `age_overlap_values` (list, optional): Age overlap percentages for each segment
-
-**Returns:**
-- `dict`: Combined quality metrics including normalized DTW, correlation, and age overlap
-
-#### `load_sequential_mappings(csv_path)`
-
-Loads sequential correlation mappings from CSV file in compact format for visualization and analysis.
-
-**Parameters:**
-- `csv_path` (str): Path to CSV file containing sequential mappings
-
-**Returns:**
-- `list`: List of correlation paths as lists of (index_a, index_b) tuples
-
-#### `is_subset_or_superset(path_info, other_path_info, early_terminate=True)`
-
-Checks if one correlation path is a subset or superset of another for path filtering and deduplication.
-
-**Parameters:**
-- `path_info, other_path_info` (dict): Path information dictionaries containing length and segment data
-- `early_terminate` (bool, default=True): Whether to use early termination for efficiency
-
-**Returns:**
-- `tuple`: (is_subset, is_superset) boolean flags indicating relationship between paths
-
-#### `filter_against_existing(new_path, filtered_paths, group_writer)`
-
-Filters new correlation path against existing paths to remove duplicates and maintain unique path collection.
-
-**Parameters:**
-- `new_path` (dict): New path information to be filtered
-- `filtered_paths` (list): Existing collection of filtered paths
-- `group_writer`: Writer object for outputting filtered results
-
-**Returns:**
-- `tuple`: (is_valid, paths_to_remove, updated_count) indicating filter results
-
-#### `find_best_mappings(csv_file_path, top_n=5, filter_shortest_dtw=True, metric_weight=None, picked_depths_a_cat1=None, picked_depths_b_cat1=None, interpreted_bed_a=None, interpreted_bed_b=None, valid_dtw_pairs=None, segments_a=None, segments_b=None)`
-
-**NEW** - Finds the best correlation mappings from complete path analysis results based on weighted scoring of quality metrics. Supports both standard best mappings mode and boundary correlation filtering mode.
-
-**Parameters:**
-- `csv_file_path` (str): Path to the CSV file containing DTW results
-- `top_n` (int, default=5): Number of top mappings to return
-- `filter_shortest_dtw` (bool, default=True): If True, only consider mappings with shortest DTW path length
-- `metric_weight` (dict, optional): Dictionary defining metric weights for scoring. If None, uses default weights
-- `picked_depths_a_cat1` (array-like, optional): Picked depths for core A category 1 (for boundary correlation mode)
-- `picked_depths_b_cat1` (array-like, optional): Picked depths for core B category 1 (for boundary correlation mode)
-- `interpreted_bed_a` (array-like, optional): Interpreted bed names for core A (for boundary correlation mode)
-- `interpreted_bed_b` (array-like, optional): Interpreted bed names for core B (for boundary correlation mode)
-- `valid_dtw_pairs` (list, optional): List of valid DTW pairs (for boundary correlation mode)
-- `segments_a` (list, optional): Segments for core A (for boundary correlation mode)
-- `segments_b` (list, optional): Segments for core B (for boundary correlation mode)
-
-**Returns:**
-- `tuple`: (top_mapping_ids, top_mapping_pairs, top_mapping_df) containing:
-  - `top_mapping_ids`: List of top mapping IDs in order
-  - `top_mapping_pairs`: List of valid_pairs_to_combine for each top mapping ID
-  - `top_mapping_df`: DataFrame containing the top N mappings sorted by combined score
-
-**Behavior:**
-- If boundary correlation parameters are provided and valid matching bed names are found, operates in boundary correlation mode
-- If boundary parameters are not provided or no matching bed names are found, operates in standard best mappings mode
-- Clear console messages indicate which mode is being used
-
-### Helpers (`helpers.py`)
-
-#### `find_nearest_index(depth_array, depth_value)`
-
-Finds the index in a depth array that corresponds to the closest depth value to a target depth.
-
-**Parameters:**
-- `depth_array` (array-like): Array of depth values to search
-- `depth_value` (float): Target depth value to find
-
-**Returns:**
-- `int`: Index in depth_array with closest value to target depth
-
-### Core Datum Picking (`core_datum_picker.py`)
+### Datum Picker (`datum_picker.py`)
 
 #### `pick_stratigraphic_levels(md, log, core_img_1=None, core_img_2=None, core_name="", csv_filename=None)`
 
@@ -1003,8 +682,8 @@ Creates a matplotlib figure with subplots for core images and log data visualiza
 **Parameters:**
 - `md` (array-like): Depth values for x-axis data
 - `log` (array-like): Log data for y-axis data
-- `core_img_1` (numpy.ndarray, optional): First core image data (e.g., RGB image)
-- `core_img_2` (numpy.ndarray, optional): Second core image data (e.g., CT image)
+- `core_img_1` (numpy.ndarray, optional): First core image data
+- `core_img_2` (numpy.ndarray, optional): Second core image data
 - `miny` (float, default=0): Minimum y-axis limit for log plot
 - `maxy` (float, default=1): Maximum y-axis limit for log plot
 
@@ -1013,53 +692,51 @@ Creates a matplotlib figure with subplots for core images and log data visualiza
 
 #### `onclick_boundary(event, xs, lines, ax, toolbar, categories, current_category, status_text=None)`
 
-Handles mouse click events for interactive boundary picking. Processes left mouse clicks to add depth values and corresponding vertical lines to the interactive plot.
+Handles mouse click events for interactive boundary picking.
 
 **Parameters:**
-- `event` (matplotlib event object): Mouse click event containing position and button information
-- `xs` (list): List to store x-coordinate values of clicked points
-- `lines` (list): List to store matplotlib line objects for visualization
-- `ax` (matplotlib.axes.Axes): The axes object where the clicking occurs
-- `toolbar` (matplotlib toolbar object): Navigation toolbar to check if any tools are active
-- `categories` (list): List to store category values for each clicked point
-- `current_category` (list): Single-element list containing the current category value
-- `status_text` (matplotlib.text.Text, optional): Text object for displaying status messages
+- `event` (matplotlib event object): Mouse click event
+- `xs` (list): List to store x-coordinate values
+- `lines` (list): List to store matplotlib line objects
+- `ax` (matplotlib.axes.Axes): The axes object where clicking occurs
+- `toolbar` (matplotlib toolbar object): Navigation toolbar
+- `categories` (list): List to store category values
+- `current_category` (list): Single-element list containing current category
+- `status_text` (matplotlib.text.Text, optional): Text object for status messages
 
 **Returns:**
 - None (modifies input lists and plot in place)
 
 #### `onkey_boundary(event, xs, lines, ax, cid, toolbar, categories, current_category, csv_filename=None, status_text=None)`
 
-Handles keyboard events for interactive boundary picking, including category changes, point removal, and completion of selection.
+Handles keyboard events for interactive boundary picking.
 
 **Parameters:**
-- `event` (matplotlib event object): Keyboard event containing key information
-- `xs` (list): List storing x-coordinate values of clicked points
-- `lines` (list): List storing matplotlib line objects for visualization
-- `ax` (matplotlib.axes.Axes): The axes object where the interaction occurs
-- `cid` (list): List containing connection IDs for event handlers
-- `toolbar` (matplotlib toolbar object): Navigation toolbar reference
-- `categories` (list): List storing category values for each clicked point
-- `current_category` (list): Single-element list containing the current category value
-- `csv_filename` (str, optional): Full path/filename for the output CSV file
-- `status_text` (matplotlib.text.Text, optional): Text object for displaying status messages
+- `event` (matplotlib event object): Keyboard event
+- `xs` (list): List storing x-coordinate values
+- `lines` (list): List storing matplotlib line objects
+- `ax` (matplotlib.axes.Axes): The axes object
+- `cid` (list): List containing connection IDs
+- `toolbar` (matplotlib toolbar object): Navigation toolbar
+- `categories` (list): List storing category values
+- `current_category` (list): Single-element list with current category
+- `csv_filename` (str, optional): Output CSV file path
+- `status_text` (matplotlib.text.Text, optional): Text for status messages
 
 **Returns:**
 - None (modifies input lists and saves data when 'enter' is pressed)
 
 #### `get_category_color(category)`
 
-Maps category identifiers to specific colors for consistent visualization of different stratigraphic units or boundary types.
+Maps category identifiers to specific colors for visualization.
 
 **Parameters:**
-- `category` (str or int): Category identifier (can be string or numeric)
+- `category` (str or int): Category identifier
 
 **Returns:**
-- `str`: Color string compatible with matplotlib (e.g., 'r', 'g', 'b')
+- `str`: Color string compatible with matplotlib
 
-## Visualization Module (`pyCoreRelator.visualization`)
-
-### Core Plots (`core_plots.py`)
+### Core Display (`core_display.py`)
 
 #### `plot_core_data(md, log, title, rgb_img=None, ct_img=None, figsize=(20, 4), label_name=None, available_columns=None, is_multilog=False, picked_depths=None, picked_categories=None, picked_uncertainties=None, show_category=None, show_bed_number=False)`
 
@@ -1067,27 +744,106 @@ Plots core data with optional RGB and CT images and support for multiple log typ
 
 **Parameters:**
 - `md` (array-like): Array of depth values
-- `log` (array-like): Array of log values, either 1D for single log or 2D for multiple logs
+- `log` (array-like): Array of log values (1D or 2D)
 - `title` (str): Title for the plot
-- `rgb_img, ct_img` (array-like, optional): RGB and CT image arrays to display
-- `figsize` (tuple, default=(20, 4)): Figure size (width, height)
-- `label_name` (str, optional): Name for the log curve label (used for single log)
-- `available_columns` (list, optional): Names of the log columns for multidimensional logs
+- `rgb_img, ct_img` (array-like, optional): RGB and CT image arrays
+- `figsize` (tuple, default=(20, 4)): Figure size
+- `label_name` (str, optional): Name for log curve label
+- `available_columns` (list, optional): Names of log columns for multilogs
 - `is_multilog` (bool, default=False): Whether log contains multiple columns
 - `picked_depths` (list, optional): List of picked depths for category visualization
-- `picked_categories` (list, optional): List of categories corresponding to picked_depths
-- `picked_uncertainties` (list, optional): List of uncertainties for each picked depth
-- `show_category` (list, optional): List of specific categories to show. If None, shows all categories
-- `show_bed_number` (bool, default=False): If True, displays bed numbers next to category depth lines
+- `picked_categories` (list, optional): Categories for picked_depths
+- `picked_uncertainties` (list, optional): Uncertainties for each picked depth
+- `show_category` (list, optional): Specific categories to show
+- `show_bed_number` (bool, default=False): Display bed numbers
 
 **Returns:**
-- `tuple`: (fig, plot_ax) containing the matplotlib figure and main plotting axis
+- `tuple`: (fig, plot_ax) containing the figure and main plotting axis
 
-### Advanced Plotting (`plotting.py`)
+## Utils Module (`pyCoreRelator.utils`)
+
+### Data Loader (`data_loader.py`)
+
+#### `load_log_data(log_paths, img_paths, log_columns, depth_column='SB_DEPTH_cm', normalize=True, column_alternatives=None)`
+
+Loads and preprocesses well log data and core images from multiple file sources with automatic normalization and resampling.
+
+**Parameters:**
+- `log_paths` (dict): Dictionary mapping log names to file paths
+- `img_paths` (dict): Dictionary mapping image types ('rgb', 'ct') to file paths
+- `log_columns` (list): List of log column names to load from files
+- `depth_column` (str, default='SB_DEPTH_cm'): Name of depth column in data files
+- `normalize` (bool, default=True): Whether to normalize log data to [0,1] range
+- `column_alternatives` (dict, optional): Alternative column names to try if primary names not found
+
+**Returns:**
+- `tuple`: (log, md, available_columns, rgb_img, ct_img) containing loaded data and images
+
+#### `load_core_age_constraints(core_name, age_base_path, consider_adjacent_core=False, data_columns=None, mute_mode=False)`
+
+Loads age constraint data from CSV files with support for adjacent cores and flexible column mapping.
+
+**Parameters:**
+- `core_name` (str): Name of the core to load age constraints for
+- `age_base_path` (str): Base directory path containing age constraint CSV files
+- `consider_adjacent_core` (bool, default=False): Whether to also search for similar core names
+- `data_columns` (list, optional): Specific column names to load from CSV files
+- `mute_mode` (bool, default=False): If True, suppress print output
+
+**Returns:**
+- `dict`: Age constraint data with keys: 'depths', 'ages', 'pos_errors', 'neg_errors', 'core', 'in_sequence_flags'
+
+#### `resample_datasets(datasets, target_resolution_factor=2)`
+
+Resamples multiple datasets to a common depth scale with improved resolution for consistent analysis.
+
+**Parameters:**
+- `datasets` (list): List of dictionaries containing depth and data arrays
+- `target_resolution_factor` (float, default=2): Factor to improve resolution by dividing lowest resolution
+
+**Returns:**
+- `dict`: Dictionary with resampled data arrays and common depth scale
+
+#### `load_sequential_mappings(csv_path)`
+
+Loads sequential correlation mappings from CSV file in compact format for visualization and analysis.
+
+**Parameters:**
+- `csv_path` (str): Path to CSV file containing sequential mappings
+
+**Returns:**
+- `list`: List of correlation paths as lists of (index_a, index_b) tuples
+
+### Path Processing (`path_processing.py`)
+
+#### `is_subset_or_superset(path_info, other_path_info, early_terminate=True)`
+
+Checks if one correlation path is a subset or superset of another for path filtering and deduplication.
+
+**Parameters:**
+- `path_info, other_path_info` (dict): Path information dictionaries containing length and segment data
+- `early_terminate` (bool, default=True): Whether to use early termination for efficiency
+
+**Returns:**
+- `tuple`: (is_subset, is_superset) boolean flags indicating relationship between paths
+
+#### `filter_against_existing(new_path, filtered_paths, group_writer)`
+
+Filters new correlation path against existing paths to remove duplicates and maintain unique path collection.
+
+**Parameters:**
+- `new_path` (dict): New path information to be filtered
+- `filtered_paths` (list): Existing collection of filtered paths
+- `group_writer`: Writer object for outputting filtered results
+
+**Returns:**
+- `tuple`: (is_valid, paths_to_remove, updated_count) indicating filter results
+
+### Plotting (`plotting.py`)
 
 #### `plot_segment_pair_correlation(log_a, log_b, md_a, md_b, **kwargs)`
 
-**ENHANCED** - Creates comprehensive visualization of DTW correlation between log segments with support for single and multiple segment pairs, including RGB/CT images and age constraints.
+Creates comprehensive visualization of DTW correlation between log segments with support for single and multiple segment pairs.
 
 **Parameters:**
 - `log_a, log_b` (array-like): Full log data arrays (single or multidimensional)
@@ -1104,23 +860,99 @@ Plots core data with optional RGB and CT images and support for multiple log typ
 **Returns:**
 - `matplotlib.figure.Figure`: Complete correlation visualization figure
 
-#### `plot_multilog_segment_pair_correlation(log_a, log_b, md_a, md_b, wp, a_start, a_end, b_start, b_end, **kwargs)`
+#### `visualize_combined_segments(log_a, log_b, md_a, md_b, segment_pairs, dtw_results, segments_a, segments_b, depth_boundaries_a, depth_boundaries_b, **kwargs)`
 
-**NEW** - Plots correlation between two multilogs (multiple log curves) with RGB and CT images.
+Display segment correlations overlaid on log plots.
 
 **Parameters:**
-- `log_a, log_b` (array-like): Multidimensional log data arrays with shape (n_samples, n_logs)
+- `log_a, log_b` (array-like): Log data arrays
 - `md_a, md_b` (array-like): Measured depth arrays
-- `wp` (array-like): Warping path as sequence of index pairs
-- `a_start, a_end, b_start, b_end` (int): Start and end indices for segments
-- `step` (int, default=5): Sampling interval for visualization
-- `quality_indicators` (dict, optional): Dictionary containing quality indicators
-- `available_columns` (list, optional): Names of the logs being displayed
-- `rgb_img_a, rgb_img_b, ct_img_a, ct_img_b` (array-like, optional): Core images
-- `picked_depths_a, picked_depths_b` (list, optional): Lists of picked depths to mark
-- `picked_categories_a, picked_categories_b` (list, optional): Categories for picked depths
-- `category_colors` (dict, optional): Mapping of category codes to colors
-- `title` (str, optional): Plot title
+- `segment_pairs` (list): List of segment pair tuples to visualize
+- `dtw_results` (dict): DTW results dictionary
+- `segments_a, segments_b` (list): Segment definitions
+- `depth_boundaries_a, depth_boundaries_b` (list): Depth boundary indices
+- Additional kwargs for images and visualization options
 
 **Returns:**
-- `
+- `matplotlib.figure.Figure`: Visualization figure
+
+#### `plot_correlation_distribution(quality_dict, save_path=None)`
+
+Visualize and statistically analyze the distributions of the correlation quality metrics.
+
+**Parameters:**
+- `quality_dict` (dict): Dictionary of quality metrics
+- `save_path` (str, optional): Path to save the figure
+
+**Returns:**
+- None (displays plot and optionally saves)
+
+#### `calculate_quality_comparison_t_statistics(real_data, syn_data, quality_indices)`
+
+Calculate t-statistics for quality metric comparisons.
+
+**Parameters:**
+- `real_data` (dict): Real correlation quality data
+- `syn_data` (dict): Synthetic correlation quality data
+- `quality_indices` (list): List of quality metrics to compare
+
+**Returns:**
+- `dict`: T-statistics and p-values for each quality metric
+
+#### `plot_quality_comparison_t_statistics(t_stats_dict, save_path=None)`
+
+Plot quality metric comparison results with statistical analysis.
+
+**Parameters:**
+- `t_stats_dict` (dict): Dictionary of t-statistics
+- `save_path` (str, optional): Path to save the figure
+
+**Returns:**
+- None (displays plot and optionally saves)
+
+### Matrix Plots (`matrix_plots.py`)
+
+#### `plot_dtw_matrix_with_paths(D, paths, log1=None, log2=None, save_path=None, **kwargs)`
+
+Visualize DTW cost matrices with correlation paths.
+
+**Parameters:**
+- `D` (np.ndarray): DTW cost matrix
+- `paths` (list): List of warping paths to overlay
+- `log1, log2` (array-like, optional): Log data for additional context
+- `save_path` (str, optional): Path to save the figure
+- Additional kwargs for plot customization
+
+**Returns:**
+- `matplotlib.figure.Figure`: DTW matrix visualization
+
+### Animation (`animation.py`)
+
+#### `visualize_dtw_results_from_csv(csv_path, log_a, log_b, md_a, md_b, segments_a, segments_b, dtw_results, output_gif=None, **kwargs)`
+
+Generate animated correlation sequences from results.
+
+**Parameters:**
+- `csv_path` (str): Path to CSV containing correlation results
+- `log_a, log_b` (array-like): Log data arrays
+- `md_a, md_b` (array-like): Measured depth arrays
+- `segments_a, segments_b` (list): Segment definitions
+- `dtw_results` (dict): DTW results dictionary
+- `output_gif` (str, optional): Path to save animated GIF
+- Additional kwargs for animation options
+
+**Returns:**
+- None (creates and saves animation)
+
+### Helpers (`helpers.py`)
+
+#### `find_nearest_index(depth_array, depth_value)`
+
+Finds the index in a depth array that corresponds to the closest depth value to a target depth.
+
+**Parameters:**
+- `depth_array` (array-like): Array of depth values to search
+- `depth_value` (float): Target depth value to find
+
+**Returns:**
+- `int`: Index in depth_array with closest value to target depth
