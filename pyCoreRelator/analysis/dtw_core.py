@@ -141,7 +141,6 @@ def force_bottom_segment_pairing(valid_dtw_pairs, segments_a, segments_b, depth_
             log_a_segment = log_a[a_start:a_end+1]
             log_b_segment = log_b[b_start:b_end+1]
             
-            from .dtw_analysis import custom_dtw
             D_sub, wp, QIdx = custom_dtw(log_a_segment, log_b_segment, subseq=False, 
                                        exponent=1, QualityIndex=True, independent_dtw=independent_dtw,
                                        pca_for_dependent_dtw=pca_for_dependent_dtw, sakoe_chiba=True)
