@@ -475,19 +475,26 @@ Processes and stitches two CT scans for single core segment with complete workfl
 **Returns:**
 - `tuple`: (st_bright_re, st_std_re, st_depth_re, st_slice, pixel_spacing) containing stitched data and combined slice
 
-#### `process_and_stitch_segments(core_structure, mother_dir, width_start_pct=0.25, width_end_pct=0.75, max_value_side_trim=1200, min_overlap=20, max_overlap=450)`
+#### `ct_process_and_stitch(core_structure, mother_dir, width_start_pct=0.25, width_end_pct=0.75, max_value_side_trim=1200, min_overlap=20, max_overlap=450, vmin=None, vmax=None, save_csv=True, output_csv=None, total_length_cm=None)`
 
-Orchestrates complete processing workflow for multi-segment core with rescaling to match RGB dimensions and final stitching.
+Orchestrates complete processing workflow for multi-segment core with rescaling to match RGB dimensions, final stitching, and optional CSV export.
 
 **Parameters:**
-- `core_structure` (dict): Dictionary defining core structure with segment parameters including RGB target dimensions
-- `mother_dir` (str): Base directory path
-- `width_start_pct, width_end_pct` (float, default=0.25, 0.75): Analysis boundaries
-- `max_value_side_trim` (float, default=1200): Trimming threshold
-- `min_overlap, max_overlap` (int, default=20, 450): Stitching constraints
+- `core_structure` (dict or list): Core structure definition with segment parameters including RGB target dimensions
+- `mother_dir` (str): Base directory path containing all segment subdirectories
+- `width_start_pct, width_end_pct` (float, default=0.25, 0.75): Analysis strip boundaries
+- `max_value_side_trim` (float, default=1200): Automatic trimming threshold
+- `min_overlap, max_overlap` (int, default=20, 450): Stitching overlap constraints
+- `vmin, vmax` (float, optional): Colormap scaling values for display
+- `save_csv` (bool, default=True): Whether to save results to CSV file
+- `output_csv` (str, optional): Full path for output CSV file (required if save_csv=True)
+- `total_length_cm` (float, optional): Total core length in centimeters for depth conversion (required if save_csv=True)
 
 **Returns:**
 - `tuple`: (final_stitched_slice, final_stitched_brightness, final_stitched_stddev, final_stitched_depth, px_spacing_x, px_spacing_y) containing complete core data
+
+**Raises:**
+- `ValueError`: If save_csv is True but output_csv or total_length_cm is not specified
 
 ### CT Image Plotting (`ct_plotting.py`)
 
@@ -504,7 +511,7 @@ Display CT slice with proper aspect ratio and axis labels.
 **Returns:**
 - None (displays plot)
 
-#### `display_slice_bt_std(slice_data, brightness, stddev, depths, px_spacing_x, px_spacing_y, core_name='', depth_units='mm')`
+#### `plot_ctimg_curves(slice_data, brightness, stddev, depths, px_spacing_x, px_spacing_y, core_name='', depth_units='mm')`
 
 Display CT slices with brightness traces and standard deviation plots.
 

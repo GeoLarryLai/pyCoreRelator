@@ -6,7 +6,7 @@ including slice visualization and stitched curve plotting.
 
 Functions:
 - display_slice: Display a slice with optional physical dimensions
-- display_slice_bt_std: Display a core slice with corresponding brightness trace and standard deviation plots
+- plot_ctimg_curves: Display a core slice with corresponding brightness trace and standard deviation plots
 - plot_stitched_curves: Visualize stitched curves showing overlap regions and final result
 """
 
@@ -66,7 +66,7 @@ def display_slice(slice_data: np.ndarray,
 
 
 
-def display_slice_bt_std(slice_data: np.ndarray,
+def plot_ctimg_curves(slice_data: np.ndarray,
                         brightness: np.ndarray,
                         stddev: np.ndarray,
                         pixel_spacing: Optional[Tuple[float, float]] = None,
@@ -74,7 +74,8 @@ def display_slice_bt_std(slice_data: np.ndarray,
                         save_figs: bool = False,
                         output_dir: Optional[str] = None,
                         vmin = None,
-                        vmax = None) -> None:
+                        vmax = None,
+                        fig_format: list = ['png']) -> None:
     """
     Display a core slice and corresponding brightness trace and standard deviation.
     
@@ -103,6 +104,9 @@ def display_slice_bt_std(slice_data: np.ndarray,
         Minimum value for colormap scaling. If None, defaults to 400
     vmax : float, optional
         Maximum value for colormap scaling. If None, defaults to 1700
+    fig_format : list, default=['png']
+        List of file formats to save. Acceptable formats: 'png', 'jpg'/'jpeg', 
+        'svg', 'tiff', 'pdf'
         
     Returns
     -------
@@ -119,13 +123,17 @@ def display_slice_bt_std(slice_data: np.ndarray,
     >>> slice_data = np.random.rand(100, 80) * 255
     >>> brightness = np.random.rand(100) * 1000 + 400
     >>> stddev = np.random.rand(100) * 100 + 50
-    >>> display_slice_bt_std(slice_data, brightness, stddev, core_name="Test Core")
+    >>> plot_ctimg_curves(slice_data, brightness, stddev, core_name="Test Core")
     """
     # Set default colormap values if not provided
     if vmin is None:
         vmin = 400
     if vmax is None:
         vmax = 1700
+    
+    # Normalize format names (handle jpg/jpeg)
+    fig_format = [fmt.lower() for fmt in fig_format]
+    fig_format = ['jpeg' if fmt == 'jpg' else fmt for fmt in fig_format]
     
     # Create figure with 3 subplots with specific width ratios and smaller space between subplots
     # Calculate height based on data dimensions while keeping width fixed at 8
@@ -192,50 +200,54 @@ def display_slice_bt_std(slice_data: np.ndarray,
     if save_figs:
         if output_dir is None:
             raise ValueError("output_dir must be provided when save_figs is True")
+        
+        # Save composite figure in requested formats
+        for fmt in fig_format:
+            if fmt in ['png', 'jpeg', 'svg', 'pdf']:
+                output_file = os.path.join(output_dir, f"{core_name}.{fmt}")
+                if fmt == 'png':
+                    fig.savefig(output_file, dpi=300, bbox_inches='tight')
+                elif fmt == 'jpeg':
+                    fig.savefig(output_file, dpi=300, bbox_inches='tight', format='jpg')
+                else:
+                    fig.savefig(output_file, bbox_inches='tight')
+                print(f"Composite CT results saved to: ~/{'/'.join(output_file.split('/')[-2:])}")
+        
+        # Create and save colormap image if tiff is requested
+        if 'tiff' in fig_format:
+            # Calculate aspect ratio of data
+            data_height, data_width = slice_data.shape
+            data_aspect = data_height / data_width
             
-        # Save full figure as PNG and SVG
-        output_file = os.path.join(output_dir, f"{core_name}.png")
-        fig.savefig(output_file, dpi=300, bbox_inches='tight')
-        print(f"Composite CT results saved to: ~/{'/'.join(output_file.split('/')[-2:])}")
-        
-        output_file = os.path.join(output_dir, f"{core_name}.svg") 
-        fig.savefig(output_file, bbox_inches='tight')
-        print(f"Composite CT image saved to: ~/{'/'.join(output_file.split('/')[-2:])}")
-        
-        # Create and save colormap image as compressed TIFF
-        # Calculate aspect ratio of data
-        data_height, data_width = slice_data.shape
-        data_aspect = data_height / data_width
-        
-        # Set figure size to maintain data aspect ratio while filling width
-        fig_width = 2  # Keep original width
-        fig_height = fig_width * data_aspect
-        
-        fig_img = plt.figure(figsize=(fig_width, fig_height), dpi=300)
-        
-        # Create axes that fills entire figure
-        ax = plt.axes([0, 0, 1, 1])
-        ax.set_axis_off()
-        
-        if pixel_spacing is not None:
-            im_img = plt.imshow(slice_data, extent=extent, cmap='jet', vmin=vmin, vmax=vmax, aspect='auto')
-        else:
-            im_img = plt.imshow(slice_data, cmap='jet', vmin=vmin, vmax=vmax, aspect='auto')
+            # Set figure size to maintain data aspect ratio while filling width
+            fig_width = 2  # Keep original width
+            fig_height = fig_width * data_aspect
             
-        # Ensure no padding
-        plt.subplots_adjust(top=1, bottom=0, right=1, left=0, hspace=0, wspace=0)
-        plt.margins(0,0)
-        
-        # Convert matplotlib figure to RGB array
-        fig_img.canvas.draw()
-        img_array = np.array(fig_img.canvas.renderer.buffer_rgba())[:,:,:3]
-        
-        # Save as compressed TIFF using PIL
-        output_file = os.path.join(output_dir, f"{core_name}.tiff")
-        img = Image.fromarray(img_array)
-        img.save(output_file, format='TIFF', compression='tiff_deflate')
-        print(f"CT image saved to: ~/{'/'.join(output_file.split('/')[-2:])}")
-        plt.close(fig_img)
+            fig_img = plt.figure(figsize=(fig_width, fig_height), dpi=300)
+            
+            # Create axes that fills entire figure
+            ax = plt.axes([0, 0, 1, 1])
+            ax.set_axis_off()
+            
+            if pixel_spacing is not None:
+                im_img = plt.imshow(slice_data, extent=extent, cmap='jet', vmin=vmin, vmax=vmax, aspect='auto')
+            else:
+                im_img = plt.imshow(slice_data, cmap='jet', vmin=vmin, vmax=vmax, aspect='auto')
+                
+            # Ensure no padding
+            plt.subplots_adjust(top=1, bottom=0, right=1, left=0, hspace=0, wspace=0)
+            plt.margins(0,0)
+            
+            # Convert matplotlib figure to RGB array
+            fig_img.canvas.draw()
+            img_array = np.array(fig_img.canvas.renderer.buffer_rgba())[:,:,:3]
+            
+            # Save as compressed TIFF using PIL
+            output_file = os.path.join(output_dir, f"{core_name}.tiff")
+            img = Image.fromarray(img_array)
+            img.save(output_file, format='TIFF', compression='tiff_deflate')
+            print(f"CT image saved to: ~/{'/'.join(output_file.split('/')[-2:])}")
+            plt.close(fig_img)
 
 
 

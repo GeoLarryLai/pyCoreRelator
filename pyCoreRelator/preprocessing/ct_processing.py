@@ -8,7 +8,7 @@ Included Functions:
 - get_brightness_trace: Calculate brightness trace along specified axis
 - get_brightness_stats: Calculate brightness mean and standard deviation along an axis
 - display_slice: Display a slice with optional physical dimensions
-- display_slice_bt_std: Display a core slice with corresponding brightness trace and standard deviation plots
+- plot_ctimg_curves: Display a core slice with corresponding brightness trace and standard deviation plots
 - process_brightness_data: Process CT scan data to get brightness and standard deviation statistics
 
 This module provides comprehensive tools for processing CT images of geological cores,
@@ -26,7 +26,7 @@ from scipy.signal import correlate
 import pydicom
 import cv2
 from PIL import Image
-from .ct_plotting import display_slice, display_slice_bt_std, plot_stitched_curves
+from .ct_plotting import display_slice, plot_ctimg_curves, plot_stitched_curves
 
 
 def load_dicom_files(dir_path: str, force: bool = True) -> Tuple[np.ndarray, float, float, float]:
@@ -825,7 +825,7 @@ def process_single_scan(data_dir, params, segment, scan_name, width_start_pct=0.
                                           width_start_pct=width_start_pct,
                                           width_end_pct=width_end_pct)
     
-    display_slice_bt_std(trimmed_slice, brightness, stddev,
+    plot_ctimg_curves(trimmed_slice, brightness, stddev,
                         pixel_spacing=(px_spacing_x, px_spacing_y),
                         core_name=f"{segment} ({scan_name})",
                         vmin=vmin, vmax=vmax)
@@ -948,7 +948,7 @@ def process_two_scans(segment_data, segment, mother_dir, width_start_pct=0.25, w
     st_depth_re = np.arange(len(st_bright_re))
     
     # Display stitched slice with recalculated brightness/std
-    display_slice_bt_std(st_slice, st_bright_re, st_std_re,
+    plot_ctimg_curves(st_slice, st_bright_re, st_std_re,
                         pixel_spacing=pixel_spacing,
                         core_name=f"{segment} (stitched)",
                         vmin=vmin, vmax=vmax)
@@ -956,8 +956,9 @@ def process_two_scans(segment_data, segment, mother_dir, width_start_pct=0.25, w
     return st_bright_re, st_std_re, st_depth_re, st_slice, pixel_spacing
 
 
-def process_and_stitch_segments(core_structure, mother_dir, width_start_pct=0.25, width_end_pct=0.75, 
-                               max_value_side_trim=1200, min_overlap=20, max_overlap=450, vmin=None, vmax=None):
+def ct_process_and_stitch(core_structure, mother_dir, width_start_pct=0.25, width_end_pct=0.75, 
+                               max_value_side_trim=1200, min_overlap=20, max_overlap=450, vmin=None, vmax=None,
+                               save_csv=True, output_csv=None, total_length_cm=None):
     """
     Process and stitch all segments of a core according to the specified structure.
     
@@ -965,6 +966,7 @@ def process_and_stitch_segments(core_structure, mother_dir, width_start_pct=0.25
     core. It handles single scans, two-scan segments, and multi-section segments
     (with A, B, C suffixes), then combines all segments into a final stitched core.
     Each segment is rescaled to match RGB image dimensions and can be inverted if needed.
+    Optionally exports results to CSV file.
     
     Multiple 'empty' segments are automatically numbered as 'empty_1', 'empty_2', etc.,
     while preserving their order in the core structure.
@@ -1002,6 +1004,12 @@ def process_and_stitch_segments(core_structure, mother_dir, width_start_pct=0.25
         Minimum value for display colormap. If None, uses default scaling
     vmax : float, optional
         Maximum value for display colormap. If None, uses default scaling
+    save_csv : bool, default=True
+        Whether to save results to CSV file
+    output_csv : str, optional
+        Full path for output CSV file. Required if save_csv=True
+    total_length_cm : float, optional
+        Total core length in centimeters for depth conversion. Required if save_csv=True
         
     Returns
     -------
@@ -1014,6 +1022,11 @@ def process_and_stitch_segments(core_structure, mother_dir, width_start_pct=0.25
         - px_spacing_x (float): Final pixel spacing in x direction (always 1.0)
         - px_spacing_y (float): Final pixel spacing in y direction (always 1.0)
         
+    Raises
+    ------
+    ValueError
+        If save_csv is True but output_csv or total_length_cm is not specified
+        
     Example
     -------
     >>> core_structure = {
@@ -1023,8 +1036,15 @@ def process_and_stitch_segments(core_structure, mother_dir, width_start_pct=0.25
     ...         'rgb_pxlength': 1000, 'rgb_pxwidth': 200, 'upside_down': False
     ...     }
     ... }
-    >>> result = process_and_stitch_segments(core_structure, '/path/to/data')
+    >>> result = ct_process_and_stitch(core_structure, '/path/to/data', 
+    ...                                 save_csv=True, output_csv='output.csv', total_length_cm=100)
     """
+    # Validate CSV export parameters
+    if save_csv:
+        if output_csv is None:
+            raise ValueError("output_csv must be specified when save_csv is True")
+        if total_length_cm is None:
+            raise ValueError("total_length_cm must be specified when save_csv is True")
     # Process core structure in order and handle multiple 'empty' segments
     # Handle both dictionary and list formats
     if isinstance(core_structure, dict):
@@ -1091,7 +1111,7 @@ def process_and_stitch_segments(core_structure, mother_dir, width_start_pct=0.25
             }
             
             # Display empty slice
-            display_slice_bt_std(empty_slice, empty_brightness, empty_stddev,
+            plot_ctimg_curves(empty_slice, empty_brightness, empty_stddev,
                                pixel_spacing=(1, 1),
                                core_name=f"{segment} (empty segment - {target_height} x {target_width}px)",
                                vmin=vmin, vmax=vmax)
@@ -1140,7 +1160,7 @@ def process_and_stitch_segments(core_structure, mother_dir, width_start_pct=0.25
                 
                 # Display rescaled slice
                 core_name = f"[UPSIDE DOWN] {segment} (rescaled to {target_height} x {target_width}px)" if segment_data.get('upside_down', False) else f"{segment} (rescaled to {target_height} x {target_width}px)"
-                display_slice_bt_std(stitched_segments[segment]['slice'], stitched_segments[segment]['brightness'], stitched_segments[segment]['stddev'],
+                plot_ctimg_curves(stitched_segments[segment]['slice'], stitched_segments[segment]['brightness'], stitched_segments[segment]['stddev'],
                                    pixel_spacing=(1, 1),
                                    core_name=core_name,
                                    vmin=vmin, vmax=vmax)
@@ -1178,7 +1198,7 @@ def process_and_stitch_segments(core_structure, mother_dir, width_start_pct=0.25
                 
                 # Display rescaled slice
                 core_name = f"[UPSIDE DOWN] {segment} (rescaled to {target_height} x {target_width}px)" if segment_data.get('upside_down', False) else f"{segment} (rescaled to {target_height} x {target_width}px)"
-                display_slice_bt_std(stitched_segments[segment]['slice'], stitched_segments[segment]['brightness'], stitched_segments[segment]['stddev'],
+                plot_ctimg_curves(stitched_segments[segment]['slice'], stitched_segments[segment]['brightness'], stitched_segments[segment]['stddev'],
                                    pixel_spacing=(1, 1),
                                    core_name=core_name,
                                    vmin=vmin, vmax=vmax)
@@ -1244,7 +1264,7 @@ def process_and_stitch_segments(core_structure, mother_dir, width_start_pct=0.25
                 
                 # Display rescaled slice
                 core_name = f"[UPSIDE DOWN] {segment} (rescaled to {target_height} x {target_width}px)" if segment_data.get('upside_down', False) else f"{segment} (rescaled to {target_height} x {target_width}px)"
-                display_slice_bt_std(stitched_segments[segment]['slice'], stitched_segments[segment]['brightness'], stitched_segments[segment]['stddev'],
+                plot_ctimg_curves(stitched_segments[segment]['slice'], stitched_segments[segment]['brightness'], stitched_segments[segment]['stddev'],
                                    pixel_spacing=(1, 1),
                                    core_name=core_name,
                                    vmin=vmin, vmax=vmax)
@@ -1296,7 +1316,7 @@ def process_and_stitch_segments(core_structure, mother_dir, width_start_pct=0.25
                 
                 # Display rescaled slice
                 core_name = f"[UPSIDE DOWN] {segment} (rescaled to {target_height} x {target_width}px)" if segment_data.get('upside_down', False) else f"{segment} (rescaled to {target_height} x {target_width}px)"
-                display_slice_bt_std(stitched_segments[segment]['slice'], stitched_segments[segment]['brightness'], stitched_segments[segment]['stddev'],
+                plot_ctimg_curves(stitched_segments[segment]['slice'], stitched_segments[segment]['brightness'], stitched_segments[segment]['stddev'],
                                    pixel_spacing=(1, 1),
                                    core_name=core_name,
                                    vmin=vmin, vmax=vmax)
@@ -1367,7 +1387,7 @@ def process_and_stitch_segments(core_structure, mother_dir, width_start_pct=0.25
                 
                 # Display rescaled slice
                 core_name = f"[UPSIDE DOWN] {segment} (rescaled to {target_height} x {target_width}px)" if segment_data.get('upside_down', False) else f"{segment} (rescaled to {target_height} x {target_width}px)"
-                display_slice_bt_std(stitched_segments[segment]['slice'], stitched_segments[segment]['brightness'], stitched_segments[segment]['stddev'],
+                plot_ctimg_curves(stitched_segments[segment]['slice'], stitched_segments[segment]['brightness'], stitched_segments[segment]['stddev'],
                                    pixel_spacing=(1, 1),
                                    core_name=core_name,
                                    vmin=vmin, vmax=vmax)
@@ -1415,5 +1435,30 @@ def process_and_stitch_segments(core_structure, mother_dir, width_start_pct=0.25
     final_stitched_brightness = np.array(final_brightness)
     final_stitched_stddev = np.array(final_stddev)
     final_stitched_depth = np.arange(len(final_stitched_brightness))  # Use pixel units
+    
+    # Export to CSV if requested
+    if save_csv:
+        import pandas as pd
+        import os
+        
+        # Convert depth from pixels to cm
+        depth_cm = final_stitched_depth * (total_length_cm / final_stitched_depth[-1])
+        
+        # Create DataFrame
+        df = pd.DataFrame({
+            'SB_DEPTH_pxl': final_stitched_depth,
+            'SB_DEPTH_cm': depth_cm,
+            'CT': final_stitched_brightness,
+            'CT_std': final_stitched_stddev
+        })
+        
+        # Ensure output directory exists
+        output_dir = os.path.dirname(output_csv)
+        if output_dir:
+            os.makedirs(output_dir, exist_ok=True)
+        
+        # Save to CSV
+        df.to_csv(output_csv, index=False)
+        print(f"CT data saved to: {output_csv}")
     
     return final_stitched_slice, final_stitched_brightness, final_stitched_stddev, final_stitched_depth, 1, 1  # Use pixel units 

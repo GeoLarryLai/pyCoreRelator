@@ -160,6 +160,6 @@ Detailed function documentation is available in [FUNCTION_DOCUMENTATION.md](FUNC
 ### Image Processing Functions
 - **`plot_rgb_profile()`**: Create comprehensive RGB analysis visualizations
 - **`stitch_core_sections()`**: Stitch multiple core section images and RGB profiles
-- **`display_slice_bt_std()`**: Display CT slices with brightness traces and standard deviation plots
-- **`process_and_stitch_segments()`**: Complete workflow for multi-segment CT processing
+- **`plot_ctimg_curves()`**: Display CT slices with brightness traces and standard deviation plots
+- **`ct_process_and_stitch()`**: Complete workflow for multi-segment CT processing with optional CSV export
 

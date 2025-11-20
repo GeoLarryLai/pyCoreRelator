@@ -118,12 +118,12 @@ from .preprocessing.ct_processing import (
     create_stitched_slice,
     process_single_scan,
     process_two_scans,
-    process_and_stitch_segments
+    ct_process_and_stitch
 )
 
 from .preprocessing.ct_plotting import (
     display_slice,
-    display_slice_bt_std,
+    plot_ctimg_curves,
     plot_stitched_curves
 )
 
@@ -223,7 +223,7 @@ __all__ = [
     'get_brightness_trace',
     'get_brightness_stats',
     'display_slice',
-    'display_slice_bt_std',
+    'plot_ctimg_curves',
     'process_brightness_data',
     'find_best_overlap',
     'stitch_curves',
@@ -231,7 +231,7 @@ __all__ = [
     'create_stitched_slice',
     'process_single_scan',
     'process_two_scans',
-    'process_and_stitch_segments',
+    'ct_process_and_stitch',
     
     # Core datum picking functions
     'onclick_boundary',

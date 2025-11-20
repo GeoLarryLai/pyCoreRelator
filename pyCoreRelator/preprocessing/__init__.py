@@ -22,12 +22,12 @@ from .ct_processing import (
     create_stitched_slice,
     process_single_scan,
     process_two_scans,
-    process_and_stitch_segments
+    ct_process_and_stitch
 )
 
 from .ct_plotting import (
     display_slice,
-    display_slice_bt_std,
+    plot_ctimg_curves,
     plot_stitched_curves
 )
 
@@ -85,10 +85,10 @@ __all__ = [
     'create_stitched_slice',
     'process_single_scan',
     'process_two_scans',
-    'process_and_stitch_segments',
+    'ct_process_and_stitch',
     # CT plotting
     'display_slice',
-    'display_slice_bt_std',
+    'plot_ctimg_curves',
     'plot_stitched_curves',
     # RGB processing
     'trim_image',
