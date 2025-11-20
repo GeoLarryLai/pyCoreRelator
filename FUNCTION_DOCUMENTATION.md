@@ -460,14 +460,14 @@ Processes complete workflow for single CT scan from DICOM loading through bright
 **Returns:**
 - `tuple`: (brightness, stddev, trimmed_slice, px_spacing_x, px_spacing_y) containing processed data and metadata
 
-#### `process_two_scans(segment_data, segment, mother_dir, width_start_pct=0.25, width_end_pct=0.75, max_value_side_trim=1200, min_overlap=20, max_overlap=450)`
+#### `process_two_scans(segment_data, segment, ct_data_dir, width_start_pct=0.25, width_end_pct=0.75, max_value_side_trim=1200, min_overlap=20, max_overlap=450)`
 
 Processes and stitches two CT scans for single core segment with complete workflow from processing through visualization.
 
 **Parameters:**
 - `segment_data` (dict): Dictionary containing scan names and processing parameters
 - `segment` (str): Core segment identifier
-- `mother_dir` (str): Base directory containing scan subdirectories
+- `ct_data_dir` (str): Base directory containing scan subdirectories
 - `width_start_pct, width_end_pct` (float, default=0.25, 0.75): Analysis boundaries
 - `max_value_side_trim` (float, default=1200): Automatic trimming threshold
 - `min_overlap, max_overlap` (int, default=20, 450): Stitching overlap constraints
@@ -475,13 +475,13 @@ Processes and stitches two CT scans for single core segment with complete workfl
 **Returns:**
 - `tuple`: (st_bright_re, st_std_re, st_depth_re, st_slice, pixel_spacing) containing stitched data and combined slice
 
-#### `ct_process_and_stitch(core_structure, mother_dir, width_start_pct=0.25, width_end_pct=0.75, max_value_side_trim=1200, min_overlap=20, max_overlap=450, vmin=None, vmax=None, save_csv=True, output_csv=None, total_length_cm=None)`
+#### `ct_process_and_stitch(data_reading_structure, ct_data_dir, width_start_pct=0.15, width_end_pct=0.85, max_value_side_trim=1300, min_overlap=20, max_overlap=400, vmin=None, vmax=None, save_csv=True, output_csv=None, total_length_cm=None)`
 
 Orchestrates complete processing workflow for multi-segment core with rescaling to match RGB dimensions, final stitching, and optional CSV export.
 
 **Parameters:**
-- `core_structure` (dict or list): Core structure definition with segment parameters including RGB target dimensions
-- `mother_dir` (str): Base directory path containing all segment subdirectories
+- `data_reading_structure` (dict or list): Core structure definition with segment parameters including RGB target dimensions
+- `ct_data_dir` (str): Base directory path containing all segment subdirectories
 - `width_start_pct, width_end_pct` (float, default=0.25, 0.75): Analysis strip boundaries
 - `max_value_side_trim` (float, default=1200): Automatic trimming threshold
 - `min_overlap, max_overlap` (int, default=20, 450): Stitching overlap constraints

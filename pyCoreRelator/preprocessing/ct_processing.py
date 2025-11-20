@@ -833,8 +833,8 @@ def process_single_scan(data_dir, params, segment, scan_name, width_start_pct=0.
     return brightness, stddev, trimmed_slice, px_spacing_x, px_spacing_y
 
 
-def process_two_scans(segment_data, segment, mother_dir, width_start_pct=0.25, width_end_pct=0.75, 
-                     max_value_side_trim=1200, min_overlap=20, max_overlap=450, vmin=None, vmax=None):
+def process_two_scans(segment_data, segment, ct_data_dir, width_start_pct=0.15, width_end_pct=0.85, 
+                     max_value_side_trim=1300, min_overlap=20, max_overlap=400, vmin=None, vmax=None):
     """
     Process and stitch two CT scans together.
     
@@ -851,17 +851,17 @@ def process_two_scans(segment_data, segment, mother_dir, width_start_pct=0.25, w
         - 'params': dictionary of parameters for each scan
     segment : str
         Name identifier for the core segment
-    mother_dir : str
+    ct_data_dir : str
         Base directory path containing all scan subdirectories
-    width_start_pct : float, default=0.25
+    width_start_pct : float, default=0.15
         Starting percentage of width for brightness analysis
-    width_end_pct : float, default=0.75
+    width_end_pct : float, default=0.85
         Ending percentage of width for brightness analysis
-    max_value_side_trim : float, default=1200
+    max_value_side_trim : float, default=1300
         Threshold for automatic side trimming
     min_overlap : int, default=20
         Minimum overlap length for stitching
-    max_overlap : int, default=450
+    max_overlap : int, default=400
         Maximum overlap length for stitching
     vmin : float, optional
         Minimum value for display colormap. If None, uses default scaling
@@ -890,8 +890,8 @@ def process_two_scans(segment_data, segment, mother_dir, width_start_pct=0.25, w
     >>> result = process_two_scans(segment_data, 'Core-1', '/path/to/data')
     """
     scans = segment_data['scans']
-    data_dir_1 = f"{mother_dir}/{segment}/{scans[0]}"
-    data_dir_2 = f"{mother_dir}/{segment}/{scans[1]}"
+    data_dir_1 = f"{ct_data_dir}/{segment}/{scans[0]}"
+    data_dir_2 = f"{ct_data_dir}/{segment}/{scans[1]}"
     
     # Process first scan
     bright1, std1, trimmed_slice1, px_spacing_x1, px_spacing_y1 = process_single_scan(
@@ -956,8 +956,8 @@ def process_two_scans(segment_data, segment, mother_dir, width_start_pct=0.25, w
     return st_bright_re, st_std_re, st_depth_re, st_slice, pixel_spacing
 
 
-def ct_process_and_stitch(core_structure, mother_dir, width_start_pct=0.25, width_end_pct=0.75, 
-                               max_value_side_trim=1200, min_overlap=20, max_overlap=450, vmin=None, vmax=None,
+def ct_process_and_stitch(data_reading_structure, ct_data_dir, width_start_pct=0.15, width_end_pct=0.85, 
+                               max_value_side_trim=1300, min_overlap=20, max_overlap=400, vmin=None, vmax=None,
                                save_csv=True, output_csv=None, total_length_cm=None):
     """
     Process and stitch all segments of a core according to the specified structure.
@@ -973,7 +973,7 @@ def ct_process_and_stitch(core_structure, mother_dir, width_start_pct=0.25, widt
     
     Parameters
     ----------
-    core_structure : dict or list
+    data_reading_structure : dict or list
         Core structure definition in one of two formats:
         1. Dictionary format: {segment_name: segment_data, ...}
         2. List format: [(segment_name, segment_data), ...]
@@ -988,17 +988,17 @@ def ct_process_and_stitch(core_structure, mother_dir, width_start_pct=0.25, widt
         
         Note: Multiple 'empty' segments will be automatically numbered as 'empty_1', 'empty_2', etc.
         For dictionaries, use unique keys like 'empty_1', 'empty_2' or use list format for duplicates.
-    mother_dir : str
+    ct_data_dir : str
         Base directory path containing all segment subdirectories
-    width_start_pct : float, default=0.25
+    width_start_pct : float, default=0.15
         Starting percentage of width for brightness analysis
-    width_end_pct : float, default=0.75
+    width_end_pct : float, default=0.85
         Ending percentage of width for brightness analysis
-    max_value_side_trim : float, default=1200
+    max_value_side_trim : float, default=1300
         Threshold for automatic side trimming
     min_overlap : int, default=20
         Minimum overlap length for stitching
-    max_overlap : int, default=450
+    max_overlap : int, default=400
         Maximum overlap length for stitching
     vmin : float, optional
         Minimum value for display colormap. If None, uses default scaling
@@ -1029,14 +1029,14 @@ def ct_process_and_stitch(core_structure, mother_dir, width_start_pct=0.25, widt
         
     Example
     -------
-    >>> core_structure = {
+    >>> data_reading_structure = {
     ...     'Core-1': {
     ...         'scans': ['SE000000'],
     ...         'params': {'SE000000': {'trim_top': 50, 'trim_bottom': 20, 'min_brightness': 400, 'buffer': 5}},
     ...         'rgb_pxlength': 1000, 'rgb_pxwidth': 200, 'upside_down': False
     ...     }
     ... }
-    >>> result = ct_process_and_stitch(core_structure, '/path/to/data', 
+    >>> result = ct_process_and_stitch(data_reading_structure, '/path/to/data', 
     ...                                 save_csv=True, output_csv='output.csv', total_length_cm=100)
     """
     # Validate CSV export parameters
@@ -1047,12 +1047,12 @@ def ct_process_and_stitch(core_structure, mother_dir, width_start_pct=0.25, widt
             raise ValueError("total_length_cm must be specified when save_csv is True")
     # Process core structure in order and handle multiple 'empty' segments
     # Handle both dictionary and list formats
-    if isinstance(core_structure, dict):
+    if isinstance(data_reading_structure, dict):
         # Dictionary format - convert to list of tuples
         processed_segments = []
         empty_counter = 1
         
-        for segment, segment_data in core_structure.items():
+        for segment, segment_data in data_reading_structure.items():
             if segment == 'empty':
                 # Automatically number empty segments
                 if empty_counter == 1:
@@ -1068,7 +1068,7 @@ def ct_process_and_stitch(core_structure, mother_dir, width_start_pct=0.25, widt
         processed_segments = []
         empty_counter = 1
         
-        for segment, segment_data in core_structure:
+        for segment, segment_data in data_reading_structure:
             if segment == 'empty':
                 # Automatically number empty segments
                 if empty_counter == 1:
@@ -1120,7 +1120,7 @@ def ct_process_and_stitch(core_structure, mother_dir, width_start_pct=0.25, widt
         
         if 'suffixes' not in segment_data:  # Regular segments with one or two scans
             if len(segment_data['scans']) == 1:  # Single scan
-                data_dir = f"{mother_dir}/{segment}/{segment_data['scans'][0]}"
+                data_dir = f"{ct_data_dir}/{segment}/{segment_data['scans'][0]}"
                 brightness, stddev, trimmed_slice, px_spacing_x, px_spacing_y = process_single_scan(
                     data_dir,
                     segment_data['params'][segment_data['scans'][0]],
@@ -1167,7 +1167,7 @@ def ct_process_and_stitch(core_structure, mother_dir, width_start_pct=0.25, widt
                 
             else:  # Two scans
                 st_bright, st_std, st_depth, st_slice, pixel_spacing = process_two_scans(
-                    segment_data, segment, mother_dir, width_start_pct=width_start_pct, width_end_pct=width_end_pct, max_value_side_trim=max_value_side_trim, min_overlap=min_overlap, max_overlap=max_overlap, vmin=vmin, vmax=vmax
+                    segment_data, segment, ct_data_dir, width_start_pct=width_start_pct, width_end_pct=width_end_pct, max_value_side_trim=max_value_side_trim, min_overlap=min_overlap, max_overlap=max_overlap, vmin=vmin, vmax=vmax
                 )
                 
                 # Rescale slice to match rgb dimensions
@@ -1212,7 +1212,7 @@ def ct_process_and_stitch(core_structure, mother_dir, width_start_pct=0.25, widt
             # Process each section
             for suffix in segment_data['suffixes']:
                 folder_name = f"{segment}{suffix}/{segment_data['scans'][0]}"
-                data_dir = f"{mother_dir}/{folder_name}"
+                data_dir = f"{ct_data_dir}/{folder_name}"
                 param_key = f"{suffix}/{segment_data['scans'][0]}"
                 
                 brightness, stddev, trimmed_slice, px_spacing_x, px_spacing_y = process_single_scan(

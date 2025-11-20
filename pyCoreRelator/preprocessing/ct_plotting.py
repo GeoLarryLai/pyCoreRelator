@@ -73,8 +73,8 @@ def plot_ctimg_curves(slice_data: np.ndarray,
                         core_name: str = "",
                         save_figs: bool = False,
                         output_dir: Optional[str] = None,
-                        vmin = None,
-                        vmax = None,
+                        vmin = 400,
+                        vmax = 2400,
                         fig_format: list = ['png']) -> None:
     """
     Display a core slice and corresponding brightness trace and standard deviation.
@@ -101,9 +101,9 @@ def plot_ctimg_curves(slice_data: np.ndarray,
     output_dir : str, optional
         Directory to save figures if save_figs is True
     vmin : float, optional
-        Minimum value for colormap scaling. If None, defaults to 400
+        Minimum value for colormap scaling. Defaults is 400
     vmax : float, optional
-        Maximum value for colormap scaling. If None, defaults to 1700
+        Maximum value for colormap scaling. Defaults is 2400
     fig_format : list, default=['png']
         List of file formats to save. Acceptable formats: 'png', 'jpg'/'jpeg', 
         'svg', 'tiff', 'pdf'
@@ -125,11 +125,6 @@ def plot_ctimg_curves(slice_data: np.ndarray,
     >>> stddev = np.random.rand(100) * 100 + 50
     >>> plot_ctimg_curves(slice_data, brightness, stddev, core_name="Test Core")
     """
-    # Set default colormap values if not provided
-    if vmin is None:
-        vmin = 400
-    if vmax is None:
-        vmax = 1700
     
     # Normalize format names (handle jpg/jpeg)
     fig_format = [fmt.lower() for fmt in fig_format]
