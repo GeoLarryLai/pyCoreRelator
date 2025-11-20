@@ -4,12 +4,62 @@
 !/.gitignore
 !/pyCoreRelator*.ipynb
 !/example_data/
+!/example_outputs/
 !/LICENSE
 !/FUNCTION_DOCUMENTATION.md
 !/requirements.txt
 !/README.md
 !/pyCoreRelator_logo.png
 !/pyCoreRelator_logo_ani.gif
+
+# Exclude large files from example_data and example_outputs
+# Image files (except small logos/icons)
+example_data/**/*.tif
+example_data/**/*.tiff
+example_data/**/*.bmp
+example_data/**/*.psd
+example_data/**/*.png
+example_data/**/*.jpg
+example_data/**/*.jpeg
+example_outputs/**/*.tif
+example_outputs/**/*.tiff
+example_outputs/**/*.bmp
+example_outputs/**/*.psd
+example_outputs/**/*.png
+example_outputs/**/*.jpg
+example_outputs/**/*.jpeg
+# Video files
+example_data/**/*.mp4
+example_data/**/*.avi
+example_data/**/*.mov
+example_data/**/*.mkv
+example_outputs/**/*.mp4
+example_outputs/**/*.avi
+example_outputs/**/*.mov
+example_outputs/**/*.mkv
+# Archive files
+example_data/**/*.zip
+example_data/**/*.tar
+example_data/**/*.gz
+example_data/**/*.7z
+example_data/**/*.rar
+example_outputs/**/*.zip
+example_outputs/**/*.tar
+example_outputs/**/*.gz
+example_outputs/**/*.7z
+example_outputs/**/*.rar
+# Large data files
+example_data/**/*.hdf5
+example_data/**/*.h5
+example_data/**/*.nc
+example_data/**/*.mat
+example_outputs/**/*.hdf5
+example_outputs/**/*.h5
+example_outputs/**/*.nc
+example_outputs/**/*.mat
+# CSV files (can be large)
+example_data/**/*.csv
+example_outputs/**/*.csv
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
