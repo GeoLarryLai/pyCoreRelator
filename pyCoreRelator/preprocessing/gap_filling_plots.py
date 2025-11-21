@@ -50,8 +50,7 @@ def plot_core_logs(data_config, file_type='clean', title=None, pickeddepth_csv=N
     ----------
     data_config : dict
         Configuration dictionary containing:
-        - depth_column: Primary depth column name
-        - column_configs: Dictionary of data type configurations
+        - column_configs: Dictionary of data type configurations with depth_col
         - clean_file_paths or filled_file_paths: Dictionary of full file paths by data type
         - core_length: Core length for y-axis limits
         - core_name: Core name for title
@@ -87,8 +86,8 @@ def plot_core_logs(data_config, file_type='clean', title=None, pickeddepth_csv=N
     If pickeddepth_csv is provided, adds a thin leftmost column showing horizontal
     lines at picked depths with category-based styling.
     """
-    # Get primary depth column from config
-    depth_col = data_config['depth_column']
+    # Get primary depth column from first available config
+    depth_col = _get_depth_column(data_config)
     
     # Get file paths based on type
     if file_type == 'clean':
@@ -357,7 +356,7 @@ def plot_filled_data(target_log, original_data, filled_data, data_config, ML_typ
     filled_data : pandas.DataFrame
         Data with ML-filled gaps
     data_config : dict
-        Configuration containing all parameters including depth column, plot labels, etc.
+        Configuration containing all parameters including column configs with depth_col, plot labels, etc.
     ML_type : str, default='ML'
         Type of ML method used for title
         
@@ -373,7 +372,7 @@ def plot_filled_data(target_log, original_data, filled_data, data_config, ML_typ
     if configured.
     """
     # Get parameters from config
-    depth_col = data_config['depth_column']
+    depth_col = _get_depth_column(data_config)
     core_length = data_config['core_length']
     core_name = data_config['core_name']
     
@@ -460,6 +459,41 @@ def plot_filled_data(target_log, original_data, filled_data, data_config, ML_typ
 
 
 # ==================== Helper Functions ====================
+
+def _get_depth_column(data_config):
+    """
+    Extract depth column name from column_configs.
+    
+    Parameters
+    ----------
+    data_config : dict
+        Configuration dictionary containing column_configs
+        
+    Returns
+    -------
+    str
+        Name of the depth column
+        
+    Raises
+    ------
+    ValueError
+        If no depth_col found in any configuration
+    """
+    column_configs = data_config.get('column_configs', {})
+    
+    for data_type, type_config in column_configs.items():
+        if isinstance(type_config, dict):
+            # Check for depth_col at top level of config
+            if 'depth_col' in type_config:
+                return type_config['depth_col']
+            
+            # Check nested configurations
+            for sub_key, sub_config in type_config.items():
+                if isinstance(sub_config, dict) and 'depth_col' in sub_config:
+                    return sub_config['depth_col']
+    
+    raise ValueError("No depth_col found in column_configs")
+
 
 def _plot_picked_depths(ax, picked_depths_data, core_length, core_name):
     """
@@ -777,12 +811,22 @@ def _plot_data_panel(ax, panel, data, depth_col, core_length, clean_data=None, f
                            values + std_values,
                            color=color, alpha=0.2, linewidth=0, zorder=1)
         
-        # Add colormap visualization if configured (only for the main data)
-        show_colormap = config.get('show_colormap', False)
-        if show_colormap:
-            colormap_name = config.get('colormap', 'viridis')
-            _add_colormap_visualization(ax, values, depth_values, colormap_name, zorder=0)
-        elif 'colormap_cols' in config and col in config['colormap_cols']:
+        # Add colormap visualization if configured (works for all data types: CT, RGB, etc.)
+        # Priority: show_colormap takes precedence; if not specified, check colormap_cols
+        # If show_colormap is explicitly False, colormap is disabled regardless of colormap_cols
+        show_colormap = config.get('show_colormap', None)
+        
+        # Determine if colormap should be shown
+        should_show_colormap = False
+        if show_colormap is True:
+            # Explicitly enabled
+            should_show_colormap = True
+        elif show_colormap is None and 'colormap_cols' in config and col in config['colormap_cols']:
+            # Not specified, but column is in colormap_cols (backward compatibility)
+            should_show_colormap = True
+        # If show_colormap is False, should_show_colormap remains False
+        
+        if should_show_colormap:
             colormap_name = config.get('colormap', 'viridis')
             _add_colormap_visualization(ax, values, depth_values, colormap_name, zorder=0)
     

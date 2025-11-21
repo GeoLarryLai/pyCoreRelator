@@ -40,7 +40,7 @@ from joblib import Parallel, delayed
 from .gap_filling_plots import plot_core_logs, plot_filled_data
 
 
-def preprocess_core_data(data_config):
+def preprocess_core_data(data_config, resample_resolution=1):
     """
     Preprocess core data by cleaning and scaling depth values using configurable parameters.
     
@@ -52,12 +52,13 @@ def preprocess_core_data(data_config):
     ----------
     data_config : dict
         Configuration dictionary containing:
-        - depth_column: Primary depth column name
-        - column_configs: Dictionary of data type configurations with thresholds
+        - column_configs: Dictionary of data type configurations with thresholds and depth_col
         - input_file_paths: Dictionary of input file directories by data type
         - clean_file_paths: Dictionary of output file directories by data type
         - core_length: Target core length for scaling
-        - target_depth_resolution: (optional) Target depth resolution for resampling
+    resample_resolution : float, default=1
+        Target depth resolution for resampling (spacing between depth values).
+        If set to 1, data will be resampled to uniform depth spacing of 1 unit.
         
     Returns
     -------
@@ -68,11 +69,11 @@ def preprocess_core_data(data_config):
     -----
     The function validates threshold conditions and processes different data types
     based on their configuration structure (single column, multi-column, or nested).
-    If target_depth_resolution is specified, data will be resampled to uniform depth
-    grid after cleaning and scaling operations.
+    Data will be resampled to uniform depth grid after cleaning and scaling operations
+    based on the resample_resolution parameter.
     """
-    # Get primary depth column from config
-    depth_col = data_config['depth_column']
+    # Get primary depth column from first available config
+    depth_col = _get_depth_column(data_config)
     
     # Validate threshold conditions from column configs
     valid_conditions = ['>', '<', '<=', '>=']
@@ -203,13 +204,10 @@ def preprocess_core_data(data_config):
                 depth_scale = data_config['core_length'] / data[depth_col].max()
                 data[depth_col] = data[depth_col] * depth_scale
                 
-                # Apply resampling if target_depth_resolution is specified
-                if 'target_depth_resolution' in data_config:
-                    target_resolution = data_config['target_depth_resolution']
-                    # Validate target_resolution is a positive number
-                    if isinstance(target_resolution, (int, float)) and target_resolution > 0:
-                        print(f"Resampling {data_type} data to {target_resolution} depth resolution...")
-                        data = _resample_to_target_resolution(data, depth_col, target_resolution)
+                # Apply resampling based on resample_resolution parameter
+                if isinstance(resample_resolution, (int, float)) and resample_resolution > 0:
+                    print(f"Resampling {data_type} data to {resample_resolution} depth resolution...")
+                    data = _resample_to_target_resolution(data, depth_col, resample_resolution)
                 
                 # Use direct file path from config
                 output_path = clean_paths[data_type]
@@ -239,7 +237,7 @@ def prepare_feature_data(target_log, All_logs, merge_tolerance, data_config):
     merge_tolerance : float
         Maximum allowed difference in depth for merging rows
     data_config : dict
-        Configuration containing depth column name and other parameters
+        Configuration containing column configs with depth_col and other parameters
         
     Returns
     -------
@@ -254,8 +252,8 @@ def prepare_feature_data(target_log, All_logs, merge_tolerance, data_config):
     Uses merge_asof with tolerance for data alignment. Warns about unmatched rows
     due to tolerance constraints. Renames feature columns to avoid conflicts.
     """
-    # Get primary depth column from config
-    depth_col = data_config['depth_column']
+    # Get primary depth column from first available config
+    depth_col = _get_depth_column(data_config)
     
     # Get target data from All_logs
     target_data = None
@@ -425,7 +423,7 @@ def adjust_gap_predictions(df, gap_mask, ml_preds, target_log, data_config):
     target_log : str
         Name of the target column
     data_config : dict
-        Configuration containing depth column name
+        Configuration containing column configs with depth_col
         
     Returns
     -------
@@ -438,8 +436,8 @@ def adjust_gap_predictions(df, gap_mask, ml_preds, target_log, data_config):
     the predictions are blended with linear interpolation. The blending weight varies
     from the boundaries (more interpolation) to the middle (more ML prediction).
     """
-    # Get primary depth column from config
-    depth_col = data_config['depth_column']
+    # Get primary depth column from first available config
+    depth_col = _get_depth_column(data_config)
     
     # Get the integer positions (row numbers) of missing values
     gap_positions = np.where(gap_mask.values)[0]
@@ -637,24 +635,31 @@ def fill_gaps_with_ml(target_log, All_logs, data_config, output_csv=True,
 
 
 
-def process_and_fill_logs(data_config, ml_method='xgblgbm'):
+def process_and_fill_logs(data_config, ml_method='xgblgbm', n_jobs=-1, show_plots=True):
     """
     Process and fill gaps in log data using ML methods with fully configurable parameters.
     
     This function orchestrates the complete ML-based gap filling process for all configured
     log data types. It loads cleaned data, processes each target log, applies ML methods,
-    and consolidates results into final output files.
+    and consolidates results into final output files. Supports parallel processing of
+    multiple target logs.
     
     Parameters
     ----------
     data_config : dict
         Configuration containing all parameters including:
-        - depth_column: Primary depth column name
         - clean_file_paths: Dictionary of input file directories by data type
         - filled_file_paths: Dictionary of output file directories by data type
-        - column_configs: Dictionary of data type configurations
+        - column_configs: Dictionary of data type configurations with depth_col
     ml_method : str, default='xgblgbm'
         ML method to use - 'rf', 'rftc', 'xgb', 'xgblgbm'
+    n_jobs : int, default=-1
+        Number of parallel jobs for processing multiple target logs.
+        -1 means using all available CPU cores.
+        1 means sequential processing (no parallelization).
+    show_plots : bool, default=True
+        Whether to generate and display plots during processing.
+        Works in both sequential and parallel modes using appropriate matplotlib backend.
         
     Returns
     -------
@@ -666,9 +671,14 @@ def process_and_fill_logs(data_config, ml_method='xgblgbm'):
     The function handles different data type configurations (single column, multi-column,
     nested) and creates both individual and consolidated output files as appropriate.
     Removes temporary individual files for multi-column data types after consolidation.
+    
+    Parallel processing is applied at the target log level, allowing multiple logs to be
+    processed simultaneously. Each parallel job will use its own memory space.
+    Plots are generated using the Agg backend in parallel mode to work properly across
+    worker processes.
     """
     # Get configurable parameters
-    depth_col = data_config['depth_column']
+    depth_col = _get_depth_column(data_config)
     
     clean_paths = data_config.get('clean_file_paths', {})
     filled_paths = data_config.get('filled_file_paths', {})
@@ -817,11 +827,12 @@ def process_and_fill_logs(data_config, ml_method='xgblgbm'):
                             else:
                                 print(f"Skipping {col} - column is empty (0 samples)")
 
-    # Process each target log
-    data_type_results = {}  # Store results by data type for consolidation
-    
-    for target_log, data_type in target_logs:
-        print(f"Processing {target_log}...")
+    # Helper function to process a single target log
+    def process_single_log(target_log, data_type, enable_plotting=True, log_idx=None, total_logs=None, is_parallel=False):
+        """Process a single target log with ML gap filling."""
+        # Print progress for sequential mode
+        if log_idx is not None and total_logs is not None:
+            print(f"[{log_idx}/{total_logs}] Processing {target_log}...")
         
         # Get source data
         data = data_dict[data_type]
@@ -849,7 +860,17 @@ def process_and_fill_logs(data_config, ml_method='xgblgbm'):
                 output_csv=True,
                 ml_method=ml_method
             )
-            plot_filled_data(plot_name, data, filled_data, data_config, ML_type=ml_names[ml_method])
+            if enable_plotting and not is_parallel:
+                # Only show plots in sequential mode
+                plot_filled_data(plot_name, data, filled_data, data_config, ML_type=ml_names[ml_method])
+            elif enable_plotting and is_parallel:
+                # In parallel mode, return plot data for later display
+                # Make sure filled_data includes depth column
+                filled_data_with_depth = filled_data.copy()
+                if depth_col not in filled_data_with_depth:
+                    filled_data_with_depth[depth_col] = data[depth_col]
+                return ('plot_data', target_log, data, filled_data_with_depth, ml_names[ml_method])
+            return None  # Multi-column types write directly to files
         else:
             # For single column or nested data types, don't create individual files
             filled_data, gap_mask = fill_gaps_with_ml(
@@ -860,13 +881,81 @@ def process_and_fill_logs(data_config, ml_method='xgblgbm'):
                 ml_method=ml_method
             )
             
-            # Store the filled results for this column by data type
-            if data_type not in data_type_results:
-                data_type_results[data_type] = {}
-            data_type_results[data_type][target_log] = filled_data[target_log]
-            
             # Plot filled data for each column
-            plot_filled_data(plot_name, data, filled_data, data_config, ML_type=ml_names[ml_method])
+            if enable_plotting and not is_parallel:
+                # Only show plots in sequential mode
+                plot_filled_data(plot_name, data, filled_data, data_config, ML_type=ml_names[ml_method])
+                # Return the filled results for consolidation
+                return (data_type, target_log, filled_data[target_log])
+            elif enable_plotting and is_parallel:
+                # In parallel mode, return both plot data and filled results
+                # Make sure filled_data includes depth column for plotting
+                filled_data_with_depth = filled_data.copy()
+                if depth_col not in filled_data_with_depth:
+                    filled_data_with_depth[depth_col] = data[depth_col]
+                return ('plot_and_data', data_type, target_log, filled_data[target_log], data, filled_data_with_depth, ml_names[ml_method])
+            else:
+                # No plotting, just return filled results
+                return (data_type, target_log, filled_data[target_log])
+    
+    # Process each target log (with optional parallelization)
+    data_type_results = {}  # Store results by data type for consolidation
+    
+    # Use show_plots parameter directly
+    enable_plotting = show_plots
+    
+    total_logs = len(target_logs)
+    
+    if n_jobs == 1:
+        # Sequential processing with simple progress messages
+        print(f"Processing {total_logs} logs sequentially...")
+        for idx, (target_log, data_type) in enumerate(target_logs, 1):
+            result = process_single_log(target_log, data_type, enable_plotting, idx, total_logs, is_parallel=False)
+            if result is not None:
+                dt, tl, filled_values = result
+                if dt not in data_type_results:
+                    data_type_results[dt] = {}
+                data_type_results[dt][tl] = filled_values
+        print(f"Completed processing {total_logs} logs.")
+    else:
+        # Parallel processing
+        print(f"Processing {total_logs} logs in parallel using {n_jobs if n_jobs > 0 else 'all'} CPU cores...")
+        
+        results = Parallel(n_jobs=n_jobs)(
+            delayed(process_single_log)(target_log, data_type, enable_plotting, None, None, is_parallel=True) 
+            for target_log, data_type in target_logs
+        )
+        
+        print(f"Completed processing {total_logs} logs.")
+        
+        # Collect results from parallel execution and plot data
+        plot_queue = []  # Store plot data for later display
+        for result in results:
+            if result is not None:
+                if result[0] == 'plot_data':
+                    # Multi-column type with plot data
+                    _, target_log, data, filled_data_with_depth, ml_type = result
+                    plot_queue.append((target_log, data, filled_data_with_depth, ml_type))
+                elif result[0] == 'plot_and_data':
+                    # Single column type with both plot data and filled results
+                    _, dt, tl, filled_values, data, filled_data_with_depth, ml_type = result
+                    if dt not in data_type_results:
+                        data_type_results[dt] = {}
+                    data_type_results[dt][tl] = filled_values
+                    plot_queue.append((tl, data, filled_data_with_depth, ml_type))
+                else:
+                    # No plotting, just filled results
+                    dt, tl, filled_values = result
+                    if dt not in data_type_results:
+                        data_type_results[dt] = {}
+                    data_type_results[dt][tl] = filled_values
+        
+        # Display all plots after parallel processing completes
+        if enable_plotting and plot_queue:
+            print(f"Displaying {len(plot_queue)} plots...")
+            for plot_name, data, filled_data, ml_type in plot_queue:
+                plot_filled_data(plot_name, data, filled_data, data_config, ML_type=ml_type)
+            print("All plots displayed.")
 
     # Create consolidated files for each data type using configured paths
     for data_type, filled_columns in data_type_results.items():
@@ -920,6 +1009,41 @@ def process_and_fill_logs(data_config, ml_method='xgblgbm'):
 
 
 # ==================== Helper Functions ====================
+
+def _get_depth_column(data_config):
+    """
+    Extract depth column name from column_configs.
+    
+    Parameters
+    ----------
+    data_config : dict
+        Configuration dictionary containing column_configs
+        
+    Returns
+    -------
+    str
+        Name of the depth column
+        
+    Raises
+    ------
+    ValueError
+        If no depth_col found in any configuration
+    """
+    column_configs = data_config.get('column_configs', {})
+    
+    for data_type, type_config in column_configs.items():
+        if isinstance(type_config, dict):
+            # Check for depth_col at top level of config
+            if 'depth_col' in type_config:
+                return type_config['depth_col']
+            
+            # Check nested configurations
+            for sub_key, sub_config in type_config.items():
+                if isinstance(sub_config, dict) and 'depth_col' in sub_config:
+                    return sub_config['depth_col']
+    
+    raise ValueError("No depth_col found in column_configs")
+
 
 def _resample_to_target_resolution(data, depth_col, target_resolution):
     """

@@ -555,19 +555,19 @@ Plot stitched brightness curves with standard deviation shading.
 
 ### Machine Learning Gap Filling (`gap_filling.py`)
 
-#### `preprocess_core_data(data_config)`
+#### `preprocess_core_data(data_config, resample_resolution=1)`
 
 Preprocesses core data by cleaning and scaling depth values using configurable parameters. All processing actions are driven by the data_config content.
 
 **Parameters:**
 - `data_config` (dict): Configuration dictionary containing:
-  - `depth_column`: Primary depth column name
-  - `column_configs`: Dictionary of data type configurations with thresholds
+  - `column_configs`: Dictionary of data type configurations with thresholds and depth_col
   - `mother_dir`: Base directory path
   - `clean_output_folder`: Output folder for cleaned data
   - `input_file_paths`: Dictionary of input file paths by data type
   - `clean_file_paths`: Dictionary of output file paths by data type
   - `core_length`: Target core length for scaling
+- `resample_resolution` (float, default=1): Target depth resolution for resampling (spacing between depth values)
 
 **Returns:**
 - None (saves cleaned data files to the specified output directory)
@@ -577,7 +577,11 @@ Preprocesses core data by cleaning and scaling depth values using configurable p
 Plot core logs using fully configurable parameters from data_config. Creates subplot panels for different types of core data (images and logs) based on the configuration provided.
 
 **Parameters:**
-- `data_config` (dict): Configuration dictionary containing plotting parameters
+- `data_config` (dict): Configuration dictionary containing:
+  - `column_configs`: Dictionary of data type configurations with depth_col
+  - `clean_file_paths` or `filled_file_paths`: Dictionary of file paths by data type
+  - `core_length`: Core length for y-axis limits
+  - `core_name`: Core name for title
 - `file_type` (str, default='clean'): Type of data files to plot ('clean' or 'filled')
 - `title` (str, optional): Custom title for the plot. If None, generates default title
 
@@ -592,7 +596,10 @@ Plot original and ML-filled data for a given log using configurable parameters. 
 - `target_log` (str): Name of the log to plot
 - `original_data` (pandas.DataFrame): Original data containing the log with gaps
 - `filled_data` (pandas.DataFrame): Data with ML-filled gaps
-- `data_config` (dict): Configuration containing all parameters including depth column, plot labels, etc.
+- `data_config` (dict): Configuration containing:
+  - `column_configs`: Dictionary of data type configurations with depth_col and plot labels
+  - `core_length`: Core length for x-axis limits
+  - `core_name`: Core name for title
 - `ML_type` (str, default='ML'): Type of ML method used for title
 
 **Returns:**
@@ -605,7 +612,10 @@ Fill gaps in target data using specified ML method. Prepares feature data, appli
 **Parameters:**
 - `target_log` (str): Name of the target column to fill gaps in
 - `All_logs` (dict): Dictionary of dataframes containing feature data and target data
-- `data_config` (dict): Configuration containing all parameters including file paths, core info, etc.
+- `data_config` (dict): Configuration containing:
+  - `column_configs`: Dictionary of data type configurations with depth_col
+  - `filled_file_paths`: Dictionary of output file paths by data type
+  - Other parameters including core info, etc.
 - `output_csv` (bool, default=True): Whether to output filled data to CSV file
 - `merge_tolerance` (float, default=3.0): Maximum allowed difference in depth for merging rows
 - `ml_method` (str, default='xgblgbm'): ML method to use - 'rf', 'rftc', 'xgb', 'xgblgbm'
@@ -613,20 +623,38 @@ Fill gaps in target data using specified ML method. Prepares feature data, appli
 **Returns:**
 - `tuple`: (target_data_filled, gap_mask) containing filled data and gap locations
 
-#### `process_and_fill_logs(data_config, ml_method='xgblgbm')`
+#### `process_and_fill_logs(data_config, ml_method='xgblgbm', n_jobs=-1, show_plots=True)`
 
-Process and fill gaps in log data using ML methods with fully configurable parameters. Orchestrates the complete ML-based gap filling process for all configured log data types.
+Process and fill gaps in log data using ML methods with fully configurable parameters. Orchestrates the complete ML-based gap filling process for all configured log data types. Supports parallel processing of multiple target logs with simple progress messages.
 
 **Parameters:**
-- `data_config` (dict): Configuration containing all parameters including data paths and column configurations
+- `data_config` (dict): Configuration containing:
+  - `column_configs`: Dictionary of data type configurations with depth_col
+  - `clean_file_paths`: Dictionary of input file directories by data type
+  - `filled_file_paths`: Dictionary of output file directories by data type
 - `ml_method` (str, default='xgblgbm'): ML method to use - 'rf', 'rftc', 'xgb', 'xgblgbm'
   - 'rf': Random Forest
   - 'rftc': Random Forest with Trend Constraints
   - 'xgb': XGBoost
   - 'xgblgbm': XGBoost + LightGBM ensemble
+- `n_jobs` (int, default=-1): Number of parallel jobs for processing multiple target logs
+  - -1: Use all available CPU cores (fastest, plots disabled)
+  - 1: Sequential processing with plots enabled (recommended for interactive use)
+  - n: Use n CPU cores (plots disabled)
+- `show_plots` (bool, default=True): Whether to generate and display plots during processing
+  - Works in both sequential and parallel modes using appropriate matplotlib backend
+  - Set to False to disable plotting for faster processing
 
 **Returns:**
 - None (saves filled data files and displays progress information)
+
+**Notes:**
+- Parallel processing is applied at the target log level, allowing multiple logs to be processed simultaneously
+- Each parallel job uses its own memory space
+- Progress is tracked with simple print messages: "[1/6] Processing Lumin...", "[2/6] Processing CT...", etc.
+- Plots work in both sequential and parallel modes using the Agg backend for parallel workers
+- For interactive use with plots: use n_jobs=1 or n_jobs=-1 with show_plots=True
+- For fastest batch processing without plots: use n_jobs=-1 and show_plots=False
 
 #### Helper Functions
 
