@@ -75,8 +75,8 @@ def plot_ctimg_curves(slice_data: np.ndarray,
                         output_dir: Optional[str] = None,
                         vmin = 400,
                         vmax = 2400,
-                        fig_format: list = ['png'],
-                        dpi: Optional[int] = None) -> None:
+                        fig_format: list = ['png', 'tiff'],
+                        dpi: int = 150) -> None:
     """
     Display a core slice and corresponding brightness trace and standard deviation.
     
@@ -105,12 +105,12 @@ def plot_ctimg_curves(slice_data: np.ndarray,
         Minimum value for colormap scaling. Defaults is 400
     vmax : float, optional
         Maximum value for colormap scaling. Defaults is 2400
-    fig_format : list, default=['png']
+    fig_format : list, default=['png', 'tiff']
         List of file formats to save. Acceptable formats: 'png', 'jpg'/'jpeg', 
         'svg', 'tiff', 'pdf'
-    dpi : int or None, default=None
-        Resolution in dots per inch for saved figures. If None, uses matplotlib's 
-        default dpi. If specified (e.g., 300), applies to all formats in fig_format
+    dpi : int, default=150
+        Resolution in dots per inch for saved figures. Applies to all formats 
+        in fig_format
         
     Returns
     -------
@@ -204,16 +204,10 @@ def plot_ctimg_curves(slice_data: np.ndarray,
         for fmt in fig_format:
             if fmt in ['png', 'jpeg', 'svg', 'pdf']:
                 output_file = os.path.join(output_dir, f"{core_name}.{fmt}")
-                if dpi is not None:
-                    if fmt == 'jpeg':
-                        fig.savefig(output_file, dpi=dpi, bbox_inches='tight', format='jpg')
-                    else:
-                        fig.savefig(output_file, dpi=dpi, bbox_inches='tight')
+                if fmt == 'jpeg':
+                    fig.savefig(output_file, dpi=dpi, bbox_inches='tight', format='jpg')
                 else:
-                    if fmt == 'jpeg':
-                        fig.savefig(output_file, bbox_inches='tight', format='jpg')
-                    else:
-                        fig.savefig(output_file, bbox_inches='tight')
+                    fig.savefig(output_file, dpi=dpi, bbox_inches='tight')
                 print(f"Composite CT results saved to: ~/{'/'.join(output_file.split('/')[-2:])}")
         
         # Create and save colormap image if tiff is requested
@@ -226,7 +220,7 @@ def plot_ctimg_curves(slice_data: np.ndarray,
             fig_width = 2  # Keep original width
             fig_height = fig_width * data_aspect
             
-            fig_img = plt.figure(figsize=(fig_width, fig_height), dpi=300)
+            fig_img = plt.figure(figsize=(fig_width, fig_height), dpi=dpi)
             
             # Create axes that fills entire figure
             ax = plt.axes([0, 0, 1, 1])
@@ -245,10 +239,10 @@ def plot_ctimg_curves(slice_data: np.ndarray,
             fig_img.canvas.draw()
             img_array = np.array(fig_img.canvas.renderer.buffer_rgba())[:,:,:3]
             
-            # Save as compressed TIFF using PIL
+            # Save as Deflate-compressed TIFF using PIL with specified DPI
             output_file = os.path.join(output_dir, f"{core_name}.tiff")
             img = Image.fromarray(img_array)
-            img.save(output_file, format='TIFF', compression='tiff_deflate')
+            img.save(output_file, format='TIFF', compression='tiff_deflate', dpi=(dpi, dpi))
             print(f"CT image saved to: ~/{'/'.join(output_file.split('/')[-2:])}")
             plt.close(fig_img)
 

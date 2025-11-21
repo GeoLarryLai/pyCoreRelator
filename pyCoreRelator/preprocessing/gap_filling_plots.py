@@ -52,9 +52,7 @@ def plot_core_logs(data_config, file_type='clean', title=None, pickeddepth_csv=N
         Configuration dictionary containing:
         - depth_column: Primary depth column name
         - column_configs: Dictionary of data type configurations
-        - mother_dir: Base directory path
-        - clean_output_folder or filled_output_folder: Data folder path
-        - clean_file_paths or filled_file_paths: Dictionary of file paths by data type
+        - clean_file_paths or filled_file_paths: Dictionary of full file paths by data type
         - core_length: Core length for y-axis limits
         - core_name: Core name for title
     file_type : str, default='clean'
@@ -95,22 +93,23 @@ def plot_core_logs(data_config, file_type='clean', title=None, pickeddepth_csv=N
     # Get file paths based on type
     if file_type == 'clean':
         data_paths = data_config.get('clean_file_paths', {})
-        output_folder = data_config['clean_output_folder']
         clean_data = None
     else:
         data_paths = data_config.get('filled_file_paths', {})
-        output_folder = data_config['filled_output_folder']
         
         # Load cleaned data for comparison when plotting filled data
         clean_paths = data_config.get('clean_file_paths', {})
-        clean_output_folder = data_config['clean_output_folder']
         clean_data = {}
         for data_type in clean_paths.keys():
-            clean_full_path = data_config['mother_dir'] + clean_output_folder + clean_paths[data_type]
+            clean_full_path = clean_paths[data_type]
             if os.path.exists(clean_full_path):
                 loaded_clean_data = pd.read_csv(clean_full_path)
                 if depth_col in loaded_clean_data.columns:
                     clean_data[data_type] = loaded_clean_data
+                else:
+                    print(f"Warning: Depth column '{depth_col}' not found in {clean_full_path}")
+            else:
+                print(f"Warning: Clean data file not found for comparison: {clean_full_path}")
     
     # Get available column configs
     available_columns = data_config.get('column_configs', {})
@@ -118,14 +117,18 @@ def plot_core_logs(data_config, file_type='clean', title=None, pickeddepth_csv=N
     # Only process data types that have both file path and column config
     valid_data_types = set(data_paths.keys()) & set(available_columns.keys())
     
-    # Build full file paths and load data
+    # Load data using full file paths
     data = {}
     for data_type in valid_data_types:
-        full_path = data_config['mother_dir'] + output_folder + data_paths[data_type]
+        full_path = data_paths[data_type]
         if os.path.exists(full_path):
             loaded_data = pd.read_csv(full_path)
             if depth_col in loaded_data.columns:
                 data[data_type] = loaded_data
+            else:
+                print(f"Warning: Depth column '{depth_col}' not found in {full_path}")
+        else:
+            print(f"Warning: Data file not found: {full_path}")
     
     if not data:
         raise ValueError("No valid data files found to plot")
@@ -168,7 +171,7 @@ def plot_core_logs(data_config, file_type='clean', title=None, pickeddepth_csv=N
         
         # Check for image configuration
         if 'image_path' in type_config:
-            image_path = data_config['mother_dir'] + type_config['image_path']
+            image_path = type_config['image_path']
             if os.path.exists(image_path):
                 # Add image panel
                 plot_panels.append({
@@ -177,6 +180,8 @@ def plot_core_logs(data_config, file_type='clean', title=None, pickeddepth_csv=N
                     'image_path': image_path,
                     'colormap': type_config.get('image_colormap', 'gray')
                 })
+            else:
+                print(f"Warning: Image file not found: {image_path}")
         
         # Handle different config structures for data plotting
         if 'data_col' in type_config:
@@ -488,19 +493,35 @@ def _plot_picked_depths(ax, picked_depths_data, core_length, core_name):
     ax.set_xlabel('Datums', fontweight='bold', fontsize='small')
     ax.set_xticks([])
     
-    # Define styling for each category
-    category_styles = {
-        1: {'color': 'black', 'linestyle': '-', 'linewidth': 1.0},
-        2: {'color': 'brown', 'linestyle': '--', 'linewidth': 0.75},
-        3: {'color': 'darkgrey', 'linestyle': '--', 'linewidth': 0.75}
-    }
+    # Get unique categories from the data
+    unique_categories = sorted([cat for cat in picked_depths_data['category'].unique() if pd.notna(cat)])
     
-    # Define fill colors and patterns
-    fill_styles = {
-        'Ta-d': {'color': '#d9c355', 'alpha': 0.7},
-        'Te': {'color': '#94724b', 'alpha': 0.7},
-        'Pelagic': {'color': '#a3a2a2', 'alpha': 0.7}
-    }
+    # Define default colors for categories (cycle through if more categories than colors)
+    default_colors = ['black', 'brown', 'darkgrey', 'darkblue', 'darkgreen', 'darkred', 'darkorange', 'purple']
+    default_linestyles = ['-', '--', '--', '--', '--', '--', '--', '--']
+    default_linewidths = [1.0, 0.75, 0.75, 0.75, 0.75, 0.75, 0.75, 0.75]
+    
+    # Dynamically create category styles for line plotting
+    category_styles = {}
+    for i, cat in enumerate(unique_categories):
+        color_idx = i % len(default_colors)
+        category_styles[cat] = {
+            'color': default_colors[color_idx],
+            'linestyle': default_linestyles[color_idx],
+            'linewidth': default_linewidths[color_idx]
+        }
+    
+    # Define default fill colors for facies (cycle through if more categories than colors)
+    default_fill_colors = ['#d9c355', '#94724b', '#a3a2a2', '#8ab6d6', '#a8d5a8', '#e8a5a5', '#f5c77e', '#c5a3d5']
+    
+    # Dynamically create fill styles for facies based on categories
+    fill_styles = {}
+    for i, cat in enumerate(unique_categories):
+        color_idx = i % len(default_fill_colors)
+        fill_styles[f'Facies {cat}'] = {
+            'color': default_fill_colors[color_idx],
+            'alpha': 0.7
+        }
     
     # Sort data by depth for interval processing
     sorted_data = picked_depths_data.sort_values('picked_depths_cm').reset_index(drop=True)
@@ -513,40 +534,51 @@ def _plot_picked_depths(ax, picked_depths_data, core_length, core_name):
     
     # Add all picked depths
     for _, row in sorted_data.iterrows():
-        if row['category'] in [1, 2, 3]:
+        if pd.notna(row['category']) and row['category'] in unique_categories:
             boundaries.append((row['picked_depths_cm'], row['category']))
     
     # Add bottom boundary (core_length)
     boundaries.append((core_length, None))
     
-    # Determine fill type for each interval
+    # Determine fill type for each interval based on universal category transition rules
+    # This generalizes the original Ta-d, Te, Pelagic logic to work with any categories
     for i in range(len(boundaries) - 1):
         top_depth, top_cat = boundaries[i]
         bottom_depth, bottom_cat = boundaries[i + 1]
         
-        # Determine fill type based on category transitions
         fill_type = None
         
-        # Rule 1: Ta-d
-        if ((top_cat == 2 and bottom_cat == 1) or 
-            (top_cat is None and bottom_cat == 1) or 
-            (top_cat == 2 and bottom_cat is None)):
-            fill_type = 'Ta-d'
+        # Universal rules applied to all categories:
+        # For sorted categories [C1, C2, C3, ...] where C1 < C2 < C3 < ...
+        # Rule 1: Transition from C(i+1) to C(i) OR from top/None to C(i) -> Facies C(i)
+        # Rule 2: Transition from C(i+2) to C(i+1) OR from top/None to C(i+1) -> Facies C(i+1)
+        # Rule 3: All other transitions (cross-category jumps) -> Facies C(highest)
         
-        # Rule 2: Te  
-        elif ((top_cat == 3 and bottom_cat == 2) or 
-              (top_cat is None and bottom_cat == 2) or 
-              (top_cat == 3 and bottom_cat is None)):
-            fill_type = 'Te'
+        for idx, cat in enumerate(unique_categories):
+            # Get adjacent categories
+            next_cat = unique_categories[idx + 1] if idx + 1 < len(unique_categories) else None
+            
+            # Rule: From next higher category down to current, or from top to current
+            if next_cat and ((top_cat == next_cat and bottom_cat == cat) or 
+                            (top_cat is None and bottom_cat == cat) or 
+                            (top_cat == next_cat and bottom_cat is None)):
+                fill_type = f'Facies {cat}'
+                break
         
-        # Rule 3: Pelagic (same conditions as Te, but different interpretation)
-        # Note: This appears to be a duplicate rule in the original specification
-        # Keeping as Pelagic for areas that don't match Ta-d or Te specifically
-        elif ((top_cat == 1 and bottom_cat == 3) or
-              (top_cat == 2 and bottom_cat == 3) or
-              (top_cat == 1 and bottom_cat == 2) or
-              (top_cat is None and bottom_cat == 3)):
-            fill_type = 'Pelagic'
+        # If no match from descending transition, check for other patterns
+        if fill_type is None:
+            # Pattern: Any cross-category transition or complex patterns
+            if bottom_cat is not None and bottom_cat in unique_categories:
+                # Check if this is a cross-transition (skip or reverse)
+                if top_cat is not None and top_cat in unique_categories:
+                    top_idx = unique_categories.index(top_cat)
+                    bottom_idx = unique_categories.index(bottom_cat)
+                    # If skipping categories or going backwards significantly
+                    if abs(top_idx - bottom_idx) > 1 or top_idx < bottom_idx:
+                        fill_type = f'Facies {bottom_cat}'
+                else:
+                    # Top is None, use bottom category
+                    fill_type = f'Facies {bottom_cat}'
         
         # Store interval information
         intervals.append({
@@ -596,7 +628,7 @@ def _plot_picked_depths(ax, picked_depths_data, core_length, core_name):
         category = row['category']
         
         # Skip if category is not in our defined styles
-        if category not in category_styles:
+        if pd.isna(category) or category not in category_styles:
             continue
             
         # Get style for this category
@@ -609,11 +641,12 @@ def _plot_picked_depths(ax, picked_depths_data, core_length, core_name):
                   linewidth=style['linewidth'],
                   zorder=10)
     
-    # Add interpreted bed names for category 1
+    # Add interpreted bed names for the first category (if it exists)
     text_positions = []
-    if 'interpreted_bed' in sorted_data.columns:
+    first_category = unique_categories[0] if unique_categories else None
+    if 'interpreted_bed' in sorted_data.columns and first_category is not None:
         for _, row in sorted_data.iterrows():
-            if (row['category'] == 1 and 
+            if (row['category'] == first_category and 
                 pd.notna(row['interpreted_bed']) and 
                 str(row['interpreted_bed']).strip() != ''):
                 

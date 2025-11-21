@@ -18,7 +18,7 @@ import pandas as pd
 
 
 def plot_rgbimg_curves(depths, r, g, b, r_std, g_std, b_std, lum, lum_std, img, 
-                    core_name=None, save_figs=False, output_dir=None, fig_format=['png'], dpi=None):
+                    core_name=None, save_figs=False, output_dir=None, fig_format=['png', 'tiff'], dpi=150):
     """
     Create visualization plots of RGB analysis results.
     
@@ -55,12 +55,12 @@ def plot_rgbimg_curves(depths, r, g, b, r_std, g_std, b_std, lum, lum_std, img,
         Whether to save the plots as image files
     output_dir : str, optional
         Directory to save output files (required if save_figs is True)
-    fig_format : list, default=['png']
+    fig_format : list, default=['png', 'tiff']
         List of file formats to save. Acceptable formats: 'png', 'jpg'/'jpeg', 
         'svg', 'tiff', 'pdf'
-    dpi : int or None, default=None
-        Resolution in dots per inch for saved figures. If None, uses matplotlib's 
-        default dpi. If specified (e.g., 300), applies to all formats in fig_format
+    dpi : int, default=150
+        Resolution in dots per inch for saved figures. Applies to all formats 
+        in fig_format
         
     Returns
     -------
@@ -156,27 +156,44 @@ def plot_rgbimg_curves(depths, r, g, b, r_std, g_std, b_std, lum, lum_std, img,
         for fmt in fig_format:
             if fmt in ['png', 'jpeg', 'svg', 'pdf']:
                 output_file = os.path.join(output_dir, f"{core_name}.{fmt}")
-                if dpi is not None:
-                    if fmt == 'jpeg':
-                        fig.savefig(output_file, dpi=dpi, bbox_inches='tight', format='jpg')
-                    else:
-                        fig.savefig(output_file, dpi=dpi, bbox_inches='tight')
+                if fmt == 'jpeg':
+                    fig.savefig(output_file, dpi=dpi, bbox_inches='tight', format='jpg')
                 else:
-                    if fmt == 'jpeg':
-                        fig.savefig(output_file, bbox_inches='tight', format='jpg')
-                    else:
-                        fig.savefig(output_file, bbox_inches='tight')
+                    fig.savefig(output_file, dpi=dpi, bbox_inches='tight')
                 print(f"RGB profile results saved to: ~/{'/'.join(output_file.split('/')[-2:])}")
         
-        # Save composite TIFF image with compression using PIL if tiff is requested
+        # Save RGB image only as TIFF with Deflate compression if tiff is requested
         if 'tiff' in fig_format:
+            # Calculate aspect ratio of data
+            data_height, data_width = img.shape[0], img.shape[1]
+            data_aspect = data_height / data_width
+            
+            # Set figure size to maintain data aspect ratio
+            fig_width = 2
+            fig_height = fig_width * data_aspect
+            
+            fig_img = plt.figure(figsize=(fig_width, fig_height), dpi=dpi)
+            
+            # Create axes that fills entire figure
+            ax = plt.axes([0, 0, 1, 1])
+            ax.set_axis_off()
+            
+            # Display the normalized image
+            ax.imshow(img_normalized, aspect='auto')
+            
+            # Ensure no padding
+            plt.subplots_adjust(top=1, bottom=0, right=1, left=0, hspace=0, wspace=0)
+            plt.margins(0, 0)
+            
+            # Convert matplotlib figure to RGB array
+            fig_img.canvas.draw()
+            img_array = np.array(fig_img.canvas.renderer.buffer_rgba())[:,:,:3]
+            
+            # Save as Deflate-compressed TIFF using PIL with specified DPI
             output_file = os.path.join(output_dir, f"{core_name}.tiff")
-            # Clip values to valid range [0,1] and convert to uint8
-            img_to_save = np.clip(img_normalized * 255, 0, 255).astype(np.uint8)
-            # Convert numpy array to PIL Image
-            pil_img = Image.fromarray(img_to_save)
-            # Save with ZIP compression
-            pil_img.save(output_file, format='TIFF', compression='tiff_deflate')
+            pil_img = Image.fromarray(img_array)
+            pil_img.save(output_file, format='TIFF', compression='tiff_deflate', dpi=(dpi, dpi))
             print(f"Core composite image saved to: ~/{'/'.join(output_file.split('/')[-2:])}")
+            plt.close(fig_img)
 
 

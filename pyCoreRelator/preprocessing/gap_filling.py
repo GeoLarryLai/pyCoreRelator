@@ -54,10 +54,8 @@ def preprocess_core_data(data_config):
         Configuration dictionary containing:
         - depth_column: Primary depth column name
         - column_configs: Dictionary of data type configurations with thresholds
-        - mother_dir: Base directory path
-        - clean_output_folder: Output folder for cleaned data
-        - input_file_paths: Dictionary of input file paths by data type
-        - clean_file_paths: Dictionary of output file paths by data type
+        - input_file_paths: Dictionary of input file directories by data type
+        - clean_file_paths: Dictionary of output file directories by data type
         - core_length: Target core length for scaling
         - target_depth_resolution: (optional) Target depth resolution for resampling
         
@@ -95,9 +93,6 @@ def preprocess_core_data(data_config):
                             if isinstance(threshold, list) and len(threshold) >= 1 and threshold[0] not in valid_conditions:
                                 raise ValueError(f"Invalid condition '{threshold[0]}' for {data_type}.{sub_key}.")
 
-    # Create output directories
-    os.makedirs(data_config['mother_dir'] + data_config['clean_output_folder'], exist_ok=True)
-
     # Process data types that exist in both input_file_paths and column_configs
     input_paths = data_config.get('input_file_paths', {})
     clean_paths = data_config.get('clean_file_paths', {})
@@ -106,10 +101,17 @@ def preprocess_core_data(data_config):
     # Only process data types that have all necessary configurations
     valid_data_types = set(input_paths.keys()) & set(clean_paths.keys()) & set(available_columns.keys())
     
+    # Create output directories for clean files
+    for data_type in valid_data_types:
+        output_path = clean_paths[data_type]
+        output_dir = os.path.dirname(output_path)
+        if output_dir:
+            os.makedirs(output_dir, exist_ok=True)
+    
     # Process each valid data type
     for data_type in valid_data_types:
         # Get data input path from config
-        data_path = data_config['mother_dir'] + input_paths[data_type]
+        data_path = input_paths[data_type]
         
         if os.path.exists(data_path):
             print(f"Processing {data_type} data...")
@@ -210,11 +212,11 @@ def preprocess_core_data(data_config):
                         data = _resample_to_target_resolution(data, depth_col, target_resolution)
                 
                 # Use direct file path from config
-                output_path = data_config['mother_dir'] + data_config['clean_output_folder'] + clean_paths[data_type]
+                output_path = clean_paths[data_type]
                 data.to_csv(output_path, index=False)
                 print(f"Saved cleaned {data_type} data to: {output_path}")
         else:
-            print(f"Raw file not found for {data_type}: {data_path}")
+            print(f"Warning: Raw file not found for {data_type}: {data_path}")
     
     print("Data preprocessing completed.") 
 
@@ -561,10 +563,6 @@ def fill_gaps_with_ml(target_log, All_logs, data_config, output_csv=True,
     if ml_method not in ['rf', 'rftc', 'xgb', 'xgblgbm']:
         raise ValueError("ml_method must be one of: 'rf', 'rftc', 'xgb', 'xgblgbm'")
     
-    # Get parameters from config
-    mother_dir = data_config['mother_dir']
-    filled_output_folder = data_config['filled_output_folder']
-    
     # Prepare feature data
     target_data, merged_data, features = prepare_feature_data(target_log, All_logs, merge_tolerance, data_config)
     
@@ -579,18 +577,16 @@ def fill_gaps_with_ml(target_log, All_logs, data_config, output_csv=True,
     if len(valid_target_data) == 0:
         print(f"Skipping {target_log} - no valid training data available (0 samples)")
         if output_csv:
-            # Generate output filename based on target_log and data_config
-            output_filename = _generate_output_filename(target_log, data_config)
-            output_path = mother_dir + filled_output_folder + output_filename
+            # Generate output path based on target_log and data_config
+            output_path = _generate_output_filepath(target_log, data_config)
             target_data_filled.to_csv(output_path, index=False)
         return target_data_filled, gap_mask
     
     # If no gaps exist, save to CSV if requested and return original data
     if not gap_mask.any():
         if output_csv:
-            # Generate output filename based on target_log and data_config
-            output_filename = _generate_output_filename(target_log, data_config)
-            output_path = mother_dir + filled_output_folder + output_filename
+            # Generate output path based on target_log and data_config
+            output_path = _generate_output_filepath(target_log, data_config)
             target_data_filled.to_csv(output_path, index=False)
         return target_data_filled, gap_mask
 
@@ -613,9 +609,8 @@ def fill_gaps_with_ml(target_log, All_logs, data_config, output_csv=True,
     if len(y_train.dropna()) == 0:
         print(f"Skipping {target_log} - no valid training samples after feature preparation")
         if output_csv:
-            # Generate output filename based on target_log and data_config
-            output_filename = _generate_output_filename(target_log, data_config)
-            output_path = mother_dir + filled_output_folder + output_filename
+            # Generate output path based on target_log and data_config
+            output_path = _generate_output_filepath(target_log, data_config)
             target_data_filled.to_csv(output_path, index=False)
         return target_data_filled, gap_mask
 
@@ -634,9 +629,8 @@ def fill_gaps_with_ml(target_log, All_logs, data_config, output_csv=True,
     
     # Save to CSV if requested
     if output_csv:
-        # Generate output filename based on target_log and data_config
-        output_filename = _generate_output_filename(target_log, data_config)
-        output_path = mother_dir + filled_output_folder + output_filename
+        # Generate output path based on target_log and data_config
+        output_path = _generate_output_filepath(target_log, data_config)
         target_data_filled.to_csv(output_path, index=False)
 
     return target_data_filled, gap_mask 
@@ -656,11 +650,8 @@ def process_and_fill_logs(data_config, ml_method='xgblgbm'):
     data_config : dict
         Configuration containing all parameters including:
         - depth_column: Primary depth column name
-        - mother_dir: Base directory path
-        - clean_output_folder: Input folder for cleaned data
-        - filled_output_folder: Output folder for ML-filled data
-        - clean_file_paths: Dictionary of input file paths by data type
-        - filled_file_paths: Dictionary of output file paths by data type
+        - clean_file_paths: Dictionary of input file directories by data type
+        - filled_file_paths: Dictionary of output file directories by data type
         - column_configs: Dictionary of data type configurations
     ml_method : str, default='xgblgbm'
         ML method to use - 'rf', 'rftc', 'xgb', 'xgblgbm'
@@ -678,25 +669,30 @@ def process_and_fill_logs(data_config, ml_method='xgblgbm'):
     """
     # Get configurable parameters
     depth_col = data_config['depth_column']
-    mother_dir = data_config['mother_dir']
-    clean_output_folder = data_config['clean_output_folder']
-    filled_output_folder = data_config['filled_output_folder']
-    
-    os.makedirs(mother_dir + filled_output_folder, exist_ok=True)
     
     clean_paths = data_config.get('clean_file_paths', {})
     filled_paths = data_config.get('filled_file_paths', {})
     available_columns = data_config.get('column_configs', {})
     valid_data_types = set(clean_paths.keys()) & set(available_columns.keys())
     
-    # Load data with correct path construction
+    # Create output directories for filled files
+    for data_type in valid_data_types:
+        if data_type in filled_paths:
+            output_path = filled_paths[data_type]
+            output_dir = os.path.dirname(output_path)
+            if output_dir:
+                os.makedirs(output_dir, exist_ok=True)
+    
+    # Load data using full file paths
     data_dict = {}
     for data_type in valid_data_types:
-        full_path = mother_dir + clean_output_folder + clean_paths[data_type]
+        full_path = clean_paths[data_type]
         if os.path.exists(full_path):
             data = pd.read_csv(full_path)
             if not data.empty:
                 data_dict[data_type] = data
+        else:
+            print(f"Warning: Clean file not found for {data_type}: {full_path}")
 
     if not data_dict:
         print("No valid data files found for processing")
@@ -883,10 +879,9 @@ def process_and_fill_logs(data_config, ml_method='xgblgbm'):
                 updated_columns.append(col)
             
             # Save consolidated file using filled_file_paths from config
-            output_filename = filled_paths[data_type]
-            output_path = mother_dir + filled_output_folder + output_filename
+            output_path = filled_paths[data_type]
             data_copy.to_csv(output_path, index=False)
-            print(f"Saved [{', '.join(updated_columns)}] to {output_filename}")
+            print(f"Saved [{', '.join(updated_columns)}] to {os.path.basename(output_path)}")
 
     # Consolidate multi-column data types - remove individual files
     multi_column_types = [dt for dt, config in available_columns.items() 
@@ -901,28 +896,25 @@ def process_and_fill_logs(data_config, ml_method='xgblgbm'):
             
             for col in data_columns:
                 if col in data_copy.columns:
-                    # Generate individual filename using the same logic as fill_gaps_with_ml
-                    individual_filename = _generate_output_filename(col, data_config)
-                    individual_file = mother_dir + filled_output_folder + individual_filename
-                    if os.path.exists(individual_file):
-                        filled_data = pd.read_csv(individual_file)
+                    # Generate individual filepath using the same logic as fill_gaps_with_ml
+                    individual_filepath = _generate_output_filepath(col, data_config)
+                    if os.path.exists(individual_filepath):
+                        filled_data = pd.read_csv(individual_filepath)
                         if col in filled_data.columns:
                             data_copy[col] = filled_data[col]
                             updated_columns.append(col)
             
             if updated_columns:
                 # Save consolidated file using filled_file_paths from config
-                output_filename = filled_paths[data_type]
-                output_path = mother_dir + filled_output_folder + output_filename
+                output_path = filled_paths[data_type]
                 data_copy.to_csv(output_path, index=False)
-                print(f"Saved [{', '.join(updated_columns)}] to {output_filename}")
+                print(f"Saved [{', '.join(updated_columns)}] to {os.path.basename(output_path)}")
                 
                 # Remove individual files
                 for col in data_columns:
-                    individual_filename = _generate_output_filename(col, data_config)
-                    individual_file = mother_dir + filled_output_folder + individual_filename
-                    if os.path.exists(individual_file):
-                        os.remove(individual_file)
+                    individual_filepath = _generate_output_filepath(col, data_config)
+                    if os.path.exists(individual_filepath):
+                        os.remove(individual_filepath)
 
     print("ML-based gap filling completed for all target logs.")
 
@@ -964,9 +956,9 @@ def _resample_to_target_resolution(data, depth_col, target_resolution):
     return resampled_data.astype('float32')
 
 
-def _generate_output_filename(target_log, data_config):
+def _generate_output_filepath(target_log, data_config):
     """
-    Generate output filename for ML-filled data based on target log and data configuration.
+    Generate output filepath for ML-filled data based on target log and data configuration.
     
     Parameters
     ----------
@@ -978,7 +970,7 @@ def _generate_output_filename(target_log, data_config):
     Returns
     -------
     str
-        Generated filename for the output file
+        Generated full filepath for the output file
     """
     column_configs = data_config['column_configs']
     filled_file_paths = data_config.get('filled_file_paths', {})
@@ -1007,14 +999,16 @@ def _generate_output_filename(target_log, data_config):
     # Use existing filled_file_paths from data_config
     if target_data_type and target_data_type in filled_file_paths:
         type_config = column_configs[target_data_type]
-        base_filename = filled_file_paths[target_data_type]
+        base_filepath = filled_file_paths[target_data_type]
         
         # For multi-column data types, create individual file variation
         if 'data_cols' in type_config:
-            # Extract the pattern from the base filename and adapt for individual columns
+            # Extract directory and filename from the base filepath
+            base_dir = os.path.dirname(base_filepath)
+            base_filename = os.path.basename(base_filepath)
             base_name, ext = os.path.splitext(base_filename)
+            
             # Replace the data type part with the specific column name
-            core_name = data_config['core_name']
             # Find data type identifier in base filename and replace with target_log
             if f'_{target_data_type.upper()}_' in base_name:
                 individual_filename = base_name.replace(f'_{target_data_type.upper()}_', f'_{target_log}_') + ext
@@ -1028,10 +1022,12 @@ def _generate_output_filename(target_log, data_config):
                     individual_filename = '_'.join(parts) + ext
                 else:
                     individual_filename = f"{base_name}_{target_log}{ext}"
-            return individual_filename
+            
+            # Reconstruct full path
+            return os.path.join(base_dir, individual_filename)
         else:
-            # For single-column or nested types, use the base filename directly
-            return base_filename
+            # For single-column or nested types, use the base filepath directly
+            return base_filepath
     
     # If no configuration found, raise an error rather than hardcoding
     raise ValueError(f"No filled_file_paths configuration found for target_log '{target_log}' in data_type '{target_data_type}'")
