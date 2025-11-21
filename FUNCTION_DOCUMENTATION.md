@@ -328,9 +328,9 @@ Removes specified pixels from top and bottom edges of image array to eliminate b
 
 ### RGB Image Plotting (`rgb_plotting.py`)
 
-#### `plot_rgb_profile(depths, r, g, b, r_std, g_std, b_std, lum, lum_std, img, core_name=None, save_figs=False, output_dir=None)`
+#### `plot_rgbimg_curves(depths, r, g, b, r_std, g_std, b_std, lum, lum_std, img, core_name=None, save_figs=False, output_dir=None, fig_format=['png'])`
 
-Creates comprehensive three-panel visualization of RGB analysis results with image, color profiles, and standard deviation plots.
+Creates comprehensive three-panel visualization of RGB analysis results with image, color profiles, and standard deviation plots, supporting multiple output formats.
 
 **Parameters:**
 - `depths` (array-like): Depth positions in pixels
@@ -341,22 +341,34 @@ Creates comprehensive three-panel visualization of RGB analysis results with ima
 - `core_name` (str, optional): Core identifier for titles and file naming
 - `save_figs` (bool, default=False): Whether to save plots as files
 - `output_dir` (str, optional): Directory for saved files
+- `fig_format` (list, default=['png']): List of file formats to save. Acceptable formats: 'png', 'jpg'/'jpeg', 'svg', 'tiff', 'pdf'
 
 **Returns:**
 - None (displays plot and optionally saves files)
 
-#### `stitch_core_sections(core_structure, mother_dir, stitchbuffer=10, width_start_pct=0.25, width_end_pct=0.75)`
+**Raises:**
+- `ValueError`: If output_dir is not provided when save_figs is True
 
-Stitches multiple core section images by processing RGB profiles with section-specific parameters and combining results into continuous arrays.
+### RGB Image Processing (`rgb_processing.py`)
+
+#### `rgb_process_and_stitch(core_structure, mother_dir, stitchbuffer=10, width_start_pct=0.25, width_end_pct=0.75, save_csv=True, output_csv=None, total_length_cm=None)`
+
+Stitches multiple core section images by processing RGB profiles with section-specific parameters, combining results into continuous arrays, and optionally exporting to CSV.
 
 **Parameters:**
-- `core_structure` (dict): Dictionary with filenames as keys and processing parameters as values
+- `core_structure` (dict or list): Core structure definition with filenames as keys and processing parameters as values
 - `mother_dir` (str): Base directory path containing image files
 - `stitchbuffer` (int, default=10): Bin rows to remove at stitching edges
 - `width_start_pct, width_end_pct` (float, default=0.25, 0.75): Analysis strip boundaries
+- `save_csv` (bool, default=True): Whether to save results to CSV file
+- `output_csv` (str, optional): Full path for output CSV file (required if save_csv=True)
+- `total_length_cm` (float, optional): Total core length in centimeters for depth conversion (required if save_csv=True)
 
 **Returns:**
 - `tuple`: (all_depths, all_r, all_g, all_b, all_r_std, all_g_std, all_b_std, all_lum, all_lum_std, stitched_image) containing continuous RGB data and combined image
+
+**Raises:**
+- `ValueError`: If save_csv is True but output_csv or total_length_cm is not specified
 
 ### CT Image Processing (`ct_processing.py`)
 

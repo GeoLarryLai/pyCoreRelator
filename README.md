@@ -158,8 +158,8 @@ Detailed function documentation is available in [FUNCTION_DOCUMENTATION.md](FUNC
 - **`pick_stratigraphic_levels()`**: Interactive manual stratigraphic boundary picking with real-time visualization
 
 ### Image Processing Functions
-- **`plot_rgb_profile()`**: Create comprehensive RGB analysis visualizations
-- **`stitch_core_sections()`**: Stitch multiple core section images and RGB profiles
+- **`plot_rgbimg_curves()`**: Create comprehensive RGB analysis visualizations with multiple format support
+- **`rgb_process_and_stitch()`**: Complete workflow for multi-segment RGB processing with optional CSV export
 - **`plot_ctimg_curves()`**: Display CT slices with brightness traces and standard deviation plots
 - **`ct_process_and_stitch()`**: Complete workflow for multi-segment CT processing with optional CSV export
 

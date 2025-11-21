@@ -4,7 +4,6 @@
 !/.gitignore
 !/pyCoreRelator*.ipynb
 !/example_data/
-!/example_outputs/
 !/LICENSE
 !/FUNCTION_DOCUMENTATION.md
 !/requirements.txt

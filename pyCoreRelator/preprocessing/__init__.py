@@ -35,11 +35,11 @@ from .ct_plotting import (
 from .rgb_processing import (
     trim_image,
     extract_rgb_profile,
-    stitch_core_sections
+    rgb_process_and_stitch
 )
 
 from .rgb_plotting import (
-    plot_rgb_profile
+    plot_rgbimg_curves
 )
 
 # Gap filling
@@ -93,9 +93,9 @@ __all__ = [
     # RGB processing
     'trim_image',
     'extract_rgb_profile',
-    'stitch_core_sections',
+    'rgb_process_and_stitch',
     # RGB plotting
-    'plot_rgb_profile',
+    'plot_rgbimg_curves',
     # Gap filling
     'preprocess_core_data',
     'prepare_feature_data',

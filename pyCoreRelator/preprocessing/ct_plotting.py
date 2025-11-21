@@ -75,7 +75,8 @@ def plot_ctimg_curves(slice_data: np.ndarray,
                         output_dir: Optional[str] = None,
                         vmin = 400,
                         vmax = 2400,
-                        fig_format: list = ['png']) -> None:
+                        fig_format: list = ['png'],
+                        dpi: Optional[int] = None) -> None:
     """
     Display a core slice and corresponding brightness trace and standard deviation.
     
@@ -107,6 +108,9 @@ def plot_ctimg_curves(slice_data: np.ndarray,
     fig_format : list, default=['png']
         List of file formats to save. Acceptable formats: 'png', 'jpg'/'jpeg', 
         'svg', 'tiff', 'pdf'
+    dpi : int or None, default=None
+        Resolution in dots per inch for saved figures. If None, uses matplotlib's 
+        default dpi. If specified (e.g., 300), applies to all formats in fig_format
         
     Returns
     -------
@@ -200,12 +204,16 @@ def plot_ctimg_curves(slice_data: np.ndarray,
         for fmt in fig_format:
             if fmt in ['png', 'jpeg', 'svg', 'pdf']:
                 output_file = os.path.join(output_dir, f"{core_name}.{fmt}")
-                if fmt == 'png':
-                    fig.savefig(output_file, dpi=300, bbox_inches='tight')
-                elif fmt == 'jpeg':
-                    fig.savefig(output_file, dpi=300, bbox_inches='tight', format='jpg')
+                if dpi is not None:
+                    if fmt == 'jpeg':
+                        fig.savefig(output_file, dpi=dpi, bbox_inches='tight', format='jpg')
+                    else:
+                        fig.savefig(output_file, dpi=dpi, bbox_inches='tight')
                 else:
-                    fig.savefig(output_file, bbox_inches='tight')
+                    if fmt == 'jpeg':
+                        fig.savefig(output_file, bbox_inches='tight', format='jpg')
+                    else:
+                        fig.savefig(output_file, bbox_inches='tight')
                 print(f"Composite CT results saved to: ~/{'/'.join(output_file.split('/')[-2:])}")
         
         # Create and save colormap image if tiff is requested

@@ -2,14 +2,12 @@
 RGB image plotting functions for pyCoreRelator.
 
 Included Functions:
-- plot_rgb_profile: Trim specified number of pixels from top and bottom of image array
- along the y-axis of an image file
-- plot_rgb_profile: Create visualization plots of RGB analysis results
- together by processing RGB profiles
+- plot_rgbimg_curves: Create visualization plots of RGB analysis results showing
+  core image alongside RGB color profiles and standard deviation plots
   (supports multiple empty segments with automatic numbering)
 
-This module provides comprehensive tools for processing RGB images of geological cores,
-extracting color profiles, and creating visualizations for core analysis.
+This module provides comprehensive tools for plotting RGB images of geological cores
+and creating visualizations for core analysis.
 """
 
 from PIL import Image
@@ -19,8 +17,8 @@ import os
 import pandas as pd
 
 
-def plot_rgb_profile(depths, r, g, b, r_std, g_std, b_std, lum, lum_std, img, 
-                    core_name=None, save_figs=False, output_dir=None):
+def plot_rgbimg_curves(depths, r, g, b, r_std, g_std, b_std, lum, lum_std, img, 
+                    core_name=None, save_figs=False, output_dir=None, fig_format=['png'], dpi=None):
     """
     Create visualization plots of RGB analysis results.
     
@@ -57,6 +55,12 @@ def plot_rgb_profile(depths, r, g, b, r_std, g_std, b_std, lum, lum_std, img,
         Whether to save the plots as image files
     output_dir : str, optional
         Directory to save output files (required if save_figs is True)
+    fig_format : list, default=['png']
+        List of file formats to save. Acceptable formats: 'png', 'jpg'/'jpeg', 
+        'svg', 'tiff', 'pdf'
+    dpi : int or None, default=None
+        Resolution in dots per inch for saved figures. If None, uses matplotlib's 
+        default dpi. If specified (e.g., 300), applies to all formats in fig_format
         
     Returns
     -------
@@ -70,9 +74,13 @@ def plot_rgb_profile(depths, r, g, b, r_std, g_std, b_std, lum, lum_std, img,
         
     Example
     -------
-    >>> plot_rgb_profile(depths, r, g, b, r_std, g_std, b_std, lum, lum_std, img,
-    ...                  core_name='Core_A_RGB', save_figs=True, output_dir='./output')
+    >>> plot_rgbimg_curves(depths, r, g, b, r_std, g_std, b_std, lum, lum_std, img,
+    ...                     core_name='Core_A_RGB', save_figs=True, output_dir='./output',
+    ...                     fig_format=['png', 'svg'])
     """
+    # Normalize format names (handle jpg/jpeg)
+    fig_format = [fmt.lower() for fmt in fig_format]
+    fig_format = ['jpeg' if fmt == 'jpg' else fmt for fmt in fig_format]
     # Create figure with three subplots side by side
     height_to_width_ratio = 2 * img.shape[0] / img.shape[1]
     fig, (ax1, ax2, ax3) = plt.subplots(
@@ -95,7 +103,7 @@ def plot_rgb_profile(depths, r, g, b, r_std, g_std, b_std, lum, lum_std, img,
     ax2.plot(r, depths, 'r-', label='Red', linewidth=0.4)
     ax2.plot(g, depths, 'g-', label='Green', linewidth=0.4)
     ax2.plot(b, depths, 'b-', label='Blue', linewidth=0.4)
-    ax2.plot(lum, depths, 'k--', label='Relative\\nLuminance', linewidth=1)
+    ax2.plot(lum, depths, 'k--', label='Relative\nLuminance', linewidth=1)
 
     # Set x-axis limits based on RGB value range only
     rgb_values = np.concatenate([r[~np.isnan(r)], g[~np.isnan(g)], b[~np.isnan(b)]])
@@ -125,7 +133,7 @@ def plot_rgb_profile(depths, r, g, b, r_std, g_std, b_std, lum, lum_std, img,
     ax3.plot(r_std, depths, 'r-', label='Red', linewidth=0.4)
     ax3.plot(g_std, depths, 'g-', label='Green', linewidth=0.4)
     ax3.plot(b_std, depths, 'b-', label='Blue', linewidth=0.4)
-    ax3.plot(lum_std, depths, 'k--', label='Relative\\nLuminance', linewidth=1)
+    ax3.plot(lum_std, depths, 'k--', label='Relative\nLuminance', linewidth=1)
 
     ax3.set_xlabel('σ (STDEV)')
     ax3.set_ylim(ax2.get_ylim())
@@ -144,23 +152,31 @@ def plot_rgb_profile(depths, r, g, b, r_std, g_std, b_std, lum, lum_std, img,
         if output_dir is None:
             raise ValueError("output_dir must be provided when save_figs is True")
             
-        # Save full figure as PNG and SVG
-        output_file = os.path.join(output_dir, f"{core_name}.png")
-        fig.savefig(output_file, dpi=300, bbox_inches='tight')
-        print(f"RGB profile results saved to: ~/{'/'.join(output_file.split('/')[-2:])}")
+        # Save composite figure in requested formats
+        for fmt in fig_format:
+            if fmt in ['png', 'jpeg', 'svg', 'pdf']:
+                output_file = os.path.join(output_dir, f"{core_name}.{fmt}")
+                if dpi is not None:
+                    if fmt == 'jpeg':
+                        fig.savefig(output_file, dpi=dpi, bbox_inches='tight', format='jpg')
+                    else:
+                        fig.savefig(output_file, dpi=dpi, bbox_inches='tight')
+                else:
+                    if fmt == 'jpeg':
+                        fig.savefig(output_file, bbox_inches='tight', format='jpg')
+                    else:
+                        fig.savefig(output_file, bbox_inches='tight')
+                print(f"RGB profile results saved to: ~/{'/'.join(output_file.split('/')[-2:])}")
         
-        output_file = os.path.join(output_dir, f"{core_name}.svg")
-        fig.savefig(output_file, bbox_inches='tight')
-        print(f"RGB profile image saved to: ~/{'/'.join(output_file.split('/')[-2:])}")
-        
-        # Save composite TIFF image with compression using PIL
-        output_file = os.path.join(output_dir, f"{core_name}.tiff")
-        # Clip values to valid range [0,1] and convert to uint8
-        img_to_save = np.clip(img_normalized * 255, 0, 255).astype(np.uint8)
-        # Convert numpy array to PIL Image
-        pil_img = Image.fromarray(img_to_save)
-        # Save with ZIP compression
-        pil_img.save(output_file, format='TIFF', compression='tiff_deflate')
-        print(f"Core composite image saved to: ~/{'/'.join(output_file.split('/')[-2:])}")
+        # Save composite TIFF image with compression using PIL if tiff is requested
+        if 'tiff' in fig_format:
+            output_file = os.path.join(output_dir, f"{core_name}.tiff")
+            # Clip values to valid range [0,1] and convert to uint8
+            img_to_save = np.clip(img_normalized * 255, 0, 255).astype(np.uint8)
+            # Convert numpy array to PIL Image
+            pil_img = Image.fromarray(img_to_save)
+            # Save with ZIP compression
+            pil_img.save(output_file, format='TIFF', compression='tiff_deflate')
+            print(f"Core composite image saved to: ~/{'/'.join(output_file.split('/')[-2:])}")
 
 

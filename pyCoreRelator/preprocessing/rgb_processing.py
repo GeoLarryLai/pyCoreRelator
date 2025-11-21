@@ -4,16 +4,15 @@ RGB image processing functions for pyCoreRelator.
 Included Functions:
 - trim_image: Trim specified number of pixels from top and bottom of image array
 - extract_rgb_profile: Extract RGB color profiles along the y-axis of an image file
-- plot_rgb_profile: Create visualization plots of RGB analysis results
-- stitch_core_sections: Stitch multiple core sections together by processing RGB profiles
-  (supports multiple empty segments with automatic numbering)
+- rgb_process_and_stitch: Stitch multiple core sections together by processing RGB profiles
+  (supports multiple empty segments with automatic numbering) with optional CSV export
 
 This module provides comprehensive tools for processing RGB images of geological cores,
 extracting color profiles, and creating visualizations for core analysis.
 """
 
 from PIL import Image
-from .rgb_plotting import plot_rgb_profile
+from .rgb_plotting import plot_rgbimg_curves
 import numpy as np
 # matplotlib not needed for computation functions
 import os
@@ -250,8 +249,9 @@ def extract_rgb_profile(image_path, upper_rgb_threshold=100, lower_rgb_threshold
 
 
 
-def stitch_core_sections(core_structure, mother_dir, stitchbuffer=10, 
-                        width_start_pct=0.25, width_end_pct=0.75):
+def rgb_process_and_stitch(data_reading_structure, rgb_data_dir, stitchbuffer=10, 
+                        width_start_pct=0.25, width_end_pct=0.75,
+                        save_csv=True, output_csv=None, total_length_cm=None):
     """
     Stitch multiple core sections together by processing RGB profiles and combining images.
     
@@ -259,13 +259,14 @@ def stitch_core_sections(core_structure, mother_dir, stitchbuffer=10,
     from each section using section-specific parameters, adjusts depths to create a
     continuous profile, and combines the images and data arrays. Buffer zones at section
     boundaries are handled to avoid artifacts at stitching points.
+    Optionally exports results to CSV file.
     
     Multiple 'empty' segments are automatically numbered as 'empty_1', 'empty_2', etc.,
     while preserving their order in the core structure.
     
     Parameters
     ----------
-    core_structure : dict or list
+    data_reading_structure : dict or list
         Core structure definition in one of two formats:
         1. Dictionary format: {section_name: section_params, ...}
         2. List format: [(section_name, section_params), ...]
@@ -284,7 +285,7 @@ def stitch_core_sections(core_structure, mother_dir, stitchbuffer=10,
         
         Note: Multiple 'empty' segments will be automatically numbered as 'empty_1', 'empty_2', etc.
         For dictionaries, use unique keys like 'empty_1', 'empty_2' or use list format for duplicates.
-    mother_dir : str
+    rgb_data_dir : str
         Base directory path containing the core section image files
     stitchbuffer : int, default=10
         Number of bin rows to remove at stitching edges to avoid artifacts
@@ -292,6 +293,12 @@ def stitch_core_sections(core_structure, mother_dir, stitchbuffer=10,
         Starting percentage of width for analysis strip (0.0 to 1.0)
     width_end_pct : float, default=0.75
         Ending percentage of width for analysis strip (0.0 to 1.0)
+    save_csv : bool, default=True
+        Whether to save results to CSV file
+    output_csv : str, optional
+        Full path for output CSV file. Required if save_csv=True
+    total_length_cm : float, optional
+        Total core length in centimeters for depth conversion. Required if save_csv=True
         
     Returns
     -------
@@ -308,25 +315,37 @@ def stitch_core_sections(core_structure, mother_dir, stitchbuffer=10,
         - all_lum_std (numpy.ndarray): Luminance standard deviations for complete core
         - stitched_image (numpy.ndarray): Combined image array for complete core
         
+    Raises
+    ------
+    ValueError
+        If save_csv is True but output_csv or total_length_cm is not specified
+        
     Example
     -------
-    >>> core_structure = {
+    >>> data_reading_structure = {
     ...     'section1.bmp': {'upper_rgb_threshold': 120, 'buffer': 30, 'top_trim': 50, ...},
     ...     'empty_1': {'rgb_pxlength': 1000, 'rgb_pxwidth': 500},
     ...     'section2.bmp': {'upper_rgb_threshold': 110, 'buffer': 40, 'top_trim': 60, ...}
     ... }
-    >>> depths, r, g, b, r_std, g_std, b_std, lum, lum_std, img = stitch_core_sections(
-    ...     core_structure, '/path/to/images/', stitchbuffer=15
+    >>> depths, r, g, b, r_std, g_std, b_std, lum, lum_std, img = rgb_process_and_stitch(
+    ...     data_reading_structure, '/path/to/images/', stitchbuffer=15,
+    ...     save_csv=True, output_csv='output.csv', total_length_cm=100
     ... )
     """
-    # Process core structure in order and handle multiple 'empty' segments
+    # Validate CSV export parameters
+    if save_csv:
+        if output_csv is None:
+            raise ValueError("output_csv must be specified when save_csv=True")
+        if total_length_cm is None:
+            raise ValueError("total_length_cm must be specified when save_csv=True")
+    # Process data reading structure in order and handle multiple 'empty' segments
     # Handle both dictionary and list formats
-    if isinstance(core_structure, dict):
+    if isinstance(data_reading_structure, dict):
         # Dictionary format - convert to list of tuples
         processed_segments = []
         empty_counter = 1
         
-        for section_name, section_params in core_structure.items():
+        for section_name, section_params in data_reading_structure.items():
             if section_name == 'empty':
                 # Automatically number empty segments
                 if empty_counter == 1:
@@ -342,7 +361,7 @@ def stitch_core_sections(core_structure, mother_dir, stitchbuffer=10,
         processed_segments = []
         empty_counter = 1
         
-        for section_name, section_params in core_structure:
+        for section_name, section_params in data_reading_structure:
             if section_name == 'empty':
                 # Automatically number empty segments
                 if empty_counter == 1:
@@ -405,7 +424,7 @@ def stitch_core_sections(core_structure, mother_dir, stitchbuffer=10,
             
             # Plot empty segment
             core_name = f"{file_name} (empty)"
-            plot_rgb_profile(depths, r, g, b, r_std, g_std, b_std, lum, lum_std, empty_image, core_name=core_name)
+            plot_rgbimg_curves(depths, r, g, b, r_std, g_std, b_std, lum, lum_std, empty_image, core_name=core_name)
             
             # Adjust depths to continue from previous section
             adjusted_depths = depths + current_depth
@@ -446,7 +465,7 @@ def stitch_core_sections(core_structure, mother_dir, stitchbuffer=10,
             all_images.append(empty_image)
             continue
         
-        image_path = f"{mother_dir}/{file_name}"
+        image_path = f"{rgb_data_dir}/{file_name}"
         core_name = file_name.split('-image')[0].upper()
         
         # Extract RGB profile with file-specific parameters
@@ -463,7 +482,7 @@ def stitch_core_sections(core_structure, mother_dir, stitchbuffer=10,
         )
         
         # Plot individual section
-        plot_rgb_profile(depths, r, g, b, r_std, g_std, b_std, lum, lum_std, img, core_name=core_name)
+        plot_rgbimg_curves(depths, r, g, b, r_std, g_std, b_std, lum, lum_std, img, core_name=core_name)
         
         # Adjust depths to continue from previous section
         adjusted_depths = depths + current_depth
@@ -527,6 +546,34 @@ def stitch_core_sections(core_structure, mother_dir, stitchbuffer=10,
     
     # Stitch images vertically
     stitched_image = np.vstack(resized_images)
+    
+    # Export to CSV if requested
+    if save_csv:
+        # Convert depth from pixels to cm
+        depth_cm = all_depths * (total_length_cm / all_depths[-1])
+        
+        # Create DataFrame with all RGB and luminance data
+        df = pd.DataFrame({
+            'SB_DEPTH_pxl': all_depths,
+            'SB_DEPTH_cm': depth_cm,
+            'R': all_r,
+            'R_std': all_r_std,
+            'G': all_g,
+            'G_std': all_g_std,
+            'B': all_b,
+            'B_std': all_b_std,
+            'Lumin': all_lum,
+            'Lumin_std': all_lum_std
+        })
+        
+        # Ensure output directory exists
+        output_dir = os.path.dirname(output_csv)
+        if output_dir:
+            os.makedirs(output_dir, exist_ok=True)
+        
+        # Save RGB data to CSV
+        df.to_csv(output_csv, index=False)
+        print(f"RGB data saved to: {output_csv}")
     
     return (all_depths, all_r, all_g, all_b, all_r_std, all_g_std, 
             all_b_std, all_lum, all_lum_std, stitched_image) 

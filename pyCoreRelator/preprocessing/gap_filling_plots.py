@@ -38,8 +38,8 @@ import xgboost as xgb
 import lightgbm as lgb
 from joblib import Parallel, delayed
 
-
-def plot_core_logs(data_config, file_type='clean', title=None, pickeddepth_csv=None):
+def plot_core_logs(data_config, file_type='clean', title=None, pickeddepth_csv=None, 
+                   save_fig=False, output_dir=None, fig_format=['png'], dpi=None):
     """
     Plot core logs using fully configurable parameters from data_config.
     
@@ -64,6 +64,16 @@ def plot_core_logs(data_config, file_type='clean', title=None, pickeddepth_csv=N
     pickeddepth_csv : str, optional
         Path to CSV file containing picked depths. If None, no picked depths
         column will be displayed.
+    save_fig : bool, default=False
+        Whether to save the figure to disk
+    output_dir : str, optional
+        Directory path where the figure will be saved. Required if save_fig=True.
+    fig_format : list of str, default=['png']
+        List of file formats to save the figure. Supported formats: 'png', 'jpg', 
+        'jpeg', 'svg', 'pdf'. Multiple formats can be specified.
+    dpi : int or None, default=None
+        Resolution in dots per inch for saved figures. If None, uses matplotlib's 
+        default dpi. If specified (e.g., 300), applies to all formats in fig_format.
         
     Returns
     -------
@@ -290,6 +300,37 @@ def plot_core_logs(data_config, file_type='clean', title=None, pickeddepth_csv=N
             ax.tick_params(axis='y', labelleft=False)
     
     plt.tight_layout()
+    
+    # Save figure if requested
+    if save_fig:
+        if output_dir is None:
+            raise ValueError("output_dir must be provided when save_fig=True")
+        
+        # Validate formats
+        supported_formats = ['png', 'jpg', 'jpeg', 'svg', 'pdf']
+        for fmt in fig_format:
+            if fmt.lower() not in supported_formats:
+                raise ValueError(f"Unsupported format '{fmt}'. Supported formats: {supported_formats}")
+        
+        # Create output directory if it doesn't exist
+        os.makedirs(output_dir, exist_ok=True)
+        
+        # Generate filename based on file_type
+        core_name = data_config['core_name']
+        if file_type == 'clean':
+            filename_base = f'{core_name}_ML-clean'
+        else:
+            filename_base = f'{core_name}_ML-filled'
+        
+        # Save in each requested format
+        for fmt in fig_format:
+            output_path = os.path.join(output_dir, f'{filename_base}.{fmt.lower()}')
+            if dpi is not None:
+                fig.savefig(output_path, dpi=dpi, bbox_inches='tight')
+            else:
+                fig.savefig(output_path, bbox_inches='tight')
+            print(f"Figure saved to: {output_path}")
+    
     return fig, axes
 
 

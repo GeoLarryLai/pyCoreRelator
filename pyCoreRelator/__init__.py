@@ -98,11 +98,11 @@ from .utils.animation import visualize_dtw_results_from_csv
 from .preprocessing.rgb_processing import (
     trim_image,
     extract_rgb_profile,
-    stitch_core_sections
+    rgb_process_and_stitch
 )
 
 from .preprocessing.rgb_plotting import (
-    plot_rgb_profile
+    plot_rgbimg_curves
 )
 
 # Preprocessing functions - CT image analysis
@@ -213,8 +213,8 @@ __all__ = [
     # RGB image processing functions
     'trim_image',
     'extract_rgb_profile',
-    'plot_rgb_profile',
-    'stitch_core_sections',
+    'plot_rgbimg_curves',
+    'rgb_process_and_stitch',
     
     # CT image processing functions
     'load_dicom_files',
