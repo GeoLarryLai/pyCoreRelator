@@ -376,7 +376,7 @@ def onkey_boundary(event, xs, lines, ax, cid, toolbar, categories, current_categ
             status_text.set_text(r'$\mathbf{STATUS:}$ ' + f"Saved {len(df)} picked depths to {picked_datum_csv}{sort_msg}") 
 
 
-def create_interactive_figure(md, log, core_img_1=None, core_img_2=None, miny=0, maxy=1):
+def create_interactive_figure(md, log, core_img_1=None, core_img_2=None, miny=0, maxy=1, available_logs=None):
     """
     Create an interactive plot with core images and log curve.
     
@@ -388,7 +388,7 @@ def create_interactive_figure(md, log, core_img_1=None, core_img_2=None, miny=0,
     md : array-like
         Depth values for x-axis data
     log : array-like
-        Log data for y-axis data
+        Log data for y-axis data (either 1D for single log or 2D for multiple logs)
     core_img_1 : numpy.ndarray, optional
         First core image data (e.g., RGB image)
     core_img_2 : numpy.ndarray, optional
@@ -397,6 +397,8 @@ def create_interactive_figure(md, log, core_img_1=None, core_img_2=None, miny=0,
         Minimum y-axis limit for log plot
     maxy : float, default=1
         Maximum y-axis limit for log plot
+    available_logs : list, optional
+        List of log names corresponding to columns in log data (for multi-log plotting)
         
     Returns
     -------
@@ -410,13 +412,40 @@ def create_interactive_figure(md, log, core_img_1=None, core_img_2=None, miny=0,
     """
     global fig
     
+    # Define color and style mapping for each column type (same as plot_core_data)
+    color_style_map = {
+        'R': {'color': 'red', 'linestyle': '--'},
+        'G': {'color': 'green', 'linestyle': '--'},
+        'B': {'color': 'blue', 'linestyle': '--'},
+        'Lumin': {'color': 'darkgray', 'linestyle': '--'},
+        'hiresMS': {'color': 'black', 'linestyle': '-'},
+        'MS': {'color': 'gray', 'linestyle': '-'},
+        'Den_gm/cc': {'color': 'orange', 'linestyle': '-'},
+        'CT': {'color': 'purple', 'linestyle': '-'}
+    }
+    
     if core_img_1 is not None and core_img_2 is not None and not isinstance(core_img_2, str):
         # Create figure with three subplots if both core images are provided
         # Log curve on top, images below
         fig, axs = plt.subplots(3, 1, figsize=(20, 5.5), gridspec_kw={'height_ratios': [2, 1, 1]})
         
-        # Log curve on top
-        axs[0].plot(md, log, linestyle='-', linewidth=0.7)  # Using thinner line width of 0.7
+        # Log curve on top - handle both single and multi-log cases
+        if log.ndim > 1 and log.shape[1] > 1:
+            # Multi-log case
+            for i in range(log.shape[1]):
+                log_name = available_logs[i] if available_logs and i < len(available_logs) else f'Log {i}'
+                if log_name in color_style_map:
+                    color = color_style_map[log_name]['color']
+                    linestyle = color_style_map[log_name]['linestyle']
+                else:
+                    color = f'C{i}'
+                    linestyle = '-'
+                axs[0].plot(md, log[:, i], linestyle=linestyle, linewidth=0.7, color=color, label=log_name)
+            axs[0].legend(loc='upper left', fontsize='small')
+        else:
+            # Single log case
+            axs[0].plot(md, log, linestyle='-', linewidth=0.7, color='black')
+        
         axs[0].set_ylim(miny, maxy)
         axs[0].set_xlim(md[0], md[-1])
         axs[0].set_ylabel('Normalized Values')
@@ -445,8 +474,23 @@ def create_interactive_figure(md, log, core_img_1=None, core_img_2=None, miny=0,
         # Log curve on top, image below
         fig, axs = plt.subplots(2, 1, figsize=(20, 4), gridspec_kw={'height_ratios': [2, 1]})
         
-        # Log curve on top
-        axs[0].plot(md, log, linestyle='-', linewidth=0.7)  # Using thinner line width of 0.7
+        # Log curve on top - handle both single and multi-log cases
+        if log.ndim > 1 and log.shape[1] > 1:
+            # Multi-log case
+            for i in range(log.shape[1]):
+                log_name = available_logs[i] if available_logs and i < len(available_logs) else f'Log {i}'
+                if log_name in color_style_map:
+                    color = color_style_map[log_name]['color']
+                    linestyle = color_style_map[log_name]['linestyle']
+                else:
+                    color = f'C{i}'
+                    linestyle = '-'
+                axs[0].plot(md, log[:, i], linestyle=linestyle, linewidth=0.7, color=color, label=log_name)
+            axs[0].legend(loc='upper left', fontsize='small')
+        else:
+            # Single log case
+            axs[0].plot(md, log, linestyle='-', linewidth=0.7, color='black')
+        
         axs[0].set_ylim(miny, maxy)
         axs[0].set_xlim(md[0], md[-1])
         axs[0].set_ylabel('Normalized Values')
@@ -468,8 +512,23 @@ def create_interactive_figure(md, log, core_img_1=None, core_img_2=None, miny=0,
         # Log curve on top, image below
         fig, axs = plt.subplots(2, 1, figsize=(20, 4), gridspec_kw={'height_ratios': [2, 1]})
         
-        # Log curve on top
-        axs[0].plot(md, log, linestyle='-', linewidth=0.7)  # Using thinner line width of 0.7
+        # Log curve on top - handle both single and multi-log cases
+        if log.ndim > 1 and log.shape[1] > 1:
+            # Multi-log case
+            for i in range(log.shape[1]):
+                log_name = available_logs[i] if available_logs and i < len(available_logs) else f'Log {i}'
+                if log_name in color_style_map:
+                    color = color_style_map[log_name]['color']
+                    linestyle = color_style_map[log_name]['linestyle']
+                else:
+                    color = f'C{i}'
+                    linestyle = '-'
+                axs[0].plot(md, log[:, i], linestyle=linestyle, linewidth=0.7, color=color, label=log_name)
+            axs[0].legend(loc='upper left', fontsize='small')
+        else:
+            # Single log case
+            axs[0].plot(md, log, linestyle='-', linewidth=0.7, color='black')
+        
         axs[0].set_ylim(miny, maxy)
         axs[0].set_xlim(md[0], md[-1])
         axs[0].set_ylabel('Normalized Values')
@@ -491,8 +550,23 @@ def create_interactive_figure(md, log, core_img_1=None, core_img_2=None, miny=0,
         # Create figure with single subplot if no images or if core_img_2 is a string
         fig, ax = plt.subplots(figsize=(20, 2.5))
         
-        # Log curve
-        ax.plot(md, log, linestyle='-', linewidth=0.7)  # Using thinner line width of 0.7
+        # Log curve - handle both single and multi-log cases
+        if log.ndim > 1 and log.shape[1] > 1:
+            # Multi-log case
+            for i in range(log.shape[1]):
+                log_name = available_logs[i] if available_logs and i < len(available_logs) else f'Log {i}'
+                if log_name in color_style_map:
+                    color = color_style_map[log_name]['color']
+                    linestyle = color_style_map[log_name]['linestyle']
+                else:
+                    color = f'C{i}'
+                    linestyle = '-'
+                ax.plot(md, log[:, i], linestyle=linestyle, linewidth=0.7, color=color, label=log_name)
+            ax.legend(loc='upper left', fontsize='small')
+        else:
+            # Single log case
+            ax.plot(md, log, linestyle='-', linewidth=0.7, color='black')
+        
         ax.set_ylim(miny, maxy)
         ax.set_xlim(md[0], md[-1])
         ax.set_xlabel('depth')
@@ -642,6 +716,12 @@ def pick_stratigraphic_levels(md=None, log=None, core_img_1=None, core_img_2=Non
         md = np.array(merged_df[depth_column])
         
         print(f"Processed {len(md)} depth points across {len(available_logs)} logs")
+        
+        # Store available_logs for plotting
+        log_names = available_logs
+    else:
+        # Direct mode - no log names available
+        log_names = None
     
     # Load images if they are provided as file paths (strings)
     if isinstance(core_img_1, str):
@@ -663,7 +743,7 @@ def pick_stratigraphic_levels(md=None, log=None, core_img_1=None, core_img_2=Non
             core_img_2 = None
     
     # Create figure and axes
-    fig, ax = create_interactive_figure(md, log, core_img_1, core_img_2, 0, 1)
+    fig, ax = create_interactive_figure(md, log, core_img_1, core_img_2, 0, 1, available_logs=log_names)
     
     # Add title to the axes with bold keywords
     if core_name:
@@ -953,19 +1033,38 @@ def interpret_bed_names(picked_datum_csv, core_name="",
         9: 'black'
     }
     
+    # Define color and style mapping for each column type (same as plot_core_data)
+    color_style_map = {
+        'R': {'color': 'red', 'linestyle': '--'},
+        'G': {'color': 'green', 'linestyle': '--'},
+        'B': {'color': 'blue', 'linestyle': '--'},
+        'Lumin': {'color': 'darkgray', 'linestyle': '--'},
+        'hiresMS': {'color': 'black', 'linestyle': '-'},
+        'MS': {'color': 'gray', 'linestyle': '-'},
+        'Den_gm/cc': {'color': 'orange', 'linestyle': '-'},
+        'CT': {'color': 'purple', 'linestyle': '-'}
+    }
+    
     # Create figure following pick_stratigraphic_levels style (curve on top, images below)
     if core_img_1 is not None and core_img_2 is not None:
         # Both images available - 3 subplots
         fig, axs = plt.subplots(3, 1, figsize=(20, 5.5), gridspec_kw={'height_ratios': [2, 1, 1]})
         
-        # Log curve on top
+        # Log curve on top with color/style mapping
         for i in range(log_data.shape[1]):
-            axs[0].plot(measured_depth, log_data[:, i], linestyle='-', linewidth=0.7, 
-                       label=available_logs[i] if i < len(available_logs) else f'Log {i}')
+            log_name = available_logs[i] if i < len(available_logs) else f'Log {i}'
+            if log_name in color_style_map:
+                color = color_style_map[log_name]['color']
+                linestyle = color_style_map[log_name]['linestyle']
+            else:
+                color = f'C{i}'
+                linestyle = '-'
+            axs[0].plot(measured_depth, log_data[:, i], linestyle=linestyle, linewidth=0.7, 
+                       color=color, label=log_name)
         axs[0].set_ylabel('Normalized Values')
         axs[0].set_xlim(measured_depth[0], measured_depth[-1])
         axs[0].set_xticks([])
-        axs[0].legend(loc='upper left')
+        axs[0].legend(loc='upper left', fontsize='small')
         
         # Core image 1
         axs[1].imshow(core_img_1.transpose(1, 0, 2), aspect='auto', extent=[measured_depth[0], measured_depth[-1], 0, 1])
@@ -986,14 +1085,21 @@ def interpret_bed_names(picked_datum_csv, core_name="",
         # Only first image - 2 subplots
         fig, axs = plt.subplots(2, 1, figsize=(20, 4), gridspec_kw={'height_ratios': [2, 1]})
         
-        # Log curve on top
+        # Log curve on top with color/style mapping
         for i in range(log_data.shape[1]):
-            axs[0].plot(measured_depth, log_data[:, i], linestyle='-', linewidth=0.7,
-                       label=available_logs[i] if i < len(available_logs) else f'Log {i}')
+            log_name = available_logs[i] if i < len(available_logs) else f'Log {i}'
+            if log_name in color_style_map:
+                color = color_style_map[log_name]['color']
+                linestyle = color_style_map[log_name]['linestyle']
+            else:
+                color = f'C{i}'
+                linestyle = '-'
+            axs[0].plot(measured_depth, log_data[:, i], linestyle=linestyle, linewidth=0.7,
+                       color=color, label=log_name)
         axs[0].set_ylabel('Normalized Values')
         axs[0].set_xlim(measured_depth[0], measured_depth[-1])
         axs[0].set_xticks([])
-        axs[0].legend(loc='upper left')
+        axs[0].legend(loc='upper left', fontsize='small')
         
         # Core image 1
         axs[1].imshow(core_img_1.transpose(1, 0, 2), aspect='auto', extent=[measured_depth[0], measured_depth[-1], 0, 1])
@@ -1007,14 +1113,21 @@ def interpret_bed_names(picked_datum_csv, core_name="",
         # Only second image - 2 subplots
         fig, axs = plt.subplots(2, 1, figsize=(20, 4), gridspec_kw={'height_ratios': [2, 1]})
         
-        # Log curve on top
+        # Log curve on top with color/style mapping
         for i in range(log_data.shape[1]):
-            axs[0].plot(measured_depth, log_data[:, i], linestyle='-', linewidth=0.7,
-                       label=available_logs[i] if i < len(available_logs) else f'Log {i}')
+            log_name = available_logs[i] if i < len(available_logs) else f'Log {i}'
+            if log_name in color_style_map:
+                color = color_style_map[log_name]['color']
+                linestyle = color_style_map[log_name]['linestyle']
+            else:
+                color = f'C{i}'
+                linestyle = '-'
+            axs[0].plot(measured_depth, log_data[:, i], linestyle=linestyle, linewidth=0.7,
+                       color=color, label=log_name)
         axs[0].set_ylabel('Normalized Values')
         axs[0].set_xlim(measured_depth[0], measured_depth[-1])
         axs[0].set_xticks([])
-        axs[0].legend(loc='upper left')
+        axs[0].legend(loc='upper left', fontsize='small')
         
         # Core image 2
         axs[1].imshow(core_img_2.transpose(1, 0, 2) if len(core_img_2.shape) == 3 else core_img_2.transpose(),
@@ -1029,14 +1142,21 @@ def interpret_bed_names(picked_datum_csv, core_name="",
         # No images - single subplot
         fig, ax = plt.subplots(figsize=(20, 2.5))
         
-        # Log curve
+        # Log curve with color/style mapping
         for i in range(log_data.shape[1]):
-            ax.plot(measured_depth, log_data[:, i], linestyle='-', linewidth=0.7,
-                   label=available_logs[i] if i < len(available_logs) else f'Log {i}')
+            log_name = available_logs[i] if i < len(available_logs) else f'Log {i}'
+            if log_name in color_style_map:
+                color = color_style_map[log_name]['color']
+                linestyle = color_style_map[log_name]['linestyle']
+            else:
+                color = f'C{i}'
+                linestyle = '-'
+            ax.plot(measured_depth, log_data[:, i], linestyle=linestyle, linewidth=0.7,
+                   color=color, label=log_name)
         ax.set_ylabel('Normalized Values')
         ax.set_xlabel('Depth')
         ax.set_xlim(measured_depth[0], measured_depth[-1])
-        ax.legend(loc='upper left')
+        ax.legend(loc='upper left', fontsize='small')
         
         plot_ax = ax
     
@@ -1048,11 +1168,11 @@ def interpret_bed_names(picked_datum_csv, core_name="",
                        depth + uncertainty, 
                        color=color, 
                        alpha=0.1)
-        # Add the picked depth line on top
+        # Add the picked depth line on top (thinner linewidth for consistency)
         plot_ax.axvline(x=depth, 
                        color=color, 
                        linestyle='--', 
-                       linewidth=1.2, 
+                       linewidth=0.8, 
                        label=f'#{int(category)}' if f'#{int(category)}' not in plot_ax.get_legend_handles_labels()[1] else "")
     
     # Update legend with unique category entries

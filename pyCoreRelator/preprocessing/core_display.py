@@ -156,8 +156,8 @@ def plot_core_data(md, log, title, core_img_1=None, core_img_2=None, figsize=(20
     
     # Setup figure layout based on available images
     if core_img_1 is not None and core_img_2 is not None:
-        # Create figure with core images and data plots
-        height_ratios = [1, 1] + [2]  # Two image rows, one data row
+        # Create figure with data plot on top, core images below (matching datum_picker style)
+        height_ratios = [2, 1, 1]  # Data row on top, then two image rows
         fig, axs = plt.subplots(3, total_plots, figsize=figsize, 
                                gridspec_kw={'height_ratios': height_ratios, 'width_ratios': [1]*total_plots})
         
@@ -165,98 +165,98 @@ def plot_core_data(md, log, title, core_img_1=None, core_img_2=None, figsize=(20
         if total_plots == 1:
             axs = axs.reshape(-1, 1)  # Make it 2D for consistent indexing
         
-        # First core image display - span all columns
+        # Set up data plot axes on top (row 0)
+        if cluster_data is not None:
+            cluster_ax = axs[0, 0]
+            plot_ax = axs[0, 1]
+        else:
+            plot_ax = axs[0, 0]
+        
+        # First core image display below data - span all columns (row 1)
         for col in range(total_plots):
             if core_img_1_cmap_range is not None:
-                axs[0, col].imshow(core_img_1.transpose(1, 0, 2), aspect='auto', extent=[md[0], md[-1], 0, 1],
+                axs[1, col].imshow(core_img_1.transpose(1, 0, 2), aspect='auto', extent=[md[0], md[-1], 0, 1],
                                   vmin=core_img_1_cmap_range[0], vmax=core_img_1_cmap_range[1])
             else:
-                axs[0, col].imshow(core_img_1.transpose(1, 0, 2), aspect='auto', extent=[md[0], md[-1], 0, 1])
-            axs[0, col].set_xticks([])
-            axs[0, col].set_yticks([])
-            if col == 0:
-                axs[0, col].set_ylabel('Core\nImage')
-        
-        # Second core image display - span all columns
-        for col in range(total_plots):
-            if core_img_2_cmap_range is not None:
-                axs[1, col].imshow(core_img_2.transpose(1, 0, 2) if len(core_img_2.shape) == 3 else 
-                                  core_img_2.transpose(), aspect='auto', extent=[md[0], md[-1], 0, 1], cmap='gray',
-                                  vmin=core_img_2_cmap_range[0], vmax=core_img_2_cmap_range[1])
-            else:
-                axs[1, col].imshow(core_img_2.transpose(1, 0, 2) if len(core_img_2.shape) == 3 else 
-                                  core_img_2.transpose(), aspect='auto', extent=[md[0], md[-1], 0, 1], cmap='gray')
+                axs[1, col].imshow(core_img_1.transpose(1, 0, 2), aspect='auto', extent=[md[0], md[-1], 0, 1])
             axs[1, col].set_xticks([])
             axs[1, col].set_yticks([])
             if col == 0:
-                axs[1, col].set_ylabel('Core\nImage')
+                axs[1, col].set_ylabel('Core\nImage 1')
         
-        # Set up data plot axes
-        if cluster_data is not None:
-            cluster_ax = axs[2, 0]
-            plot_ax = axs[2, 1]
-        else:
-            plot_ax = axs[2, 0]
-    
-    elif core_img_1 is not None:
-        # Create figure with one core image and data plots
-        height_ratios = [1, 2]  # One image row, one data row
-        fig, axs = plt.subplots(2, total_plots, figsize=figsize, 
-                               gridspec_kw={'height_ratios': height_ratios, 'width_ratios': [1]*total_plots})
-        
-        # Handle axes indexing for multiple columns
-        if total_plots == 1:
-            axs = axs.reshape(-1, 1)  # Make it 2D for consistent indexing
-        
-        # Core image display - span all columns
-        for col in range(total_plots):
-            if core_img_1_cmap_range is not None:
-                axs[0, col].imshow(core_img_1.transpose(1, 0, 2), aspect='auto', extent=[md[0], md[-1], 0, 1],
-                                  vmin=core_img_1_cmap_range[0], vmax=core_img_1_cmap_range[1])
-            else:
-                axs[0, col].imshow(core_img_1.transpose(1, 0, 2), aspect='auto', extent=[md[0], md[-1], 0, 1])
-            axs[0, col].set_xticks([])
-            axs[0, col].set_yticks([])
-            if col == 0:
-                axs[0, col].set_ylabel('Core\nImage')
-        
-        # Set up data plot axes
-        if cluster_data is not None:
-            cluster_ax = axs[1, 0]
-            plot_ax = axs[1, 1]
-        else:
-            plot_ax = axs[1, 0]
-    
-    elif core_img_2 is not None:
-        # Create figure with second core image and data plots
-        height_ratios = [1, 2]  # One image row, one data row
-        fig, axs = plt.subplots(2, total_plots, figsize=figsize, 
-                               gridspec_kw={'height_ratios': height_ratios, 'width_ratios': [1]*total_plots})
-        
-        # Handle axes indexing for multiple columns
-        if total_plots == 1:
-            axs = axs.reshape(-1, 1)  # Make it 2D for consistent indexing
-        
-        # Core image display - span all columns
+        # Second core image display at bottom - span all columns (row 2)
         for col in range(total_plots):
             if core_img_2_cmap_range is not None:
-                axs[0, col].imshow(core_img_2.transpose(1, 0, 2) if len(core_img_2.shape) == 3 else 
+                axs[2, col].imshow(core_img_2.transpose(1, 0, 2) if len(core_img_2.shape) == 3 else 
                                   core_img_2.transpose(), aspect='auto', extent=[md[0], md[-1], 0, 1], cmap='gray',
                                   vmin=core_img_2_cmap_range[0], vmax=core_img_2_cmap_range[1])
             else:
-                axs[0, col].imshow(core_img_2.transpose(1, 0, 2) if len(core_img_2.shape) == 3 else 
+                axs[2, col].imshow(core_img_2.transpose(1, 0, 2) if len(core_img_2.shape) == 3 else 
                                   core_img_2.transpose(), aspect='auto', extent=[md[0], md[-1], 0, 1], cmap='gray')
-            axs[0, col].set_xticks([])
-            axs[0, col].set_yticks([])
+            axs[2, col].set_yticks([])
             if col == 0:
-                axs[0, col].set_ylabel('Core\nImage')
+                axs[2, col].set_ylabel('Core\nImage 2')
+                axs[2, col].set_xlabel('Depth')  # Add xlabel to bottom-most image
+    
+    elif core_img_1 is not None:
+        # Create figure with data plot on top, one core image below (matching datum_picker style)
+        height_ratios = [2, 1]  # Data row on top, one image row below
+        fig, axs = plt.subplots(2, total_plots, figsize=figsize, 
+                               gridspec_kw={'height_ratios': height_ratios, 'width_ratios': [1]*total_plots})
         
-        # Set up data plot axes
+        # Handle axes indexing for multiple columns
+        if total_plots == 1:
+            axs = axs.reshape(-1, 1)  # Make it 2D for consistent indexing
+        
+        # Set up data plot axes on top (row 0)
         if cluster_data is not None:
-            cluster_ax = axs[1, 0]
-            plot_ax = axs[1, 1]
+            cluster_ax = axs[0, 0]
+            plot_ax = axs[0, 1]
         else:
-            plot_ax = axs[1, 0]
+            plot_ax = axs[0, 0]
+        
+        # Core image display below data - span all columns (row 1)
+        for col in range(total_plots):
+            if core_img_1_cmap_range is not None:
+                axs[1, col].imshow(core_img_1.transpose(1, 0, 2), aspect='auto', extent=[md[0], md[-1], 0, 1],
+                                  vmin=core_img_1_cmap_range[0], vmax=core_img_1_cmap_range[1])
+            else:
+                axs[1, col].imshow(core_img_1.transpose(1, 0, 2), aspect='auto', extent=[md[0], md[-1], 0, 1])
+            axs[1, col].set_yticks([])
+            if col == 0:
+                axs[1, col].set_ylabel('Core\nImage')
+                axs[1, col].set_xlabel('Depth')  # Add xlabel to bottom-most image
+    
+    elif core_img_2 is not None:
+        # Create figure with data plot on top, second core image below (matching datum_picker style)
+        height_ratios = [2, 1]  # Data row on top, one image row below
+        fig, axs = plt.subplots(2, total_plots, figsize=figsize, 
+                               gridspec_kw={'height_ratios': height_ratios, 'width_ratios': [1]*total_plots})
+        
+        # Handle axes indexing for multiple columns
+        if total_plots == 1:
+            axs = axs.reshape(-1, 1)  # Make it 2D for consistent indexing
+        
+        # Set up data plot axes on top (row 0)
+        if cluster_data is not None:
+            cluster_ax = axs[0, 0]
+            plot_ax = axs[0, 1]
+        else:
+            plot_ax = axs[0, 0]
+        
+        # Core image display below data - span all columns (row 1)
+        for col in range(total_plots):
+            if core_img_2_cmap_range is not None:
+                axs[1, col].imshow(core_img_2.transpose(1, 0, 2) if len(core_img_2.shape) == 3 else 
+                                  core_img_2.transpose(), aspect='auto', extent=[md[0], md[-1], 0, 1], cmap='gray',
+                                  vmin=core_img_2_cmap_range[0], vmax=core_img_2_cmap_range[1])
+            else:
+                axs[1, col].imshow(core_img_2.transpose(1, 0, 2) if len(core_img_2.shape) == 3 else 
+                                  core_img_2.transpose(), aspect='auto', extent=[md[0], md[-1], 0, 1], cmap='gray')
+            axs[1, col].set_yticks([])
+            if col == 0:
+                axs[1, col].set_ylabel('Core\nImage')
+                axs[1, col].set_xlabel('Depth')  # Add xlabel to bottom-most image
     
     else:
         # Create figure with data plots only
@@ -311,8 +311,13 @@ def plot_core_data(md, log, title, core_img_1=None, core_img_2=None, figsize=(20
     
     plot_ax.set_ylim(0, 1)
     plot_ax.set_xlim(md[0], md[-1])
-    plot_ax.set_xlabel('Depth')
     plot_ax.set_ylabel('Normalized Values')
+    
+    # Hide x-ticks on data plot if there are images below (matching datum_picker style)
+    if core_img_1 is not None or core_img_2 is not None:
+        plot_ax.set_xticks([])
+    else:
+        plot_ax.set_xlabel('Depth')
     
     # Add category-based depth marking if data is provided
     if picked_depths is not None and picked_categories is not None:
@@ -378,7 +383,7 @@ def plot_core_data(md, log, title, core_img_1=None, core_img_2=None, figsize=(20
         for i, (depth, category, uncertainty) in enumerate(zip(picked_depths_filtered, picked_categories_filtered, picked_uncertainties_filtered)):
             color = category_colors.get(category, 'red')
             plot_ax.axvspan(depth - uncertainty, depth + uncertainty, color=color, alpha=0.1)
-            plot_ax.axvline(x=depth, color=color, linestyle='--', linewidth=1.2,
+            plot_ax.axvline(x=depth, color=color, linestyle='--', linewidth=0.8,
                           label=f'#{category}' if f'#{category}' not in plot_ax.get_legend_handles_labels()[1] else "")
             
             # Add interpreted bed name in bold text if it exists
