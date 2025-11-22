@@ -59,30 +59,33 @@ pip install -r requirements.txt
 
 ```
 pyCoreRelator/
-├── core/                          
-│   ├── dtw_analysis.py            # DTW computation & comprehensive analysis
-│   ├── segment_operations.py      # Segment identification & manipulation
-│   ├── segment_analysis.py        # Legacy segment analysis functions
-│   ├── path_finding.py            # Complete DTW path discovery algorithms
-│   ├── quality_metrics.py         # Quality indicators & correlation metrics computation
-│   ├── age_models.py              # Age constraint handling & interpolation
-│   ├── diagnostics.py             # Chain break analysis & debugging
-│   ├── null_hypothesis.py         # Synthetic data generation & multi-parameter testing
-│   └── path_helpers.py            # DTW path processing utilities
-├── log/                           
-│   ├── rgb_image2log.py           # RGB image processing & color profile extraction
-│   ├── ct_image2log.py            # CT image processing & brightness analysis
-│   ├── core_datum_picker.py       # Interactive core boundary picking & depth selection
-│   └── ml_log_data_imputation.py  # ML-based data gap filling
-├── utils/                         
-│   ├── data_loader.py             # Multi-format data loading with image support
-│   ├── path_processing.py         # DTW path analysis, manipulation & mapping optimization
-│   └── helpers.py                 # General utility functions
-└── visualization/                 
-    ├── plotting.py                # Core plotting functions & segment visualization
-    ├── matrix_plots.py            # DTW matrix & path overlays
-    ├── animation.py               # Animated correlation sequences
-    └── core_plots.py              # Basic core data visualization
+├── analysis/                          # Core correlation analysis functions
+│   ├── dtw_core.py                    # DTW computation & comprehensive analysis
+│   ├── segments.py                    # Segment identification & manipulation
+│   ├── path_finding.py                # Complete DTW path discovery algorithms
+│   ├── path_combining.py              # DTW path combination & merging
+│   ├── path_helpers.py                # DTW path processing utilities
+│   ├── quality.py                     # Quality indicators & correlation metrics
+│   ├── age_models.py                  # Age constraint handling & interpolation
+│   ├── diagnostics.py                 # Chain break analysis & debugging
+│   ├── syn_strat.py                   # Synthetic data generation & testing
+│   └── syn_strat_plot.py              # Synthetic stratigraphy visualization
+├── preprocessing/                     # Data preprocessing & image processing
+│   ├── ct_processing.py               # CT image processing & brightness analysis
+│   ├── ct_plotting.py                 # CT visualization functions
+│   ├── rgb_processing.py              # RGB image processing & color profile extraction
+│   ├── rgb_plotting.py                # RGB visualization functions
+│   ├── datum_picker.py                # Interactive core boundary picking
+│   ├── gap_filling.py                 # ML-based data gap filling
+│   ├── gap_filling_plots.py           # Gap filling visualization
+│   └── core_display.py                # Core data display functions
+└── utils/                             # Utility functions
+    ├── data_loader.py                 # Multi-format data loading with image support
+    ├── path_processing.py             # DTW path analysis & optimization
+    ├── plotting.py                    # Advanced plotting & visualization
+    ├── matrix_plots.py                # DTW matrix & path overlays
+    ├── animation.py                   # Animated correlation sequences
+    └── helpers.py                     # General utility functions
 ```
 
 
@@ -104,15 +107,15 @@ The package computes comprehensive quality indicators for each correlation with 
 The package includes several Jupyter notebooks demonstrating real-world applications:
 
 ### Correlation analysis
-- **`pyCoreRelator_core_pair_analysis.ipynb`**: Comprehensive workflow with Cascadia margin turbidite cores showing full analysis pipeline
-- **`pyCoreRelator_null_hypothesis.ipynb`**: Synthetic data generation and significance testing examples
-- **`pyCoreRelator_compare2Null.ipynb`**: Advanced comparison against null hypothesis with multi-parameter analysis
+- **`pyCoreRelator_5_core_pair_analysis.ipynb`**: Comprehensive workflow with core correlation showing full analysis pipeline
+- **`pyCoreRelator_6_synthetic_strat.ipynb`**: Synthetic data generation examples
+- **`pyCoreRelator_7_compare2syn.ipynb`**: Comparison against synthetic cores with multi-parameter analysis
 
 ### Log data processing
-- **`pyCoreRelator_datum_picker.ipynb`**: Interactive stratigraphic boundary picking with real-time visualization and category-based classification
-- **`pyCoreRelator_data_gap_fill.ipynb`**: Machine learning-based data processing and gap filling for core log data
-- **`pyCoreRelator_RGB_image2log.ipynb`**: Processing, stitching, and converting RGB core images into RGB color logs
-- **`pyCoreRelator_CT_image2log.ipynb`**: Processing, stiching, and converting CT scan images into CT intensity (brightness) logs
+- **`pyCoreRelator_1_CTimg2log.ipynb`**: Processing, stitching, and converting CT scan images into CT intensity (brightness) logs
+- **`pyCoreRelator_2_RGBimg2log.ipynb`**: Processing, stitching, and converting RGB core images into RGB color logs
+- **`pyCoreRelator_3_data_gap_fill.ipynb`**: Machine learning-based data processing and gap filling for core log data
+- **`pyCoreRelator_4_datum_picker.ipynb`**: Interactive stratigraphic boundary picking with real-time visualization and category-based classification
 
 ## Core Functions
 
@@ -136,7 +139,7 @@ Detailed function documentation is available in [FUNCTION_DOCUMENTATION.md](FUNC
 - **`plot_core_logs()`**: Visualize core logs with configurable parameters and multiple data types
 - **`process_and_fill_logs()`**: Complete ML-based gap filling workflow for all configured log types
 
-### Null Hypothesis Testing Functions
+### Synthetic Stratigraphy Functions
 - **`load_segment_pool()`**: Create pools of real segments for synthetic core generation
 - **`plot_segment_pool()`**: Visualize all segments from the turbidite database pool
 - **`modify_segment_pool()`**: Remove unwanted segments from the pool data
@@ -152,11 +155,12 @@ Detailed function documentation is available in [FUNCTION_DOCUMENTATION.md](FUNC
 - **`plot_quality_comparison_t_statistics()`**: Plot quality metric comparison results with statistical analysis
 
 ### Interactive Core Analysis Functions
-- **`pick_stratigraphic_levels()`**: Interactive manual stratigraphic boundary picking with real-time visualization
+- **`pick_stratigraphic_levels()`**: Interactive manual stratigraphic boundary picking with real-time visualization and CSV export
+- **`interpret_bed_names()`**: Interactive Jupyter widget for naming picked stratigraphic beds with visualization and CSV update
 
 ### Image Processing Functions
-- **`plot_rgb_profile()`**: Create comprehensive RGB analysis visualizations
-- **`stitch_core_sections()`**: Stitch multiple core section images and RGB profiles
-- **`display_slice_bt_std()`**: Display CT slices with brightness traces and standard deviation plots
-- **`process_and_stitch_segments()`**: Complete workflow for multi-segment CT processing
+- **`plot_rgbimg_curves()`**: Create comprehensive RGB analysis visualizations with multiple format support
+- **`rgb_process_and_stitch()`**: Complete workflow for multi-segment RGB processing with optional CSV export
+- **`plot_ctimg_curves()`**: Display CT slices with brightness traces and standard deviation plots
+- **`ct_process_and_stitch()`**: Complete workflow for multi-segment CT processing with optional CSV export
 
