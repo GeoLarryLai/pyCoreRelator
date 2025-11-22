@@ -700,27 +700,62 @@ Plot original and ML-filled data for a given log.
 
 ### Datum Picker (`datum_picker.py`)
 
-#### `pick_stratigraphic_levels(md, log, core_img_1=None, core_img_2=None, core_name="", csv_filename=None)`
+#### `pick_stratigraphic_levels(md=None, log=None, core_img_1=None, core_img_2=None, core_name="", csv_filename=None, sort_csv=True, core_log_paths=None, log_columns=None, depth_column='SB_DEPTH_cm', rgb_img_path=None, ct_img_path=None)`
 
-Creates an interactive matplotlib environment for manually picking stratigraphic boundaries and datum levels with real-time visualization and CSV export.
+Creates an interactive matplotlib environment for manually picking stratigraphic boundaries and datum levels with real-time visualization and CSV export. Supports two modes: direct data input or file-based loading.
 
 **Parameters:**
-- `md` (array-like): Depth values for x-axis data
-- `log` (array-like): Log data for y-axis data (typically normalized 0-1)
-- `core_img_1` (numpy.ndarray, optional): First core image data (e.g., RGB image)
-- `core_img_2` (numpy.ndarray, optional): Second core image data (e.g., CT image)
+- `md` (array-like, optional): Depth values for x-axis data. If None, will load from core_log_paths.
+- `log` (array-like, optional): Log data for y-axis data (typically normalized 0-1). If None, will load from core_log_paths.
+- `core_img_1` (numpy.ndarray, optional): First core image data (e.g., RGB image). If None, will load from rgb_img_path.
+- `core_img_2` (numpy.ndarray, optional): Second core image data (e.g., CT image). If None, will load from ct_img_path.
 - `core_name` (str, default=""): Name of the core for display in plot title
-- `csv_filename` (str, optional): Full path/filename for the output CSV file
+- `csv_filename` (str, optional): Full path/filename for the output CSV file. If None, defaults to `{core_name}_pickeddepth.csv` or `pickeddepth.csv`
+- `sort_csv` (bool, default=True): Whether to sort CSV data by category then by picked_depths_cm when saving
+- `core_log_paths` (dict, optional): Dictionary mapping log names to their file paths
+- `log_columns` (list, optional): List of log column names to load from core_log_paths
+- `depth_column` (str, default='SB_DEPTH_cm'): Name of the depth column in the log files
+- `rgb_img_path` (str, optional): Path to RGB image file to load
+- `ct_img_path` (str, optional): Path to CT image file to load
 
 **Interactive Controls:**
 - Left-click: Add depth point
 - Number keys (0-9): Change current category
 - Delete/Backspace: Remove last point
 - Enter: Finish selection and save
+- Esc: Exit without saving any changes
 - Pan/Zoom tools: Temporarily disable point selection
 
 **Returns:**
 - `tuple`: (picked_depths, categories) - Lists of picked depth values and their categories
+
+#### `interpret_bed_names(csv_filename, core_name="", core_log_paths=None, log_columns=None, depth_column='SB_DEPTH_cm', rgb_img_path=None, ct_img_path=None)`
+
+Interactive Jupyter widget interface for naming picked stratigraphic beds. Loads picked depths from CSV file, displays core data with marked boundaries, and allows users to interactively assign names to each bed.
+
+**Parameters:**
+- `csv_filename` (str, **required**): Path to CSV file containing picked depths (e.g., 'example_data/picked_datum/M9907-23PC_pickeddepth.csv')
+- `core_name` (str, default=""): Name of the core for display
+- `core_log_paths` (dict, optional): Dictionary mapping log names to their file paths
+- `log_columns` (list, optional): List of log column names to load from core_log_paths
+- `depth_column` (str, default='SB_DEPTH_cm'): Name of the depth column in the log files
+- `rgb_img_path` (str, optional): Path to RGB image file to load
+- `ct_img_path` (str, optional): Path to CT image file to load
+
+**Interactive Features:**
+- Dropdown selector for choosing rows by depth and category
+- Text input for entering bed names
+- "Update Name" button to update individual rows
+- "Save All Changes" button to save and display final plot with names
+
+**Returns:**
+- None (updates CSV file in place with interpreted bed names)
+
+**Notes:**
+- Requires Jupyter environment with ipywidgets installed
+- Works seamlessly with output from `pick_stratigraphic_levels()`
+- Creates interactive widgets for bed naming workflow
+- Displays visualization with color-coded categories before and after naming
 
 #### `create_interactive_figure(md, log, core_img_1=None, core_img_2=None, miny=0, maxy=1)`
 

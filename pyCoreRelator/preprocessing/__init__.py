@@ -64,7 +64,8 @@ from .datum_picker import (
     get_category_color,
     onkey_boundary,
     create_interactive_figure,
-    pick_stratigraphic_levels
+    pick_stratigraphic_levels,
+    interpret_bed_names
 )
 
 # Core display
@@ -113,6 +114,7 @@ __all__ = [
     'onkey_boundary',
     'create_interactive_figure',
     'pick_stratigraphic_levels',
+    'interpret_bed_names',
     # Core display
     'plot_core_data'
 ]

@@ -155,7 +155,8 @@ Detailed function documentation is available in [FUNCTION_DOCUMENTATION.md](FUNC
 - **`plot_quality_comparison_t_statistics()`**: Plot quality metric comparison results with statistical analysis
 
 ### Interactive Core Analysis Functions
-- **`pick_stratigraphic_levels()`**: Interactive manual stratigraphic boundary picking with real-time visualization
+- **`pick_stratigraphic_levels()`**: Interactive manual stratigraphic boundary picking with real-time visualization and CSV export
+- **`interpret_bed_names()`**: Interactive Jupyter widget for naming picked stratigraphic beds with visualization and CSV update
 
 ### Image Processing Functions
 - **`plot_rgbimg_curves()`**: Create comprehensive RGB analysis visualizations with multiple format support

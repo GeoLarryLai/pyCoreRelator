@@ -133,7 +133,8 @@ from .preprocessing.datum_picker import (
     get_category_color,
     onkey_boundary,
     create_interactive_figure,
-    pick_stratigraphic_levels
+    pick_stratigraphic_levels,
+    interpret_bed_names
 )
 
 # Preprocessing functions - Machine learning data imputation
@@ -239,6 +240,7 @@ __all__ = [
     'onkey_boundary',
     'create_interactive_figure',
     'pick_stratigraphic_levels',
+    'interpret_bed_names',
     
     # Machine learning log data imputation functions
     'preprocess_core_data',
