@@ -294,6 +294,191 @@ Computes quality metrics for combined correlation paths by aggregating segment-l
 **Returns:**
 - `dict`: Combined quality metrics including normalized DTW, correlation, and age overlap
 
+### Synthetic Stratigraphy (`syn_strat.py`)
+
+#### `load_segment_pool(core_names, core_log_paths, picked_depth_paths, log_column_names, depth_column, alternative_column_names=None, boundary_category=1, neglect_topbottom=True)`
+
+Load segment pool data from turbidite database for synthetic core generation.
+
+**Parameters:**
+- `core_names` (list): List of core names to process
+- `core_log_paths` (dict): Dictionary mapping core names to log file paths
+- `picked_depth_paths` (dict): Dictionary mapping core names to picked depth file paths
+- `log_column_names` (list): List of log column names to load
+- `depth_column` (str): Name of depth column
+- `alternative_column_names` (dict, optional): Dictionary of alternative column names
+- `boundary_category` (int, default=1): Category number for turbidite boundaries
+- `neglect_topbottom` (bool, default=True): If True, skip the first and last segments of each core
+
+**Returns:**
+- `tuple`: (seg_logs, seg_depths, seg_pool_metadata) containing turbidite log segments, depth segments, and loaded core metadata
+
+#### `modify_segment_pool(segment_logs, segment_depths, remove_list=None)`
+
+Remove unwanted segments from the pool data and return the modified pool.
+
+**Parameters:**
+- `segment_logs` (list): List of log data arrays (segments)
+- `segment_depths` (list): List of depth arrays corresponding to each segment
+- `remove_list` (list, optional): List of 1-based segment numbers to remove. If None or empty, no segments are removed
+
+**Returns:**
+- `tuple`: (modified_segment_logs, modified_segment_depths) containing remaining log and depth arrays
+
+#### `create_synthetic_log(target_thickness, segment_logs, segment_depths, exclude_inds=None, repetition=False)`
+
+Create synthetic log using turbidite database approach with picked depths at turbidite bases.
+
+**Parameters:**
+- `target_thickness` (float): Target thickness for the synthetic log
+- `segment_logs` (list): List of turbidite log segments
+- `segment_depths` (list): List of corresponding depth arrays
+- `exclude_inds` (list, optional): Indices to exclude from selection
+- `repetition` (bool, default=False): If True, allow reusing turbidite segments; if False, each segment can only be used once
+
+**Returns:**
+- `tuple`: (log, d, valid_picked_depths, inds) containing synthetic log data, depths, turbidite boundary depths, and indices of segments used
+
+#### `create_synthetic_core_pair(core_a_length, core_b_length, seg_logs, seg_depths, log_columns, repetition=False, plot_results=True, save_plot=False, plot_filename=None)`
+
+Generate synthetic core pair (computation only) with optional plotting.
+
+**Parameters:**
+- `core_a_length` (float): Target length for core A
+- `core_b_length` (float): Target length for core B
+- `seg_logs` (list): List of turbidite log segments
+- `seg_depths` (list): List of corresponding depth arrays
+- `log_columns` (list): List of log column names for labeling
+- `repetition` (bool, default=False): If True, allow reusing turbidite segments
+- `plot_results` (bool, default=True): Whether to display the plot
+- `save_plot` (bool, default=False): Whether to save the plot to file
+- `plot_filename` (str, optional): Filename for saving plot (if save_plot=True)
+
+**Returns:**
+- `tuple`: (synthetic_log_a, synthetic_md_a, inds_a, synthetic_picked_a, synthetic_log_b, synthetic_md_b, inds_b, synthetic_picked_b)
+
+#### `plot_synthetic_log(synthetic_log, synthetic_md, synthetic_picked_depths, log_column_names, title="Synthetic Log", save_plot=False, plot_filename=None)`
+
+Plot a single synthetic log with turbidite boundaries.
+
+**Parameters:**
+- `synthetic_log` (array-like): Numpy array of log values (can be 1D or 2D for multiple log types)
+- `synthetic_md` (array-like): Numpy array of depth values
+- `synthetic_picked_depths` (list): List of turbidite boundary depths
+- `log_column_names` (str or list): Name(s) of the log column(s) for labeling
+- `title` (str, default="Synthetic Log"): Title for the plot
+- `save_plot` (bool, default=False): Whether to save the plot to file
+- `plot_filename` (str, optional): Filename for saving plot (if save_plot=True)
+
+**Returns:**
+- `tuple`: (fig, ax) matplotlib figure and axis objects
+
+#### `synthetic_correlation_quality(mod_seg_logs, mod_seg_depths, log_column_names, quality_indices=['corr_coef', 'norm_dtw'], number_of_iterations=20, core_a_length=600, core_b_length=600, repetition=False, pca_for_dependent_dtw=False, output_csv_dir=None, mute_mode=True)`
+
+Generate DTW correlation quality analysis for synthetic core pairs with multiple iterations. This function saves distribution parameters for each correlation quality metric across all iterations.
+
+**Parameters:**
+- `mod_seg_logs` (list): List of turbidite log segments
+- `mod_seg_depths` (list): List of turbidite depth segments
+- `log_column_names` (list): List of log column names
+- `quality_indices` (list, default=['corr_coef', 'norm_dtw']): List of quality indices to analyze
+- `number_of_iterations` (int, default=20): Number of synthetic pairs to generate
+- `core_a_length` (float, default=600): Target length for synthetic core A in cm
+- `core_b_length` (float, default=600): Target length for synthetic core B in cm
+- `repetition` (bool, default=False): Allow reselecting turbidite segments
+- `pca_for_dependent_dtw` (bool, default=False): Use PCA for dependent DTW analysis
+- `output_csv_dir` (str, optional): Directory path for output CSV files. If None, saves files in current directory
+- `mute_mode` (bool, default=True): Suppress detailed output messages
+
+**Returns:**
+- `dict`: Mapping quality indices to their output CSV filenames
+
+#### `plot_synthetic_correlation_quality(input_csv, quality_indices=['corr_coef', 'norm_dtw'], bin_width=None, plot_individual_pdf=False, save_plot=False, plot_filename=None)`
+
+Plot synthetic correlation quality distributions from saved CSV files.
+
+**Parameters:**
+- `input_csv` (str): Path to the CSV file containing fit parameters. Can include {quality_index} placeholder
+- `quality_indices` (list, default=['corr_coef', 'norm_dtw']): List of quality indices to plot
+- `bin_width` (float, optional): Bin width for histogram. If None, uses quality-specific defaults
+- `plot_individual_pdf` (bool, default=False): If True, plots all individual iteration PDFs overlaid; if False, plots combined distribution
+- `save_plot` (bool, default=False): Whether to save the plot to file
+- `plot_filename` (str, optional): Filename for saving plot. Can include {quality_index} placeholder
+
+**Returns:**
+- None (displays and optionally saves plots)
+
+#### `generate_constraint_subsets(n_constraints)`
+
+Generate all possible subsets of constraints (2^n combinations) for age constraint removal testing.
+
+**Parameters:**
+- `n_constraints` (int): Number of constraints
+
+**Returns:**
+- `list`: List of all possible constraint subsets
+
+#### `run_multi_parameter_analysis(log_a, log_b, md_a, md_b, all_depths_a_cat1, all_depths_b_cat1, pickeddepth_ages_a, pickeddepth_ages_b, age_data_a, age_data_b, uncertainty_method, parameter_combinations, target_quality_indices, test_age_constraint_removal, core_a_name, core_b_name, output_csv_filenames, synthetic_csv_filenames=None, pca_for_dependent_dtw=False, n_jobs=-1, max_search_per_layer=None)`
+
+Run comprehensive multi-parameter analysis for core correlation with optional age constraint removal testing.
+
+**Parameters:**
+- `log_a, log_b` (array-like): Log data for cores A and B
+- `md_a, md_b` (array-like): Measured depth arrays for cores A and B
+- `all_depths_a_cat1, all_depths_b_cat1` (array-like): Picked depths of category 1 for cores A and B
+- `pickeddepth_ages_a, pickeddepth_ages_b` (dict): Age interpolation results for picked depths
+- `age_data_a, age_data_b` (dict): Age constraint data for cores A and B
+- `uncertainty_method` (str): Method for uncertainty calculation
+- `parameter_combinations` (list): List of parameter combinations to test
+- `target_quality_indices` (list): Quality indices to analyze (e.g., ['corr_coef', 'norm_dtw', 'perc_diag'])
+- `test_age_constraint_removal` (bool): Whether to test age constraint removal scenarios
+- `core_a_name, core_b_name` (str): Names of cores A and B
+- `output_csv_filenames` (dict): Dictionary mapping quality_index to output CSV filename
+- `synthetic_csv_filenames` (dict, optional): Dictionary mapping quality_index to synthetic CSV filename for consistent bin sizing
+- `pca_for_dependent_dtw` (bool, default=False): Whether to use PCA for dependent DTW
+- `n_jobs` (int, default=-1): Number of parallel jobs to run. -1 means using all available cores
+- `max_search_per_layer` (int, optional): Maximum number of scenarios to process per constraint removal layer
+
+**Returns:**
+- None (Results are saved to CSV files specified in output_csv_filenames)
+
+### Synthetic Stratigraphy Plotting (`syn_strat_plot.py`)
+
+#### `plot_segment_pool(segment_logs, segment_depths, log_column_names, n_cols=8, figsize_per_row=4, plot_segments=True, save_plot=False, plot_filename=None)`
+
+Plot all segments from the pool in a grid layout.
+
+**Parameters:**
+- `segment_logs` (list): List of log data arrays (segments)
+- `segment_depths` (list): List of depth arrays corresponding to each segment
+- `log_column_names` (list): List of column names for labeling
+- `n_cols` (int, default=8): Number of columns in the subplot grid
+- `figsize_per_row` (float, default=4): Height per row in the figure
+- `plot_segments` (bool, default=True): Whether to plot the segments
+- `save_plot` (bool, default=False): Whether to save the plot to file
+- `plot_filename` (str, optional): Filename for saving plot
+
+**Returns:**
+- `tuple`: (fig, axes) matplotlib figure and axes objects
+
+#### `create_and_plot_synthetic_core_pair(core_a_length, core_b_length, turb_logs, depth_logs, log_columns, repetition=False, plot_results=True, save_plot=False, plot_filename=None)`
+
+Generate synthetic core pair and optionally plot the results.
+
+**Parameters:**
+- `core_a_length` (float): Target length for core A
+- `core_b_length` (float): Target length for core B
+- `turb_logs` (list): List of turbidite log segments
+- `depth_logs` (list): List of corresponding depth arrays
+- `log_columns` (list): List of log column names for labeling
+- `repetition` (bool, default=False): If True, allow reusing turbidite segments
+- `plot_results` (bool, default=True): Whether to display the plot
+- `save_plot` (bool, default=False): Whether to save the plot to file
+- `plot_filename` (str, optional): Filename for saving plot (if save_plot=True)
+
+**Returns:**
+- `tuple`: (synthetic_log_a, synthetic_md_a, inds_a, synthetic_picked_a, synthetic_log_b, synthetic_md_b, inds_b, synthetic_picked_b)
+
 ## Preprocessing Module (`pyCoreRelator.preprocessing`)
 
 ### RGB Image Processing (`rgb_processing.py`)
@@ -818,41 +1003,59 @@ Maps category identifiers to specific colors for visualization.
 **Returns:**
 - `str`: Color string compatible with matplotlib
 
-### Core Display (`core_display.py`)
-
-#### `plot_core_data(md, log, title, rgb_img=None, ct_img=None, figsize=(20, 4), label_name=None, available_columns=None, is_multilog=False, picked_depths=None, picked_categories=None, picked_uncertainties=None, show_category=None, show_bed_number=False)`
-
-Plots core data with optional RGB and CT images and support for multiple log types with category visualization.
-
-**Parameters:**
-- `md` (array-like): Array of depth values
-- `log` (array-like): Array of log values (1D or 2D)
-- `title` (str): Title for the plot
-- `rgb_img, ct_img` (array-like, optional): RGB and CT image arrays
-- `figsize` (tuple, default=(20, 4)): Figure size
-- `label_name` (str, optional): Name for log curve label
-- `available_columns` (list, optional): Names of log columns for multilogs
-- `is_multilog` (bool, default=False): Whether log contains multiple columns
-- `picked_depths` (list, optional): List of picked depths for category visualization
-- `picked_categories` (list, optional): Categories for picked_depths
-- `picked_uncertainties` (list, optional): Uncertainties for each picked depth
-- `show_category` (list, optional): Specific categories to show
-- `show_bed_number` (bool, default=False): Display bed numbers
-
-**Returns:**
-- `tuple`: (fig, plot_ax) containing the figure and main plotting axis
-
 ## Utils Module (`pyCoreRelator.utils`)
 
 ### Data Loader (`data_loader.py`)
 
-#### `load_log_data(log_paths, img_paths, log_columns, depth_column='SB_DEPTH_cm', normalize=True, column_alternatives=None)`
+#### `load_core_log_data(log_paths, core_name, log_columns=None, depth_column='SB_DEPTH_cm', normalize=True, column_alternatives=None, core_img_1=None, core_img_2=None, figsize=(20, 4), picked_datum=None, categories=None, show_bed_number=False, cluster_data=None, core_img_1_cmap_range=None, core_img_2_cmap_range=None, show_fig=True)`
 
-Loads and preprocesses well log data and core images from multiple file sources with automatic normalization and resampling.
+**ENHANCED** - Load core log data from CSV files, optionally load picked depths from CSV, and create visualization with optional core images.
 
 **Parameters:**
 - `log_paths` (dict): Dictionary mapping log names to file paths
-- `img_paths` (dict): Dictionary mapping image types ('rgb', 'ct') to file paths
+- `core_name` (str): Core name for plot title and identification (e.g., "M9907-25PC")
+- `log_columns` (list, optional): List of log column names to load from the CSV files. If None, uses all keys from log_paths
+- `depth_column` (str, default='SB_DEPTH_cm'): Name of the depth column in the CSV files
+- `normalize` (bool, default=True): Whether to normalize each log to the range [0, 1]
+- `column_alternatives` (dict, optional): Alternative column names to try if primary names not found
+- `core_img_1` (str or array_like, optional): First core image (file path or array). If None, no image displayed
+- `core_img_2` (str or array_like, optional): Second core image (file path or array). If None, no image displayed
+- `figsize` (tuple, default=(20, 4)): Figure size (width, height)
+- `picked_datum` (str, optional): Path to CSV file containing picked depths. CSV should have columns 'picked_depths_cm', 'category', and optionally 'interpreted_bed'
+- `categories` (int, list, tuple, or set, optional): Category or categories to filter and display. Can be a single category (e.g., 1), multiple categories (e.g., [1, 2, 3]), or None to load all
+- `show_bed_number` (bool, default=False): Whether to display bed numbers
+- `cluster_data` (dict, optional): Cluster data for visualization
+- `core_img_1_cmap_range, core_img_2_cmap_range` (tuple, optional): Color map ranges
+- `show_fig` (bool, default=True): If True, displays the figure. If False, closes without displaying
+
+**Returns:**
+- `tuple`: (log, md, picked_depths, interpreted_bed)
+  - `log` (numpy.ndarray): Log data array with shape (n_samples, n_logs) for multiple logs or (n_samples,) for single log
+  - `md` (numpy.ndarray): Measured depths array
+  - `picked_depths` (list): List of picked depth values (empty list if no picked_datum provided)
+  - `interpreted_bed` (list): List of interpreted bed names corresponding to picked_depths (empty list if not available)
+
+**Example:**
+```python
+>>> log, md, picked_depths, interpreted_bed = load_core_log_data(
+...     log_paths={'MS': 'data/ms.csv', 'Lumin': 'data/lumin.csv'},
+...     core_name="M9907-25PC",
+...     log_columns=['MS', 'Lumin'],
+...     core_img_1='data/rgb_image.png',
+...     core_img_2='data/ct_image.png',
+...     picked_datum='pickeddepth/M9907-25PC_pickeddepth.csv',
+...     categories=[1],
+...     show_fig=True
+... )
+```
+
+#### `load_log_data(log_paths, img_paths=None, log_columns=None, depth_column='SB_DEPTH_cm', normalize=True, column_alternatives=None)`
+
+**ENHANCED** - Loads and preprocesses well log data and core images from multiple file sources with automatic normalization and resampling. Now supports loading images from both file paths and directories.
+
+**Parameters:**
+- `log_paths` (dict): Dictionary mapping log names to file paths
+- `img_paths` (dict, optional): Dictionary mapping image types ('rgb', 'ct') to file paths or directories. If a directory is provided, loads the first valid image file found. Supports .jpg, .jpeg, .png, .tiff, .tif, .bmp formats
 - `log_columns` (list): List of log column names to load from files
 - `depth_column` (str, default='SB_DEPTH_cm'): Name of depth column in data files
 - `normalize` (bool, default=True): Whether to normalize log data to [0,1] range

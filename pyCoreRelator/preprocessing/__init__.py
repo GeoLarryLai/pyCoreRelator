@@ -6,7 +6,8 @@ This module contains functions for preprocessing core data including:
 - RGB image processing and visualization
 - Machine learning-based gap filling
 - Interactive datum picking
-- Core data display
+
+Note: plot_core_data has been moved to pyCoreRelator.utils.plotting
 """
 
 # CT image processing
@@ -68,11 +69,6 @@ from .datum_picker import (
     interpret_bed_names
 )
 
-# Core display
-from .core_display import (
-    plot_core_data
-)
-
 __all__ = [
     # CT processing
     'load_dicom_files',
@@ -114,8 +110,6 @@ __all__ = [
     'onkey_boundary',
     'create_interactive_figure',
     'pick_stratigraphic_levels',
-    'interpret_bed_names',
-    # Core display
-    'plot_core_data'
+    'interpret_bed_names'
 ]
 

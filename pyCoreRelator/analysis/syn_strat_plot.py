@@ -35,7 +35,7 @@ from .dtw_core import run_comprehensive_dtw_analysis
 from .path_finding import find_complete_core_paths
 from .age_models import calculate_interpolated_ages
 
-from .syn_strat import create_synthetic_log_with_depths
+from .syn_strat import create_synthetic_log
 
 def plot_segment_pool(segment_logs, segment_depths, log_column_names, n_cols=8, figsize_per_row=4, 
                      plot_segments=True, save_plot=False, plot_filename=None):
@@ -157,10 +157,10 @@ def create_and_plot_synthetic_core_pair(core_a_length, core_b_length, turb_logs,
     # Generate synthetic logs for cores A and B
     print("Generating synthetic core pair...")
 
-    synthetic_log_a, synthetic_md_a, inds_a, synthetic_picked_a_tuples = create_synthetic_log_with_depths(
+    synthetic_log_a, synthetic_md_a, synthetic_picked_a_tuples, inds_a = create_synthetic_log(
         core_a_length, turb_logs, depth_logs, exclude_inds=None, repetition=repetition
     )
-    synthetic_log_b, synthetic_md_b, inds_b, synthetic_picked_b_tuples = create_synthetic_log_with_depths(
+    synthetic_log_b, synthetic_md_b, synthetic_picked_b_tuples, inds_b = create_synthetic_log(
         core_b_length, turb_logs, depth_logs, exclude_inds=None, repetition=repetition
     )
 

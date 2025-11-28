@@ -77,12 +77,11 @@ pyCoreRelator/
 │   ├── rgb_plotting.py                # RGB visualization functions
 │   ├── datum_picker.py                # Interactive core boundary picking
 │   ├── gap_filling.py                 # ML-based data gap filling
-│   ├── gap_filling_plots.py           # Gap filling visualization
-│   └── core_display.py                # Core data display functions
+│   └── gap_filling_plots.py           # Gap filling visualization
 └── utils/                             # Utility functions
-    ├── data_loader.py                 # Multi-format data loading with image support
+    ├── data_loader.py                 # Multi-format data loading with directory support (includes load_core_log_data)
     ├── path_processing.py             # DTW path analysis & optimization
-    ├── plotting.py                    # Advanced plotting & visualization
+    ├── plotting.py                    # Core plotting & DTW visualization
     ├── matrix_plots.py                # DTW matrix & path overlays
     ├── animation.py                   # Animated correlation sequences
     └── helpers.py                     # General utility functions
@@ -130,9 +129,9 @@ Detailed function documentation is available in [FUNCTION_DOCUMENTATION.md](FUNC
 - **`find_best_mappings()`**: Identify optimal correlation mappings using weighted quality metrics (supports both standard best mappings and boundary correlation filtering modes)
 
 ### Data Loading and Visualization
+- **`load_core_log_data()`**: Load log data from CSV files, optionally load picked depths from CSV, and create visualization with optional images
 - **`load_log_data()`**: Load multi-column log data with optional image support and normalization
 - **`load_core_age_constraints()`**: Load age constraint data from CSV files with support for adjacent cores
-- **`plot_core_data()`**: Visualize core data with multiple log curves and images
 
 ### Machine Learning Data Imputation Functions
 - **`preprocess_core_data()`**: Clean and preprocess core data with configurable thresholds and scaling
@@ -143,8 +142,12 @@ Detailed function documentation is available in [FUNCTION_DOCUMENTATION.md](FUNC
 - **`load_segment_pool()`**: Create pools of real segments for synthetic core generation
 - **`plot_segment_pool()`**: Visualize all segments from the turbidite database pool
 - **`modify_segment_pool()`**: Remove unwanted segments from the pool data
+- **`create_synthetic_log()`**: Generate synthetic cores from segment pools
+- **`create_synthetic_core_pair()`**: Generate synthetic core pair (computation only)
 - **`create_and_plot_synthetic_core_pair()`**: Create and visualize synthetic core pairs
-- **`create_synthetic_log_with_depths()`**: Generate synthetic cores from segment pools
+- **`plot_synthetic_log()`**: Plot a single synthetic log with turbidite boundaries
+- **`synthetic_correlation_quality()`**: Generate DTW correlation quality analysis for synthetic core pairs with multiple iterations
+- **`plot_synthetic_correlation_quality()`**: Plot synthetic correlation quality distributions from saved CSV files
 
 ### Visualization Functions
 - **`visualize_combined_segments()`**: Display segment correlations overlaid on log plots

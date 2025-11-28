@@ -9,6 +9,7 @@ __version__ = "0.1.2"
 
 # Core functionality - Data loading and basic operations
 from .utils.data_loader import (
+    load_core_log_data,
     load_log_data, 
     resample_datasets,
     load_age_constraints_from_csv,
@@ -55,8 +56,11 @@ from .analysis.diagnostics import diagnose_chain_breaks
 from .analysis.syn_strat import (
     load_segment_pool,
     modify_segment_pool,
-    create_synthetic_log_with_depths,
+    create_synthetic_log,
     create_synthetic_core_pair,
+    plot_synthetic_log,
+    synthetic_correlation_quality,
+    plot_synthetic_correlation_quality,
     generate_constraint_subsets,
     run_multi_parameter_analysis
 )
@@ -75,10 +79,7 @@ from .analysis.quality import (
 )
 from .analysis.age_models import calculate_interpolated_ages
 
-# Visualization functions - Basic plotting
-from .preprocessing.core_display import plot_core_data
-
-# Visualization functions - Advanced DTW plotting
+# Visualization functions - Core plotting and DTW
 from .utils.plotting import (
     plot_segment_pair_correlation,
     plot_multilog_segment_pair_correlation,
@@ -159,6 +160,7 @@ __all__ = [
     '__version__',
     
     # Core data operations
+    'load_core_log_data',
     'load_log_data',
     'load_age_constraints_from_csv',
     'combine_age_constraints',
@@ -167,7 +169,6 @@ __all__ = [
     'load_and_prepare_quality_data',
     'reconstruct_raw_data_from_histogram',
     'load_sequential_mappings',
-    'plot_core_data',
     
     # Main analysis functions  
     'run_comprehensive_dtw_analysis',
@@ -179,9 +180,12 @@ __all__ = [
     'load_segment_pool',
     'plot_segment_pool', 
     'modify_segment_pool',
-    'create_synthetic_log_with_depths',
+    'create_synthetic_log',
     'create_synthetic_core_pair',
     'create_and_plot_synthetic_core_pair',
+    'plot_synthetic_log',
+    'synthetic_correlation_quality',
+    'plot_synthetic_correlation_quality',
     'generate_constraint_subsets',
     'run_multi_parameter_analysis',
     

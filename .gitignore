@@ -2,7 +2,7 @@
 /*
 !/pyCoreRelator/
 !/.gitignore
-!/pyCoreRelator*.ipynb
+!/pyCoreRelator_*.ipynb
 !/example_data/
 !/LICENSE
 !/FUNCTION_DOCUMENTATION.md

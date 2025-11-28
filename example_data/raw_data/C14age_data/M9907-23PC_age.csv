@@ -1,0 +1,5 @@
+sample,interpreted_bed,cruise,core,location,corrams_agebp,corrams_Error,calib502_agebp,calib502_2sigma_pos,calib502_2sigma_neg,calib502_maxbp,calib502_minbp,mindepth_cm,maxdepth_cm,in_sequence,calib810_agebp,calib810_2sigma_pos,calib810_2sigma_neg,calib810_maxbp,calib810_minbp
+128B,T04,M9907,23PC,Cascadia,2495,15,1675,106,101,1574,1781,155.4690131,157.4690131,TRUE,1671,156,151,1827,1520
+57,T11,M9907,23PC,Cascadia,6840,45,6931,168,149,6782,7099,531.7876052,533.7876052,TRUE,6877,208,204,7085,6673
+181,T12,M9907,23PC,Cascadia,6885,40,6980,160,114,6866,7140,557.9066882,559.9066882,TRUE,6930,208,185,7138,6745
+182,T13,M9907,23PC,Cascadia,7200,50,7329,100,113,7216,7429,587.2906565,589.2906565,TRUE,7270,159,190,7429,7080

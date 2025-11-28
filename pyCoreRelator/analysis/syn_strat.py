@@ -1,5 +1,5 @@
 """
-Null hypothesis testing functions for pyCoreRelator
+Synthetic stratigraphy functions for pyCoreRelator
 
 This module provides functions for generating synthetic core data and running
 null hypothesis tests for correlation analysis. It includes segment pool management,
@@ -7,10 +7,15 @@ synthetic log generation, and visualization tools.
 
 Functions:
 - load_segment_pool: Load segment pool data from turbidite database
-- plot_segment_pool: Plot all segments from the pool in a grid layout
 - modify_segment_pool: Remove unwanted segments from the pool data
-- create_synthetic_log_with_depths: Create synthetic log using turbidite database approach
-- create_and_plot_synthetic_core_pair: Generate synthetic core pair and optionally plot the results
+- create_synthetic_log: Create synthetic log using turbidite database approach with picked depths at turbidite bases
+- create_synthetic_core_pair: Generate synthetic core pair and optionally plot the results
+- plot_segment_pool: Plot all segments from the pool in a grid layout
+- plot_synthetic_log: Plot a single synthetic log with turbidite boundaries
+- synthetic_correlation_quality: Generate DTW correlation quality analysis for synthetic core pairs with multiple iterations
+- plot_synthetic_correlation_quality: Plot synthetic correlation quality distributions from saved CSV files
+- generate_constraint_subsets: Generate all possible subsets of constraints (2^n combinations)
+- run_multi_parameter_analysis: Run comprehensive multi-parameter analysis for core correlation
 """
 
 # Data manipulation and analysis
@@ -23,7 +28,7 @@ import pandas as pd
 from tqdm import tqdm
 from joblib import Parallel, delayed
 from itertools import combinations
-# matplotlib not needed for computation functions
+import matplotlib.pyplot as plt
 import warnings
 warnings.filterwarnings('ignore')
 
@@ -32,10 +37,11 @@ from ..utils.data_loader import load_log_data
 from .dtw_core import run_comprehensive_dtw_analysis
 from .path_finding import find_complete_core_paths
 from .age_models import calculate_interpolated_ages
+# Note: plot_correlation_distribution is imported inside functions to avoid circular imports
 
 
-def load_segment_pool(core_names, core_log_paths, picked_depth_paths, log_columns, 
-                     depth_column, column_alternatives, boundary_category=1, neglect_topbottom=True):
+def load_segment_pool(core_names, core_log_paths, picked_depth_paths, log_column_names, 
+                     depth_column, alternative_column_names=None, boundary_category=1, neglect_topbottom=True):
     """
     Load segment pool data from turbidite database.
     
@@ -43,22 +49,21 @@ def load_segment_pool(core_names, core_log_paths, picked_depth_paths, log_column
     - core_names: list of core names to process
     - core_log_paths: dict mapping core names to log file paths
     - picked_depth_paths: dict mapping core names to picked depth file paths
-    - log_columns: list of log column names to load
+    - log_column_names: list of log column names to load
     - depth_column: name of depth column
-    - column_alternatives: dict of alternative column names
+    - alternative_column_names: dict of alternative column names (optional)
     - boundary_category: category number for turbidite boundaries (default: 1)
     - neglect_topbottom: if True, skip the first and last segments of each core (default: True)
     
     Returns:
-    - segment_pool_cores_data: dict containing loaded core data
-    - turb_logs: list of turbidite log segments
-    - depth_logs: list of turbidite depth segments
-    - target_dimensions: number of dimensions in the data
+    - seg_pool_metadata: dict containing loaded core data
+    - seg_logs: list of turbidite log segments
+    - seg_depths: list of turbidite depth segments
     """
     
-    segment_pool_cores_data = {}
-    turb_logs = []
-    depth_logs = []
+    seg_pool_metadata = {}
+    seg_logs = []
+    seg_depths = []
     
     print("Loading segment pool from available cores...")
     
@@ -70,15 +75,15 @@ def load_segment_pool(core_names, core_log_paths, picked_depth_paths, log_column
             log_data, md_data, available_columns, _, _ = load_log_data(
                 core_log_paths[core_name],
                 {},  # No images needed
-                log_columns,
+                log_column_names,
                 depth_column=depth_column,
                 normalize=True,
-                column_alternatives=column_alternatives
+                column_alternatives=alternative_column_names or {}
             )
             
             # Check if all required log columns are available
             missing_columns = []
-            for col in log_columns:
+            for col in log_column_names:
                 if col not in available_columns:
                     missing_columns.append(col)
             
@@ -87,7 +92,7 @@ def load_segment_pool(core_names, core_log_paths, picked_depth_paths, log_column
                 continue
             
             # Store core data
-            segment_pool_cores_data[core_name] = {
+            seg_pool_metadata[core_name] = {
                 'log_data': log_data,
                 'md_data': md_data,
                 'available_columns': available_columns
@@ -125,8 +130,8 @@ def load_segment_pool(core_names, core_log_paths, picked_depth_paths, log_column
                         turb_segment = log_data[start_idx:end_idx]
                         turb_depth = md_data[start_idx:end_idx] - md_data[start_idx]  # Relative depths
                         
-                        turb_logs.append(turb_segment)
-                        depth_logs.append(turb_depth)
+                        seg_logs.append(turb_segment)
+                        seg_depths.append(turb_depth)
                 
             except Exception as e:
                 print(f"Warning: Could not load turbidite boundaries for {core_name}: {e}")
@@ -137,13 +142,13 @@ def load_segment_pool(core_names, core_log_paths, picked_depth_paths, log_column
             print(f"Error loading {core_name}: {e}")
     
     # Set target dimensions based on segment pool
-    target_dimensions = turb_logs[0].shape[1] if len(turb_logs) > 0 and turb_logs[0].ndim > 1 else 1
+    target_dimensions = seg_logs[0].shape[1] if len(seg_logs) > 0 and seg_logs[0].ndim > 1 else 1
     
-    print(f"Segment pool created with {len(turb_logs)} turbidites")
-    print(f"Total cores processed: {len(segment_pool_cores_data)}")
+    print(f"Segment pool created with {len(seg_logs)} turbidites")
+    print(f"Total cores processed: {len(seg_pool_metadata)}")
     print(f"Target dimensions: {target_dimensions}")
     
-    return segment_pool_cores_data, turb_logs, depth_logs, target_dimensions
+    return seg_logs, seg_depths, seg_pool_metadata
 
 
 
@@ -204,17 +209,13 @@ def modify_segment_pool(segment_logs, segment_depths, remove_list=None):
     
     return modified_segment_logs, modified_segment_depths
 
-
-
-
-
-def create_synthetic_log_with_depths(thickness, turb_logs, depth_logs, exclude_inds=None, repetition=False):
+def create_synthetic_log(target_thickness, segment_logs, segment_depths, exclude_inds=None, repetition=False):
     """Create synthetic log using turbidite database approach with picked depths at turbidite bases.
     
     Parameters:
-    - thickness: target thickness for the synthetic log
-    - turb_logs: list of turbidite log segments
-    - depth_logs: list of corresponding depth arrays
+    - target_thickness: target thickness for the synthetic log
+    - segment_logs: list of turbidite log segments
+    - segment_depths: list of corresponding depth arrays
     - exclude_inds: indices to exclude from selection (optional)
     - repetition: if True, allow reusing turbidite segments; if False, each segment can only be used once (default: False)
     - plot_results: whether to display plots (default: True)
@@ -225,7 +226,7 @@ def create_synthetic_log_with_depths(thickness, turb_logs, depth_logs, exclude_i
     - tuple: (log, d, inds, valid_picked_depths)
     """
     # Determine target dimensions from the first available segment
-    target_dimensions = turb_logs[0].shape[1] if len(turb_logs) > 0 and turb_logs[0].ndim > 1 else 1
+    target_dimensions = segment_logs[0].shape[1] if len(segment_logs) > 0 and segment_logs[0].ndim > 1 else 1
     
     fake_log = np.array([]).reshape(0, target_dimensions) if target_dimensions > 1 else np.array([])
     md_log = np.array([])
@@ -236,17 +237,17 @@ def create_synthetic_log_with_depths(thickness, turb_logs, depth_logs, exclude_i
     # Initialize available indices for selection
     if repetition:
         # If repetition is allowed, always use the full range
-        available_inds = list(range(len(turb_logs)))
+        available_inds = list(range(len(segment_logs)))
     else:
         # If no repetition, start with all indices and remove as we use them
-        available_inds = list(range(len(turb_logs)))
+        available_inds = list(range(len(segment_logs)))
         if exclude_inds is not None:
             available_inds = [ind for ind in available_inds if ind not in exclude_inds]
     
     # Add initial boundary
     picked_depths.append((0, 1))
     
-    while max_depth <= thickness:
+    while max_depth <= target_thickness:
         # Check if we have available indices
         if not repetition and len(available_inds) == 0:
             print("Warning: No more unique turbidite segments available. Stopping log generation.")
@@ -254,7 +255,7 @@ def create_synthetic_log_with_depths(thickness, turb_logs, depth_logs, exclude_i
             
         if repetition:
             # Original behavior: select from full range, excluding only exclude_inds
-            potential_inds = [ind for ind in range(len(turb_logs)) if exclude_inds is None or ind not in exclude_inds]
+            potential_inds = [ind for ind in range(len(segment_logs)) if exclude_inds is None or ind not in exclude_inds]
             if not potential_inds:
                 print("Warning: No available turbidite segments after exclusions. Stopping log generation.")
                 break
@@ -267,8 +268,8 @@ def create_synthetic_log_with_depths(thickness, turb_logs, depth_logs, exclude_i
         inds.append(ind)
         
         # Get turbidite segment from database
-        turb_segment = turb_logs[ind]
-        turb_depths = depth_logs[ind]
+        turb_segment = segment_logs[ind]
+        turb_depths = segment_depths[ind]
         
         # Ensure turbidite has proper dimensions
         if turb_segment.ndim == 1:
@@ -301,11 +302,11 @@ def create_synthetic_log_with_depths(thickness, turb_logs, depth_logs, exclude_i
         max_depth = md_log[-1]
         
         # Add picked depth at the base of this turbidite (current max_depth)
-        if max_depth <= thickness:
+        if max_depth <= target_thickness:
             picked_depths.append((max_depth, 1))
     
     # Truncate to target thickness
-    valid_indices = md_log <= thickness
+    valid_indices = md_log <= target_thickness
     if target_dimensions > 1:
         log = fake_log[valid_indices]
     else:
@@ -313,13 +314,13 @@ def create_synthetic_log_with_depths(thickness, turb_logs, depth_logs, exclude_i
     d = md_log[valid_indices]
     
     # Filter picked depths to only include those within the valid range
-    valid_picked_depths = [(depth, category) for depth, category in picked_depths if depth <= thickness]
+    valid_picked_depths = [(depth, category) for depth, category in picked_depths if depth <= target_thickness]
     
     # Ensure we have an end boundary
     if len(valid_picked_depths) == 0 or valid_picked_depths[-1][0] != d[-1]:
         valid_picked_depths.append((d[-1], 1))
     
-    return log, d, inds, valid_picked_depths
+    return log, d, valid_picked_depths, inds
 
 
 
@@ -1184,7 +1185,7 @@ def run_multi_parameter_analysis(
         print(f"✓ {quality_index} fit_params saved to: {filename}")
 
 
-def create_synthetic_core_pair(core_a_length, core_b_length, turb_logs, depth_logs, 
+def create_synthetic_core_pair(core_a_length, core_b_length, seg_logs, seg_depths, 
                                        log_columns, repetition=False, plot_results=True, save_plot=False, plot_filename=None):
     """
     Generate synthetic core pair (computation only).
@@ -1192,8 +1193,8 @@ def create_synthetic_core_pair(core_a_length, core_b_length, turb_logs, depth_lo
     Parameters:
     - core_a_length: target length for core A
     - core_b_length: target length for core B
-    - turb_logs: list of turbidite log segments
-    - depth_logs: list of corresponding depth arrays
+    - seg_logs: list of turbidite log segments
+    - seg_depths: list of corresponding depth arrays
     - log_columns: list of log column names for labeling
     - repetition: if True, allow reusing turbidite segments; if False, each segment can only be used once (default: False)
     - plot_results: whether to display the plot
@@ -1208,11 +1209,11 @@ def create_synthetic_core_pair(core_a_length, core_b_length, turb_logs, depth_lo
     # Generate synthetic logs for cores A and B
     print("Generating synthetic core pair...")
 
-    synthetic_log_a, synthetic_md_a, inds_a, synthetic_picked_a_tuples = create_synthetic_log_with_depths(
-        core_a_length, turb_logs, depth_logs, exclude_inds=None, repetition=repetition
+    synthetic_log_a, synthetic_md_a, synthetic_picked_a_tuples, inds_a = create_synthetic_log(
+        core_a_length, seg_logs, seg_depths, exclude_inds=None, repetition=repetition
     )
-    synthetic_log_b, synthetic_md_b, inds_b, synthetic_picked_b_tuples = create_synthetic_log_with_depths(
-        core_b_length, turb_logs, depth_logs, exclude_inds=None, repetition=repetition
+    synthetic_log_b, synthetic_md_b, synthetic_picked_b_tuples, inds_b = create_synthetic_log(
+        core_b_length, seg_logs, seg_depths, exclude_inds=None, repetition=repetition
     )
 
     # Extract just the depths from the tuples
@@ -1318,3 +1319,667 @@ def create_synthetic_core_pair(core_a_length, core_b_length, turb_logs, depth_lo
             synthetic_log_b, synthetic_md_b, inds_b, synthetic_picked_b)
 
 
+def plot_segment_pool(segment_logs, segment_depths, log_column_names, n_cols=8, figsize_per_row=4, 
+                     plot_segments=True, save_plot=False, plot_filename=None):
+    """
+    Plot all segments from the pool in a grid layout.
+    
+    Parameters:
+    - segment_logs: list of log data arrays (segments)
+    - segment_depths: list of depth arrays corresponding to each segment
+    - log_column_names: list of column names for labeling
+    - n_cols: number of columns in the subplot grid
+    - figsize_per_row: height per row in the figure
+    - plot_segments: whether to plot the segments (default True)
+    - save_plot: whether to save the plot to file (default False)
+    - plot_filename: filename for saving plot (optional)
+    
+    Returns:
+    - fig, axes: matplotlib figure and axes objects
+    """
+    print(f"Plotting {len(segment_logs)} segments from the pool...")
+    
+    if not plot_segments:
+        return None, None
+    
+    # Create subplot grid
+    n_segments = len(segment_logs)
+    n_rows = int(np.ceil(n_segments / n_cols))
+    
+    fig, axes = plt.subplots(n_rows, n_cols, figsize=(20, figsize_per_row * n_rows))
+    axes = axes.flatten() if n_segments > 1 else [axes]
+    
+    # Define colors for different log types
+    colors = ['blue', 'green', 'orange', 'purple', 'brown', 'pink', 'gray', 'olive', 'cyan']
+    line_styles = ['-', '-', '-', '-.', '-.', '-.', ':', ':', ':']
+    
+    for i, (segment, depth) in enumerate(zip(segment_logs, segment_depths)):
+        ax = axes[i]
+        
+        # Plot segment
+        if segment.ndim > 1:
+            # Multi-dimensional data - plot all columns
+            n_log_types = segment.shape[1]
+            
+            for col_idx in range(n_log_types):
+                color = colors[col_idx % len(colors)]
+                line_style = line_styles[col_idx % len(line_styles)]
+                
+                # Get column name for label
+                col_name = log_column_names[col_idx] if col_idx < len(log_column_names) else f'Log_{col_idx}'
+                
+                ax.plot(segment[:, col_idx], depth, 
+                       color=color, linestyle=line_style, linewidth=1, 
+                       label=col_name, alpha=0.8)
+            
+            # Set xlabel to show all log types
+            if len(log_column_names) > 1:
+                ax.set_xlabel(f'Multiple Logs: {", ".join(log_column_names[:n_log_types])} (normalized)')
+            else:
+                ax.set_xlabel(f'{log_column_names[0]} (normalized)')
+                
+            # Add legend if multiple log types
+            if n_log_types > 1:
+                ax.legend(fontsize=8, loc='best')
+                
+        else:
+            # 1D data
+            ax.plot(segment, depth, 'b-', linewidth=1)
+            ax.set_xlabel(f'{log_column_names[0]} (normalized)')
+        
+        ax.set_ylabel('Relative Depth (cm)')
+        ax.set_title(f'Segment {i+1}\n({len(segment)} pts, {depth[-1]:.1f} cm)')
+        ax.grid(True, alpha=0.3)
+        ax.invert_yaxis()  # Depth increases downward
+    
+    # Hide unused subplots
+    for i in range(n_segments, len(axes)):
+        axes[i].set_visible(False)
+    
+    plt.tight_layout()
+    
+    # Update title to reflect multiple log types if present
+    if len(log_column_names) > 1:
+        plt.suptitle(f'Turbidite Segment Pool ({len(segment_logs)} segments, {len(log_column_names)} log types)', 
+                     y=1.02, fontsize=16)
+    else:
+        plt.suptitle(f'Turbidite Segment Pool ({len(segment_logs)} segments)', y=1.02, fontsize=16)
+    
+    if save_plot and plot_filename:
+        plt.savefig(plot_filename, dpi=300, bbox_inches='tight')
+        print(f"Plot saved as: {plot_filename}")
+    
+    plt.show()
+    
+    return fig, axes
+
+
+def plot_synthetic_log(synthetic_log, synthetic_md, synthetic_picked_depths, log_column_names, 
+                      title="Synthetic Log", save_plot=False, plot_filename=None):
+    """
+    Plot a single synthetic log with turbidite boundaries.
+
+    Parameters:
+    - synthetic_log: numpy array of log values (can be 1D or 2D for multiple log types)
+    - synthetic_md: numpy array of depth values
+    - synthetic_picked_depths: list of turbidite boundary depths
+    - log_column_names: name(s) of the log column(s) for labeling (string or list)
+    - title: title for the plot (default: "Synthetic Log")
+    - save_plot: whether to save the plot to file (default: False)
+    - plot_filename: filename for saving plot (if save_plot=True)
+
+    Returns:
+    - fig, ax: matplotlib figure and axis objects
+    """
+
+    # Convert log_column_names to list if it's a string
+    if isinstance(log_column_names, str):
+        log_column_names = [log_column_names]
+
+    # Increase width for legend outside plot
+    fig, ax = plt.subplots(1, 1, figsize=(2.5, 8))
+
+    # Define colors and line styles for different log types (matching old code)
+    colors = ['blue', 'green', 'orange', 'purple', 'brown', 'pink', 'gray', 'olive']
+    line_styles = ['-', ':', '--', '-.', '-', ':', '--', '-.']
+
+    # Plot the synthetic log
+    legend_handle = None
+    if synthetic_log.ndim > 1:
+        # Multi-dimensional data - plot all columns
+        n_log_types = synthetic_log.shape[1]
+
+        for col_idx in range(n_log_types):
+            color = colors[col_idx % len(colors)]
+            line_style = line_styles[col_idx % len(line_styles)]
+
+            # Get column name for label
+            col_name = log_column_names[col_idx] if col_idx < len(log_column_names) else f'Log_{col_idx}'
+
+            ax.plot(synthetic_log[:, col_idx], synthetic_md,
+                    color=color, linestyle=line_style, linewidth=1,
+                    label=col_name, alpha=0.8)
+
+        # Add legend if multiple log types, outside the plot at best position
+        if n_log_types > 1:
+            # Shrink current axis by 20% on the right to fit the legend
+            box = ax.get_position()
+            ax.set_position([box.x0, box.y0, box.width * 0.8, box.height])
+            legend_handle = ax.legend(fontsize=8, loc='center left', bbox_to_anchor=(1.02, 0.5))
+
+        # Set xlabel to show all log types
+        if len(log_column_names) > 1:
+            ax.set_xlabel(f'Multiple Logs\n(Normalized)')
+        else:
+            ax.set_xlabel(f'{log_column_names[0]}\n(normalized)')
+    else:
+        # 1D data
+        ax.plot(synthetic_log, synthetic_md, 'b-', linewidth=1)
+        ax.set_xlabel(f'{log_column_names[0]} (normalized)')
+
+    # Add picked depths as horizontal lines
+    for depth in synthetic_picked_depths:
+        ax.axhline(y=depth, color='black', linestyle='--', alpha=0.7, linewidth=1)
+
+    ax.set_ylabel('Depth (cm)')
+    ax.set_title(title)
+    ax.grid(True, alpha=0.3)
+    ax.invert_yaxis()
+
+    plt.tight_layout()
+
+    if save_plot and plot_filename:
+        # If legend exists, pass it to savefig so it is not cut off
+        if legend_handle is not None:
+            plt.savefig(plot_filename, dpi=300, bbox_inches='tight', bbox_extra_artists=(legend_handle,))
+        else:
+            plt.savefig(plot_filename, dpi=300, bbox_inches='tight')
+        print(f"Plot saved as: {plot_filename}")
+
+    plt.show()
+
+    return fig, ax
+
+def plot_synthetic_correlation_quality(
+    input_csv, 
+    quality_indices=['corr_coef', 'norm_dtw'],
+    bin_width=None,
+    plot_individual_pdf=False,
+    save_plot=False,
+    plot_filename=None
+):
+    """
+    Plot synthetic correlation quality distributions from saved CSV files.
+    
+    This function reads fit parameters from CSV files generated by synthetic_correlation_quality
+    and creates visualization plots showing either individual PDFs from each iteration or a 
+    combined distribution.
+    
+    Parameters:
+    -----------
+    input_csv : str
+        Path to the CSV file containing fit parameters. Can include {quality_index} placeholder
+        which will be replaced for each quality index.
+        Example: 'outputs/synthetic_PDFs_hiresMS_CT_Lumin_{quality_index}.csv'
+    quality_indices : list, default=['corr_coef', 'norm_dtw']
+        List of quality indices to plot
+    bin_width : float or None, default=None
+        Bin width for histogram. If None, uses quality-specific defaults:
+        - corr_coef: 0.025
+        - norm_dtw: 0.0025
+        - others: auto-determined using Freedman-Diaconis rule
+    plot_individual_pdf : bool, default=False
+        If True, plots all individual iteration PDFs overlaid (following Cell 9 approach)
+        If False, plots combined distribution across all iterations (following Cell 10 approach)
+    save_plot : bool, default=False
+        Whether to save the plot to file
+    plot_filename : str or None, default=None
+        Filename for saving plot. Can include {quality_index} placeholder.
+        If save_plot=True but plot_filename=None, uses default naming based on plot type
+    
+    Returns:
+    --------
+    None
+        Displays and optionally saves plots
+    """
+    
+    from scipy import stats
+    
+    for targeted_quality_index in quality_indices:
+        print(f"\nPlotting distribution for {targeted_quality_index}...")
+        
+        # Replace placeholder in input_csv with actual quality index
+        input_csv_filename = input_csv.replace('{quality_index}', targeted_quality_index).replace('{targeted_quality_index}', targeted_quality_index)
+        
+        # Check if file exists
+        if not os.path.exists(input_csv_filename):
+            print(f"Error: File {input_csv_filename} does not exist. Skipping {targeted_quality_index}.")
+            continue
+        
+        # Load fit params from CSV
+        df_fit_params = pd.read_csv(input_csv_filename)
+        
+        # Reconstruct raw data for each iteration
+        all_fit_params = []
+        for _, row in df_fit_params.iterrows():
+            # Extract binned data for reconstruction
+            bins = np.fromstring(row['bins'].strip('[]'), sep=' ') if 'bins' in row and pd.notna(row['bins']) else None
+            hist_percentages = np.fromstring(row['hist'].strip('[]'), sep=' ') if 'hist' in row and pd.notna(row['hist']) else None
+            n_points = row['n_points'] if 'n_points' in row and pd.notna(row['n_points']) else None
+            
+            # Reconstruct raw data from histogram
+            raw_data = []
+            if bins is not None and hist_percentages is not None and n_points is not None:
+                # Normalize histogram to get proper proportions
+                hist_sum = np.sum(hist_percentages)
+                if hist_sum > 0:
+                    raw_counts = (hist_percentages / hist_sum) * n_points
+                else:
+                    raw_counts = np.zeros_like(hist_percentages)
+                
+                # Reconstruct data points by sampling from each bin
+                for i, count in enumerate(raw_counts):
+                    if count > 0:
+                        n_samples = int(round(count))
+                        if n_samples > 0:
+                            bin_samples = np.random.uniform(bins[i], bins[i+1], n_samples)
+                            raw_data.extend(bin_samples)
+            
+            # Store fit params with reconstructed raw data
+            fit_params = {
+                'raw_data': np.array(raw_data),
+                'bins': bins,
+                'mean': row['mean'] if 'mean' in row else None,
+                'std': row['std'] if 'std' in row else None
+            }
+            all_fit_params.append(fit_params)
+        
+        # Determine bin width
+        if bin_width is None:
+            if targeted_quality_index == 'corr_coef':
+                current_bin_width = 0.025
+            elif targeted_quality_index == 'norm_dtw':
+                current_bin_width = 0.0025
+            else:
+                # Use bin_width from first iteration as fallback
+                if len(all_fit_params) > 0 and all_fit_params[0]['bins'] is not None:
+                    first_bins = all_fit_params[0]['bins']
+                    current_bin_width = first_bins[1] - first_bins[0]
+                else:
+                    current_bin_width = 0.025  # Default fallback
+        else:
+            current_bin_width = bin_width
+        
+        if plot_individual_pdf:
+            # ===== CELL 9 APPROACH: Plot individual PDFs =====
+            
+            # Find data range across ALL iterations to create consistent bins
+            all_min = min([fp['raw_data'].min() for fp in all_fit_params if len(fp['raw_data']) > 0])
+            all_max = max([fp['raw_data'].max() for fp in all_fit_params if len(fp['raw_data']) > 0])
+            
+            # Create explicit bin edges with consistent bin width
+            bin_start = np.floor(all_min / current_bin_width) * current_bin_width
+            bin_end = np.ceil(all_max / current_bin_width) * current_bin_width
+            consistent_bins = np.arange(bin_start, bin_end + current_bin_width, current_bin_width)
+            
+            # Plot all distribution curves and histogram bars
+            fig, ax = plt.subplots(figsize=(6, 4))
+            
+            # Plot histogram bars for each iteration
+            for fit_params in all_fit_params:
+                raw_data = fit_params.get('raw_data')
+                if raw_data is not None and len(raw_data) > 0:
+                    ax.hist(raw_data, bins=consistent_bins, alpha=0.1, color='gray', 
+                            density=False, edgecolor='none',
+                            weights=np.ones(len(raw_data)) * 100 / len(raw_data))
+            
+            # Plot all PDF curves as transparent red lines
+            for fit_params in all_fit_params:
+                mean_val = fit_params.get('mean')
+                std_val = fit_params.get('std')
+                raw_data = fit_params.get('raw_data')
+                
+                if mean_val is not None and std_val is not None and raw_data is not None and len(raw_data) > 0:
+                    # Generate PDF curve with proper scaling
+                    x_min = raw_data.min()
+                    x_max = raw_data.max()
+                    x = np.linspace(x_min, x_max, 1000)
+                    # Scale PDF by bin_width * 100 to match histogram percentage scale
+                    y = stats.norm.pdf(x, mean_val, std_val) * current_bin_width * 100
+                    ax.plot(x, y, 'r-', linewidth=.7, alpha=0.3)
+            
+            # Formatting based on quality index
+            if targeted_quality_index == 'corr_coef':
+                ax.set_xlabel("Pearson's r\n(Correlation Coefficient)")
+                ax.set_xlim(0, 1.0)
+            elif targeted_quality_index == 'norm_dtw':
+                ax.set_xlabel("Normalized DTW Distance")
+            elif targeted_quality_index == 'dtw_ratio':
+                ax.set_xlabel("DTW Ratio")
+            elif targeted_quality_index == 'perc_diag':
+                ax.set_xlabel("Percentage Diagonal (%)")
+            
+            ax.set_ylabel('Percentage (%)')
+            ax.set_title(f'Synthetic Core {targeted_quality_index.replace("_", " ").title()}: {len(all_fit_params)} Iterations\n[Optimal (shortest path) search; no age consideration)]')
+            ax.grid(True, alpha=0.3)
+            
+            plt.tight_layout()
+            
+            if save_plot:
+                if plot_filename:
+                    output_filename = plot_filename.replace('{quality_index}', targeted_quality_index).replace('{targeted_quality_index}', targeted_quality_index)
+                else:
+                    output_filename = f'synthetic_iterations_{targeted_quality_index}.png'
+                plt.savefig(output_filename, dpi=150, bbox_inches='tight')
+                print(f"Saved plot to {output_filename}")
+            
+            plt.show()
+            
+        else:
+            # ===== CELL 10 APPROACH: Combined distribution =====
+            
+            # Initialize lists to collect all raw data points
+            all_raw_data = []
+            
+            # Process each iteration to reconstruct raw data from binned data
+            for fit_params in all_fit_params:
+                raw_data = fit_params.get('raw_data')
+                if raw_data is not None and len(raw_data) > 0:
+                    all_raw_data.extend(raw_data)
+            
+            # Convert to numpy array
+            combined_data = np.array(all_raw_data)
+            
+            print(f"Combined {len(combined_data)} data points from {len(df_fit_params)} iterations")
+            
+            # Calculate combined statistics
+            combined_mean = np.mean(combined_data)
+            combined_std = np.std(combined_data)
+            combined_median = np.median(combined_data)
+            
+            # Determine bin width for combined data
+            if bin_width is None:
+                if targeted_quality_index == 'corr_coef':
+                    final_bin_width = 0.025
+                elif targeted_quality_index == 'norm_dtw':
+                    final_bin_width = 0.0025
+                else:
+                    # Automatically determine bin width using Freedman-Diaconis rule
+                    data_range = combined_data.max() - combined_data.min()
+                    if data_range > 0:
+                        if len(combined_data) > 1:
+                            q75, q25 = np.percentile(combined_data, [75, 25])
+                            iqr = q75 - q25
+                            if iqr > 0:
+                                final_bin_width = 2 * iqr / (len(combined_data) ** (1/3))
+                            else:
+                                # Fallback to simple rule if IQR is 0
+                                final_bin_width = data_range / max(10, min(int(np.sqrt(len(combined_data))), 100))
+                        else:
+                            final_bin_width = 0.1  # Default for single value
+                    else:
+                        final_bin_width = 0.1  # Default for zero range
+            else:
+                final_bin_width = bin_width
+            
+            # Calculate number of bins based on bin_width
+            data_range = combined_data.max() - combined_data.min()
+            if data_range > 0 and final_bin_width > 0:
+                n_bins = max(1, int(np.ceil(data_range / final_bin_width)))
+                # Constrain to reasonable range
+                n_bins = max(10, min(n_bins, 200))
+            else:
+                n_bins = 10  # Default fallback
+            
+            # Create new histogram from combined data as PERCENTAGES
+            hist_combined, bins_combined = np.histogram(combined_data, bins=n_bins, density=False)
+            # Convert counts to percentages
+            hist_percentages = (hist_combined / len(combined_data)) * 100
+            actual_bin_width = bins_combined[1] - bins_combined[0]
+            
+            # Fit normal distribution to combined data
+            fitted_mean, fitted_std = stats.norm.fit(combined_data)
+            
+            # Generate fitted curve and scale to percentage
+            x_fitted = np.linspace(combined_data.min(), combined_data.max(), 1000)
+            # PDF must be scaled by: actual_bin_width * 100 (to convert density to percentage per bin)
+            y_fitted = stats.norm.pdf(x_fitted, fitted_mean, fitted_std) * actual_bin_width * 100
+            
+            # Verify histogram normalization
+            total_percentage = np.sum(hist_percentages)
+            print(f"Histogram total percentage: {total_percentage:.2f}% (should be 100%)")
+            print(f"Number of bins used: {n_bins}, Bin width: {actual_bin_width:.6f}")
+            
+            # Verify PDF curve integration
+            dx = x_fitted[1] - x_fitted[0]
+            pdf_area = np.trapz(y_fitted, dx=dx)
+            print(f"PDF curve area: {pdf_area:.2f}% (should be ~100%)")
+            
+            # Create the plot
+            fig, ax = plt.subplots(figsize=(6, 4))
+            
+            # Plot combined histogram in gray bars as PERCENTAGES
+            ax.hist(combined_data, bins=n_bins, alpha=0.5, color='gray', density=False, 
+                    weights=np.ones(len(combined_data)) * 100 / len(combined_data), 
+                    label=f'Combined Data (n = {len(combined_data):,})')
+            
+            # Plot fitted normal curve as red line
+            ax.plot(x_fitted, y_fitted, 'r-', linewidth=2, alpha=0.8,
+                    label=f'Normal Fit (μ={fitted_mean:.3f}, σ={fitted_std:.3f})')
+            
+            # Formatting based on quality index
+            if targeted_quality_index == 'corr_coef':
+                ax.set_xlabel("Pearson's r\n(Correlation Coefficient)")
+                ax.set_xlim(0, 1.0)
+            elif targeted_quality_index == 'norm_dtw':
+                ax.set_xlabel("Normalized DTW Distance")
+            elif targeted_quality_index == 'dtw_ratio':
+                ax.set_xlabel("DTW Ratio")
+            elif targeted_quality_index == 'perc_diag':
+                ax.set_xlabel("Percentage Diagonal (%)")
+            
+            ax.set_ylabel('Percentage (%)')
+            ax.set_title(f'Combined {targeted_quality_index.replace("_", " ").title()} Distribution from All {len(df_fit_params)} Iterations\n[Synthetic Core Analysis - Null Hypothesis]')
+            ax.grid(True, alpha=0.3)
+            ax.legend()
+            
+            plt.tight_layout()
+            
+            if save_plot:
+                if plot_filename:
+                    output_filename = plot_filename.replace('{quality_index}', targeted_quality_index).replace('{targeted_quality_index}', targeted_quality_index)
+                else:
+                    output_filename = f'combined_synthetic_distribution_{targeted_quality_index}.png'
+                plt.savefig(output_filename, dpi=150, bbox_inches='tight')
+                print(f"Saved plot to {output_filename}")
+            
+            plt.show()
+            
+            # Print comprehensive summary
+            print(f"\nCombined Distribution Summary for {targeted_quality_index}:")
+            print(f"{'='*50}")
+            print(f"Total data points: {len(combined_data):,}")
+            print(f"Number of iterations combined: {len(df_fit_params)}")
+            print(f"Combined Mean: {combined_mean:.4f}")
+            print(f"Combined Median: {combined_median:.4f}")
+            print(f"Combined Std Dev: {combined_std:.4f}")
+            print(f"Data Range: {combined_data.min():.4f} to {combined_data.max():.4f}")
+            print(f"\nFitted Normal Distribution:")
+            print(f"Fitted Mean (μ): {fitted_mean:.4f}")
+            print(f"Fitted Std Dev (σ): {fitted_std:.4f}")
+            
+            # Calculate percentiles
+            percentiles = [5, 25, 50, 75, 95]
+            pct_values = np.percentile(combined_data, percentiles)
+            print(f"\nPercentiles:")
+            for pct, val in zip(percentiles, pct_values):
+                print(f"{pct}th percentile: {val:.4f}")
+
+
+def synthetic_correlation_quality(
+    mod_seg_logs, 
+    mod_seg_depths, 
+    log_column_names, 
+    quality_indices=['corr_coef', 'norm_dtw'], 
+    number_of_iterations=20, 
+    core_a_length=600, 
+    core_b_length=600,
+    repetition=False, 
+    pca_for_dependent_dtw=False, 
+    output_csv_dir=None,
+    mute_mode=True
+):
+    """
+    This function generates results of DTW correlation quality measurement analysis for synthetic core pairs with multiple iterations. 
+    It saves distribution parameters for each correlation quality metric across all iterations.
+    
+    Parameters:
+    - mod_seg_logs: list of turbidite log segments
+    - mod_seg_depths: list of turbidite depth segments  
+    - log_column_names: list of log column names
+    - quality_indices: list of quality indices to analyze (default: ['corr_coef', 'norm_dtw'])
+    - number_of_iterations: number of synthetic pairs to generate (default: 20)
+    - core_a_length: target length for synthetic core A in cm (default: 600)
+    - core_b_length: target length for synthetic core B in cm (default: 600)
+    - repetition: allow reselecting turbidite segments (default: False)
+    - pca_for_dependent_dtw: use PCA for dependent DTW analysis (default: False)
+    - output_csv_dir: directory path for output CSV files (default: None)
+                      If None, saves files in current directory. If provided, creates directory and saves files there.
+                      Files will be saved as 'synthetic_PDFs_{log_columns}_{quality_index}.csv'
+    - mute_mode: suppress detailed output messages (default: True)
+    
+    Returns:
+    - dict: mapping quality indices to their output CSV filenames
+    """
+    
+    # Import here to avoid circular imports
+    from ..utils.plotting import plot_correlation_distribution
+    
+    # Create output directory if specified
+    if output_csv_dir:
+        os.makedirs(output_csv_dir, exist_ok=True)
+    
+    # Prepare output filenames
+    output_files = {}
+    for targeted_quality_index in quality_indices:
+        # Construct filename
+        filename = f'synthetic_PDFs_{"_".join(log_column_names)}_{targeted_quality_index}.csv'
+        if output_csv_dir:
+            output_files[targeted_quality_index] = os.path.join(output_csv_dir, filename)
+        else:
+            output_files[targeted_quality_index] = filename
+    
+    # Define temp CSV path
+    temp_filename = f'temp_synthetic_{"_".join(log_column_names)}_core_pair_metrics.csv'
+    if output_csv_dir:
+        temp_csv = os.path.join(output_csv_dir, temp_filename)
+    else:
+        temp_csv = temp_filename
+    
+    print(f"Starting synthetic correlation analysis with {number_of_iterations} iterations...")
+    print(f"Quality indices: {quality_indices}")
+    print(f"Core lengths: A={core_a_length}cm, B={core_b_length}cm")
+    
+    # Run iterations with progress bar
+    for iteration in tqdm(range(number_of_iterations), desc="Running synthetic analysis"):
+        
+        # Generate synthetic core pair
+        syn_log_a, syn_md_a, syn_pickeddepths_a, inds_a = create_synthetic_log(
+            target_thickness=core_a_length, 
+            segment_logs=mod_seg_logs, 
+            segment_depths=mod_seg_depths, 
+            exclude_inds=None, 
+            repetition=repetition
+        )
+        syn_log_b, syn_md_b, syn_pickeddepths_b, inds_b = create_synthetic_log(
+            target_thickness=core_b_length, 
+            segment_logs=mod_seg_logs, 
+            segment_depths=mod_seg_depths, 
+            exclude_inds=None, 
+            repetition=repetition
+        )
+        
+        # Extract depths from tuples
+        syn_picked_a = [depth for depth, category in syn_pickeddepths_a]
+        syn_picked_b = [depth for depth, category in syn_pickeddepths_b]
+        
+        # Run DTW analysis
+        dtw_results, valid_dtw_pairs, segments_a, segments_b, _, _, dtw_distance_matrix_full = run_comprehensive_dtw_analysis(
+            syn_log_a, syn_log_b, syn_md_a, syn_md_b,
+            picked_depths_a=syn_picked_a,
+            picked_depths_b=syn_picked_b,
+            independent_dtw=False,
+            pca_for_dependent_dtw=pca_for_dependent_dtw,
+            top_bottom=False,
+            mute_mode=mute_mode
+        )
+        
+        # Find complete core paths
+        _ = find_complete_core_paths(
+            valid_dtw_pairs,
+            segments_a, 
+            segments_b, 
+            syn_log_a, 
+            syn_log_b,
+            syn_picked_a, 
+            syn_picked_b,
+            dtw_results,
+            dtw_distance_matrix_full,
+            output_csv=temp_csv,
+            output_metric_only=True,
+            shortest_path_search=True,
+            shortest_path_level=2,
+            max_search_path=100000,
+            mute_mode=mute_mode,
+            pca_for_dependent_dtw=pca_for_dependent_dtw
+        )
+        
+        # Iterate through each quality index to extract fit_params
+        for targeted_quality_index in quality_indices:
+            
+            output_csv_filename = output_files[targeted_quality_index]
+
+            # Plot correlation distribution to get fit_params only
+            _, _, fit_params = plot_correlation_distribution(
+                csv_file=temp_csv,
+                quality_index=targeted_quality_index,
+                save_png=False,
+                pdf_method='normal',
+                kde_bandwidth=0.05,
+                mute_mode=mute_mode
+            )
+            
+            # Store fit_params with iteration number and incrementally save to CSV
+            if fit_params is not None:
+                fit_params_copy = fit_params.copy()
+                fit_params_copy['iteration'] = iteration
+                
+                # Incrementally save to CSV
+                df_single = pd.DataFrame([fit_params_copy])
+                if iteration == 0:
+                    # Write header for first iteration
+                    df_single.to_csv(output_csv_filename, mode='w', index=False, header=True)
+                else:
+                    # Append subsequent iterations without header
+                    df_single.to_csv(output_csv_filename, mode='a', index=False, header=False)
+                
+                del df_single, fit_params_copy
+            
+            del fit_params
+        
+        # Clear memory after each iteration
+        del syn_log_a, syn_md_a, inds_a, syn_pickeddepths_a
+        del syn_log_b, syn_md_b, inds_b, syn_pickeddepths_b
+        del syn_picked_a, syn_picked_b
+        del dtw_results, valid_dtw_pairs, segments_a, segments_b
+        
+        gc.collect()
+
+    # Remove temporary CSV file after all iterations are complete
+    if os.path.exists(temp_csv):
+        os.remove(temp_csv)
+
+    print(f"\nCompleted {number_of_iterations} iterations for all quality indices: {quality_indices}")
+    
+    for targeted_quality_index in quality_indices:
+        print(f"Distribution parameters for {targeted_quality_index} saved to: {output_files[targeted_quality_index]}")

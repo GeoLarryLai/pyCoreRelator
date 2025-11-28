@@ -2,6 +2,7 @@
 Data loading functions for pyCoreRelator.
 
 Included Functions:
+- load_core_log_data: Load log data from CSV files and create visualization
 - load_log_data: Load log data from CSV files and resample to common depth scale
 - resample_datasets: Resample multiple datasets to a common depth scale
 - load_age_constraints_from_csv: Load age constraints from a single CSV file
@@ -17,23 +18,27 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import os
+import csv
 from scipy import stats
 
 
 def load_log_data(log_paths, img_paths=None, log_columns=None, depth_column='SB_DEPTH_cm', normalize=True, column_alternatives=None):
     """
-    Load log data and images for a core.
+    Load log data and images for a core with support for both file paths and directories.
     
     This function loads multiple log datasets from CSV files, resamples them to a common
     depth scale, and optionally loads RGB and CT images. It supports alternative column
-    names and automatic data normalization.
+    names, automatic data normalization, and can load images from both direct file paths
+    and directory structures (loading the first valid image file found).
     
     Parameters
     ----------
     log_paths : dict
         Dictionary mapping log names to file paths
     img_paths : dict, optional
-        Dictionary mapping image types ('rgb', 'ct') to file paths
+        Dictionary mapping image types ('rgb', 'ct') to file paths or directories.
+        If a directory is provided, the function will load the first valid image file found.
+        Supports common image formats: .jpg, .jpeg, .png, .tiff, .tif, .bmp
     log_columns : list of str
         List of log column names to load from the CSV files
     depth_column : str, default='SB_DEPTH_cm'
@@ -60,7 +65,7 @@ def load_log_data(log_paths, img_paths=None, log_columns=None, depth_column='SB_
     Example
     -------
     >>> log_paths = {'MS': 'data/core1_ms.csv', 'Lumin': 'data/core1_lumin.csv'}
-    >>> img_paths = {'rgb': 'data/core1_rgb.jpg', 'ct': 'data/core1_ct.jpg'}
+    >>> img_paths = {'rgb': 'data/rgb_images/', 'ct': 'data/ct_images/CT.tiff'}
     >>> log_columns = ['MS', 'Lumin']
     >>> log, md, cols, rgb_img, ct_img = load_log_data(log_paths, img_paths, log_columns)
     """
@@ -81,19 +86,56 @@ def load_log_data(log_paths, img_paths=None, log_columns=None, depth_column='SB_
     ct_img = None
     
     if img_paths is not None:
-        if 'rgb' in img_paths:
-            try:
-                rgb_img = plt.imread(img_paths['rgb'])
-                print(f"Loaded RGB image")
-            except Exception as e:
-                print(f"RGB image not available: {e}")
+        # Helper function to load image from path or directory
+        def load_image_from_path(path, img_type):
+            """Load image from file path or directory."""
+            if path is None:
+                return None
+            
+            # Check if path is a directory
+            if os.path.isdir(path):
+                # Define supported image extensions
+                image_extensions = ('.jpg', '.jpeg', '.png', '.tiff', '.tif', '.bmp')
+                
+                # Get list of files in directory
+                try:
+                    files = sorted([f for f in os.listdir(path) if os.path.isfile(os.path.join(path, f))])
+                    
+                    # Find first image file with supported extension
+                    for file in files:
+                        if file.lower().endswith(image_extensions):
+                            img_path = os.path.join(path, file)
+                            try:
+                                img = plt.imread(img_path)
+                                print(f"Loaded {img_type.upper()} image from directory: {file}")
+                                return img
+                            except Exception as e:
+                                print(f"Warning: Could not load {file}: {e}")
+                                continue
+                    
+                    print(f"Warning: No valid image files found in directory {path}")
+                    return None
+                    
+                except Exception as e:
+                    print(f"Warning: Could not read directory {path}: {e}")
+                    return None
+            else:
+                # Try to load as a file path
+                try:
+                    img = plt.imread(path)
+                    print(f"Loaded {img_type.upper()} image from file")
+                    return img
+                except Exception as e:
+                    print(f"Warning: {img_type.upper()} image not available: {e}")
+                    return None
         
+        # Load RGB image
+        if 'rgb' in img_paths:
+            rgb_img = load_image_from_path(img_paths['rgb'], 'rgb')
+        
+        # Load CT image
         if 'ct' in img_paths:
-            try:
-                ct_img = plt.imread(img_paths['ct'])
-                print(f"Loaded CT image")
-            except Exception as e:
-                print(f"CT image not available: {e}")
+            ct_img = load_image_from_path(img_paths['ct'], 'ct')
     
     # Process each log column
     for log_column in log_columns:
@@ -863,5 +905,202 @@ def load_sequential_mappings(csv_path):
                     continue
     
     return mappings
+
+
+def load_core_log_data(log_paths, core_name, log_columns=None, depth_column='SB_DEPTH_cm',
+                       normalize=True, column_alternatives=None,
+                       core_img_1=None, core_img_2=None, figsize=(20, 4),
+                       picked_datum=None, categories=None,
+                       show_bed_number=False, cluster_data=None,
+                       core_img_1_cmap_range=None, core_img_2_cmap_range=None,
+                       show_fig=True):
+    """
+    Load core log data from CSV files and plot with optional core images and picked depths.
+    
+    This function loads multiple log datasets from CSV files, optionally loads picked depths
+    from a CSV file, resamples them to a common depth scale, normalizes the data, and creates
+    a comprehensive plot with optional core images and category visualization.
+    
+    Parameters
+    ----------
+    log_paths : dict
+        Dictionary mapping log names to file paths
+    core_name : str
+        Core name for plot title and identification
+    log_columns : list of str, optional
+        List of log column names to load from the CSV files. If None, uses all keys from log_paths
+    depth_column : str, default='SB_DEPTH_cm'
+        Name of the depth column in the CSV files
+    normalize : bool, default=True
+        Whether to normalize each log to the range [0, 1]
+    column_alternatives : dict, optional
+        Dictionary mapping log column names to lists of alternative column names
+        to try if the primary column name is not found
+    core_img_1 : str or array_like, optional
+        First core image to display. Can be either:
+        - str: Path to image file (will be loaded with plt.imread)
+        - array_like: Pre-loaded image array
+        If None, image will not be displayed
+    core_img_2 : str or array_like, optional
+        Second core image to display. Can be either:
+        - str: Path to image file (will be loaded with plt.imread)
+        - array_like: Pre-loaded image array
+        If None, image will not be displayed
+    figsize : tuple, default=(20, 4)
+        Figure size tuple (width, height)
+    picked_datum : str, optional
+        Path to CSV file containing picked depths. If provided, loads picked depths
+        with columns 'picked_depths_cm', 'category', and optionally 'interpreted_bed'
+    categories : int, list, tuple, or set, optional
+        Category or categories to filter and display. Can be:
+        - int: Single category (e.g., 1)
+        - list/tuple/set: Multiple categories (e.g., [1, 2, 3])
+        - None: Load and display all categories
+    show_bed_number : bool, default=False
+        If True, displays bed numbers next to category depth lines
+    cluster_data : dict, optional
+        Dictionary containing cluster data with keys: 'depth_vals', 'labels_vals', 'k'
+    core_img_1_cmap_range : tuple, optional
+        Color map range for first core image in format (min_value, max_value)
+    core_img_2_cmap_range : tuple, optional
+        Color map range for second core image in format (min_value, max_value)
+    show_fig : bool, default=True
+        If True, displays the figure. If False, closes the figure without displaying
+    
+    Returns
+    -------
+    log : numpy.ndarray
+        Log data with shape (n_samples, n_logs) for multiple logs or (n_samples,) for single log
+    md : numpy.ndarray
+        Measured depths array
+    picked_depths : list
+        List of picked depth values (empty list if no picked_datum provided)
+    interpreted_bed : list
+        List of interpreted bed names corresponding to picked_depths (empty list if not available)
+    
+    Example
+    -------
+    >>> log, md, picked_depths, interpreted_bed = load_core_log_data(
+    ...     log_paths={'MS': 'data/ms.csv', 'Lumin': 'data/lumin.csv'},
+    ...     core_name="M9907-25PC",
+    ...     log_columns=['MS', 'Lumin'],
+    ...     core_img_1='data/rgb_image.png',
+    ...     core_img_2='data/ct_image.png',
+    ...     picked_datum='pickeddepth/M9907-25PC_pickeddepth.csv',
+    ...     categories=[1],
+    ...     show_fig=True
+    ... )
+    """
+    # If log_columns not provided, use all keys from log_paths
+    if log_columns is None:
+        log_columns = list(log_paths.keys())
+    
+    # Load log data using load_log_data function (without img_paths)
+    log, md, available_columns, _, _ = load_log_data(
+        log_paths=log_paths,
+        img_paths=None,
+        log_columns=log_columns,
+        depth_column=depth_column,
+        normalize=normalize,
+        column_alternatives=column_alternatives
+    )
+    
+    # Check if data was successfully loaded
+    if len(md) == 0:
+        print("Warning: No data was loaded. Returning empty arrays.")
+        return np.array([]), np.array([]), [], []
+    
+    # Load picked depths from CSV if provided
+    picked_depths = []
+    picked_categories = []
+    interpreted_bed = []
+    
+    if picked_datum is not None and os.path.exists(picked_datum):
+        df = pd.read_csv(picked_datum)
+        
+        # Filter by categories if specified
+        if categories is not None:
+            if isinstance(categories, (list, tuple, set)):
+                df = df[df['category'].isin(categories)]
+            else:
+                df = df[df['category'] == categories]
+        
+        print(f"Loaded {len(df)} picked depths from {core_name}"
+              + (f" (categories: {categories})" if categories is not None else ""))
+        
+        picked_depths = df['picked_depths_cm'].tolist() if 'picked_depths_cm' in df else []
+        picked_categories = df['category'].tolist() if 'category' in df else []
+        interpreted_bed = df['interpreted_bed'].fillna('').tolist() if 'interpreted_bed' in df else [''] * len(df)
+    elif picked_datum is not None:
+        print(f"Warning: {picked_datum} not found.")
+    
+    # Load images from file paths if strings are provided
+    if isinstance(core_img_1, str):
+        try:
+            core_img_1 = plt.imread(core_img_1)
+        except Exception as e:
+            print(f"Warning: Could not load core image 1: {e}")
+            core_img_1 = None
+    
+    if isinstance(core_img_2, str):
+        try:
+            core_img_2 = plt.imread(core_img_2)
+        except Exception as e:
+            print(f"Warning: Could not load core image 2: {e}")
+            core_img_2 = None
+    
+    # Determine if multilog based on log shape
+    is_multilog = log.ndim > 1 and log.shape[1] > 1
+    
+    # Import datum_picker's function which has simple plotting
+    from ..preprocessing.datum_picker import create_interactive_figure
+    
+    # Create simple visualization using datum_picker's function
+    fig, ax = create_interactive_figure(
+        md=md,
+        log=log,
+        core_img_1=core_img_1,
+        core_img_2=core_img_2,
+        miny=0,
+        maxy=1,
+        available_logs=available_columns
+    )
+    
+    # Add title
+    fig.suptitle(core_name, fontsize=16, y=1.02)
+    
+    # Add picked depths if loaded
+    if picked_depths and picked_categories:
+        # Define category colors
+        category_colors = {
+            1: 'red',
+            2: 'blue',
+            3: 'green',
+            4: 'purple',
+            5: 'orange',
+            6: 'cyan',
+            7: 'magenta',
+            8: 'yellow',
+            9: 'black'
+        }
+        
+        # Fixed uncertainty for visualization
+        uncertainty = 1.0
+        
+        # Add colored uncertainty shading and boundaries
+        for depth, category in zip(picked_depths, picked_categories):
+            color = category_colors.get(category, 'red')
+            ax.axvspan(depth - uncertainty, depth + uncertainty, color=color, alpha=0.1)
+            ax.axvline(x=depth, color=color, linestyle='--', linewidth=0.8)
+    
+    plt.tight_layout()
+    
+    # Show or close the figure based on show_fig parameter
+    if show_fig:
+        plt.show()
+    else:
+        plt.close(fig)
+    
+    return log, md, picked_depths, interpreted_bed
 
 

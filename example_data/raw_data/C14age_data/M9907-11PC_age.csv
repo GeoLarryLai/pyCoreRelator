@@ -1,0 +1,2 @@
+sample,interpreted_bed,cruise,core,location,corrams_agebp,corrams_Error,calib502_agebp,calib502_2sigma_pos,calib502_2sigma_neg,calib502_maxbp,calib502_minbp,mindepth_cm,maxdepth_cm,in_sequence,calib810_agebp,calib810_2sigma_pos,calib810_2sigma_neg,calib810_maxbp,calib810_minbp
+121,T19,M9907,11PC,Juan de Fuca,10405,45,10994,10766,11143,149,228,201.7092575,203.7092575,TRUE,11142,257,337,11399,10805

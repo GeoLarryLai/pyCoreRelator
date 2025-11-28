@@ -54,8 +54,11 @@ from .age_models import (
 from .syn_strat import (
     load_segment_pool,
     modify_segment_pool,
-    create_synthetic_log_with_depths,
+    create_synthetic_log,
     create_synthetic_core_pair,
+    plot_synthetic_log,
+    synthetic_correlation_quality,
+    plot_synthetic_correlation_quality,
     generate_constraint_subsets,
     run_multi_parameter_analysis
 )
@@ -92,12 +95,14 @@ __all__ = [
     # Synthetic stratigraphy
     'load_segment_pool',
     'modify_segment_pool',
-    'create_synthetic_log_with_depths',
+    'create_synthetic_log',
     'create_synthetic_core_pair',
+    'plot_segment_pool',
+    'plot_synthetic_log',
+    'synthetic_correlation_quality',
+    'plot_synthetic_correlation_quality',
     'generate_constraint_subsets',
     'run_multi_parameter_analysis',
-    # Synthetic stratigraphy plotting
-    'plot_segment_pool',
     'create_and_plot_synthetic_core_pair'
 ]
 
