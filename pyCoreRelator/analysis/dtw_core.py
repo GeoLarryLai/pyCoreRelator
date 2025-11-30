@@ -786,7 +786,7 @@ def custom_dtw(log1, log2, subseq=False, exponent=1, QualityIndex=False, indepen
     else:
         return D, wp
 
-def run_comprehensive_dtw_analysis(log_a, log_b, md_a, md_b, picked_depths_a=None, picked_depths_b=None, 
+def run_comprehensive_dtw_analysis(log_a, log_b, md_a, md_b, picked_datum_a=None, picked_datum_b=None, 
                               top_bottom=True, top_depth=0.0,
                               independent_dtw=False, 
                               create_dtw_matrix=False,
@@ -794,22 +794,18 @@ def run_comprehensive_dtw_analysis(log_a, log_b, md_a, md_b, picked_depths_a=Non
                               visualize_segment_labels=False,
                               dtwmatrix_output_filename='SegmentPair_DTW_matrix.png',
                               creategif=False, 
-                              gif_output_filename='SegmentPair_DTW_animation.gif', max_frames=150, 
-                              debug=False, color_interval_size=None,
+                              gif_output_filename='SegmentPair_DTW_animation.gif', max_frames=100, 
+                              debug=False, color_interval_size=10,
                               keep_frames=True, age_consideration=False, ages_a=None, ages_b=None,
                               restricted_age_correlation=True, 
-                              all_constraint_ages_a=None, all_constraint_ages_b=None,
-                              all_constraint_depths_a=None, all_constraint_depths_b=None,
-                              all_constraint_pos_errors_a=None, all_constraint_pos_errors_b=None,
-                              all_constraint_neg_errors_a=None, all_constraint_neg_errors_b=None,
+                              core_a_age_data=None, core_b_age_data=None,
                               dtw_distance_threshold=None,
                               exclude_deadend=True,
-                              age_constraint_a_source_cores=None,
-                              age_constraint_b_source_cores=None,
                               core_a_name=None,
                               core_b_name=None,
                               mute_mode=False,
-                              pca_for_dependent_dtw=False):
+                              pca_for_dependent_dtw=False,
+                              dpi=None):
     """
     Run comprehensive DTW analysis with integrated age correlation functionality.
     
@@ -828,9 +824,9 @@ def run_comprehensive_dtw_analysis(log_a, log_b, md_a, md_b, picked_depths_a=Non
         Measured depth values for log_a
     md_b : array-like
         Measured depth values for log_b
-    picked_depths_a : list, optional
+    picked_datum_a : list, optional
         Specific depths to analyze in log_a
-    picked_depths_b : list, optional
+    picked_datum_b : list, optional
         Specific depths to analyze in log_b
     top_bottom : bool, default=True
         If True, include top and bottom boundaries in analysis
@@ -850,7 +846,7 @@ def run_comprehensive_dtw_analysis(log_a, log_b, md_a, md_b, picked_depths_a=Non
         If True, create animated GIF of segment correlations
     gif_output_filename : str, default='SegmentPair_DTW_animation.gif'
         Filename for animation output
-    max_frames : int, default=150
+    max_frames : int, default=100
         Maximum number of frames in animation
     debug : bool, default=False
         If True, enable debug output
@@ -866,30 +862,18 @@ def run_comprehensive_dtw_analysis(log_a, log_b, md_a, md_b, picked_depths_a=Non
         Age data for log_b with keys: 'depths', 'ages', 'pos_uncertainties', 'neg_uncertainties'
     restricted_age_correlation : bool, default=True
         If True, use strict age overlap requirements
-    all_constraint_ages_a : list, optional
-        All age constraint values for log_a
-    all_constraint_ages_b : list, optional
-        All age constraint values for log_b
-    all_constraint_depths_a : list, optional
-        All constraint depths for log_a
-    all_constraint_depths_b : list, optional
-        All constraint depths for log_b
-    all_constraint_pos_errors_a : list, optional
-        Positive age uncertainties for log_a constraints
-    all_constraint_pos_errors_b : list, optional
-        Positive age uncertainties for log_b constraints
-    all_constraint_neg_errors_a : list, optional
-        Negative age uncertainties for log_a constraints
-    all_constraint_neg_errors_b : list, optional
-        Negative age uncertainties for log_b constraints
+    core_a_age_data : dict, optional
+        Complete age constraint data for core A from load_core_age_constraints(). Expected keys: 
+        'in_sequence_ages', 'in_sequence_depths', 'in_sequence_pos_errors', 'in_sequence_neg_errors', 'core'
+        Not required if age_consideration is False
+    core_b_age_data : dict, optional
+        Complete age constraint data for core B from load_core_age_constraints(). Expected keys: 
+        'in_sequence_ages', 'in_sequence_depths', 'in_sequence_pos_errors', 'in_sequence_neg_errors', 'core'
+        Not required if age_consideration is False
     dtw_distance_threshold : float, optional
         Maximum allowed DTW distance for segment acceptance
     exclude_deadend : bool, default=True
         If True, filter out dead-end segment pairs
-    age_constraint_a_source_cores : list, optional
-        Source core names for age constraints in log_a
-    age_constraint_b_source_cores : list, optional
-        Source core names for age constraints in log_b
     core_a_name : str, optional
         Name of first core for labeling
     core_b_name : str, optional
@@ -902,12 +886,11 @@ def run_comprehensive_dtw_analysis(log_a, log_b, md_a, md_b, picked_depths_a=Non
     
     Returns
     -------
-    tuple
-        (final_dtw_results, valid_dtw_pairs, segments_a, segments_b, 
-         depth_boundaries_a, depth_boundaries_b, dtw_distance_matrix_full)
+    dict
+        Dictionary containing all DTW analysis results with the following keys:
         
-        - final_dtw_results : dict
-            DTW results for valid segment pairs
+        - dtw_correlation : dict
+            DTW results for valid segment pairs (renamed from dtw_results)
         - valid_dtw_pairs : set
             Set of valid segment pair indices
         - segments_a : list
@@ -924,17 +907,22 @@ def run_comprehensive_dtw_analysis(log_a, log_b, md_a, md_b, picked_depths_a=Non
     Examples
     --------
     >>> import numpy as np
+    >>> from pyCoreRelator.utils import load_core_age_constraints
     >>> log_a = np.random.randn(100)
     >>> log_b = np.random.randn(120)
     >>> md_a = np.arange(100)
     >>> md_b = np.arange(120)
-    >>> results = run_comprehensive_dtw_analysis(
+    >>> age_data_a = load_core_age_constraints('CoreA', 'path/to/age_data')
+    >>> age_data_b = load_core_age_constraints('CoreB', 'path/to/age_data')
+    >>> dtw_result = run_comprehensive_dtw_analysis(
     ...     log_a, log_b, md_a, md_b,
-    ...     picked_depths_a=[20, 50, 80],
-    ...     picked_depths_b=[25, 60, 95]
+    ...     picked_datum_a=[20, 50, 80],
+    ...     picked_datum_b=[25, 60, 95],
+    ...     age_consideration=True,
+    ...     core_a_age_data=age_data_a,
+    ...     core_b_age_data=age_data_b
     ... )
-    >>> dtw_results, valid_pairs, segments_a, segments_b, bounds_a, bounds_b, matrix = results
-    >>> print(f"Found {len(valid_pairs)} valid segment pairs")
+    >>> print(f"Found {len(dtw_result['valid_dtw_pairs'])} valid segment pairs")
     Found 3 valid segment pairs
     """
     
@@ -944,7 +932,7 @@ def run_comprehensive_dtw_analysis(log_a, log_b, md_a, md_b, picked_depths_a=Non
     # Find all segments
     segments_a, segments_b, depth_boundaries_a, depth_boundaries_b, dated_picked_depths_a, dated_picked_depths_b = find_all_segments(
         log_a, log_b, md_a, md_b, 
-        picked_depths_a, picked_depths_b,
+        picked_datum_a, picked_datum_b,
         top_bottom=top_bottom, 
         top_depth=top_depth,
         mute_mode=mute_mode
@@ -964,18 +952,52 @@ def run_comprehensive_dtw_analysis(log_a, log_b, md_a, md_b, picked_depths_a=Non
             if key not in ages_a or not ages_a[key] or key not in ages_b or not ages_b[key]:
                 raise ValueError(f"Missing or empty required key '{key}' in ages_a or ages_b")
         
-        # Check if depths match picked_depths
-        if (picked_depths_a is not None and len(dated_picked_depths_a) != len(ages_a['depths'])) or \
-           (picked_depths_b is not None and len(dated_picked_depths_b) != len(ages_b['depths'])):
+        # Check if depths match picked_datum
+        if (picked_datum_a is not None and len(dated_picked_depths_a) != len(ages_a['depths'])) or \
+           (picked_datum_b is not None and len(dated_picked_depths_b) != len(ages_b['depths'])):
             raise ValueError("The number of depths in ages_a/ages_b must match the number of dated picked depths")
         
-        # Check if constraint data is provided when flexible age correlation is enabled
+        # Extract age constraint data from core_a_age_data and core_b_age_data
+        if core_a_age_data is None or core_b_age_data is None:
+            raise ValueError("Both core_a_age_data and core_b_age_data must be provided when age_consideration is True")
+        
+        # Extract constraint data from the age_data dictionaries
+        required_constraint_keys = ['in_sequence_ages', 'in_sequence_depths', 'in_sequence_pos_errors', 'in_sequence_neg_errors', 'core']
+        for key in required_constraint_keys:
+            if key not in core_a_age_data or key not in core_b_age_data:
+                raise ValueError(f"Missing required key '{key}' in core_a_age_data or core_b_age_data")
+        
+        all_constraint_ages_a = core_a_age_data['in_sequence_ages']
+        all_constraint_depths_a = core_a_age_data['in_sequence_depths']
+        all_constraint_pos_errors_a = core_a_age_data['in_sequence_pos_errors']
+        all_constraint_neg_errors_a = core_a_age_data['in_sequence_neg_errors']
+        age_constraint_a_source_cores = core_a_age_data['core']
+        
+        all_constraint_ages_b = core_b_age_data['in_sequence_ages']
+        all_constraint_depths_b = core_b_age_data['in_sequence_depths']
+        all_constraint_pos_errors_b = core_b_age_data['in_sequence_pos_errors']
+        all_constraint_neg_errors_b = core_b_age_data['in_sequence_neg_errors']
+        age_constraint_b_source_cores = core_b_age_data['core']
+        
+        # Check if constraint data is non-empty when needed
         if not restricted_age_correlation:
-            if (all_constraint_ages_a is None or all_constraint_depths_a is None or 
-                all_constraint_ages_b is None or all_constraint_depths_b is None or
-                all_constraint_pos_errors_a is None or all_constraint_pos_errors_b is None or
-                all_constraint_neg_errors_a is None or all_constraint_neg_errors_b is None):
+            if (not all_constraint_ages_a or not all_constraint_depths_a or 
+                not all_constraint_ages_b or not all_constraint_depths_b or
+                not all_constraint_pos_errors_a or not all_constraint_pos_errors_b or
+                not all_constraint_neg_errors_a or not all_constraint_neg_errors_b):
                 raise ValueError("Complete age constraint data must be provided when restricted_age_correlation is False")
+    else:
+        # Set all constraint variables to None when age_consideration is False
+        all_constraint_ages_a = None
+        all_constraint_depths_a = None
+        all_constraint_pos_errors_a = None
+        all_constraint_neg_errors_a = None
+        age_constraint_a_source_cores = None
+        all_constraint_ages_b = None
+        all_constraint_depths_b = None
+        all_constraint_pos_errors_b = None
+        all_constraint_neg_errors_b = None
+        age_constraint_b_source_cores = None
     
     # Calculate full DTW distance matrix for reference
     if not mute_mode:
@@ -1527,24 +1549,19 @@ def run_comprehensive_dtw_analysis(log_a, log_b, md_a, md_b, picked_depths_a=Non
 
     # Create dtw matrix if requested
     if create_dtw_matrix:
-        # Set age constraint parameters to None if age_consideration is False
-        if age_consideration:
-            matrix_age_constraint_a_depths = all_constraint_depths_a
-            matrix_age_constraint_a_ages = all_constraint_ages_a
-            matrix_age_constraint_a_source_cores = age_constraint_a_source_cores
-            matrix_age_constraint_b_depths = all_constraint_depths_b
-            matrix_age_constraint_b_ages = all_constraint_ages_b
-            matrix_age_constraint_b_source_cores = age_constraint_b_source_cores
-        else:
-            matrix_age_constraint_a_depths = None
-            matrix_age_constraint_a_ages = None
-            matrix_age_constraint_a_source_cores = None
-            matrix_age_constraint_b_depths = None
-            matrix_age_constraint_b_ages = None
-            matrix_age_constraint_b_source_cores = None
-        
         # Import here to avoid circular imports
         from ..utils.matrix_plots import plot_dtw_matrix_with_paths
+        
+        # Prepare age data dictionaries for matrix plotting
+        if age_consideration and core_a_age_data is not None:
+            matrix_core_a_age_data = core_a_age_data
+        else:
+            matrix_core_a_age_data = None
+            
+        if age_consideration and core_b_age_data is not None:
+            matrix_core_b_age_data = core_b_age_data
+        else:
+            matrix_core_b_age_data = None
         
         dtwmatrix_output_file = plot_dtw_matrix_with_paths(
                                 dtw_distance_matrix_full, 
@@ -1558,17 +1575,14 @@ def run_comprehensive_dtw_analysis(log_a, log_b, md_a, md_b, picked_depths_a=Non
                                 output_filename=dtwmatrix_output_filename,
                                 visualize_pairs=visualize_pairs,
                                 visualize_segment_labels=visualize_segment_labels,
-                                # Age constraint parameters (conditionally set)
-                                age_constraint_a_depths=matrix_age_constraint_a_depths,
-                                age_constraint_a_ages=matrix_age_constraint_a_ages,
-                                age_constraint_a_source_cores=matrix_age_constraint_a_source_cores,
-                                age_constraint_b_depths=matrix_age_constraint_b_depths,
-                                age_constraint_b_ages=matrix_age_constraint_b_ages,
-                                age_constraint_b_source_cores=matrix_age_constraint_b_source_cores,
+                                # Age constraint data (simplified)
+                                core_a_age_data=matrix_core_a_age_data,
+                                core_b_age_data=matrix_core_b_age_data,
                                 md_a=md_a,
                                 md_b=md_b,
                                 core_a_name=core_a_name,
-                                core_b_name=core_b_name
+                                core_b_name=core_b_name,
+                                dpi=dpi
                             )
         if not mute_mode:
             print(f"Generated DTW matrix with paths of all segment pairs at: {dtwmatrix_output_file}")
@@ -1580,11 +1594,20 @@ def run_comprehensive_dtw_analysis(log_a, log_b, md_a, md_b, picked_depths_a=Non
         
         if not mute_mode:
             print("\nCreating GIF animation of all segment pairs...")
+        
+        # Prepare temporary unified dictionary for animation (before final return)
+        temp_dtw_result = {
+            'dtw_correlation': final_dtw_results,
+            'valid_dtw_pairs': valid_dtw_pairs,
+            'segments_a': segments_a,
+            'segments_b': segments_b,
+            'depth_boundaries_a': depth_boundaries_a,
+            'depth_boundaries_b': depth_boundaries_b,
+            'dtw_distance_matrix_full': dtw_distance_matrix_full
+        }
+        
         gif_output_file = create_segment_dtw_animation(
-            log_a, log_b, md_a, md_b, 
-            final_dtw_results, valid_dtw_pairs, 
-            segments_a, segments_b, 
-            depth_boundaries_a, depth_boundaries_b,
+            temp_dtw_result, log_a, log_b, md_a, md_b,
             max_frames=max_frames,
             parallel=True,
             debug=debug and not mute_mode,
@@ -1602,7 +1625,8 @@ def run_comprehensive_dtw_analysis(log_a, log_b, md_a, md_b, picked_depths_a=Non
             all_constraint_pos_errors_a=all_constraint_pos_errors_a,
             all_constraint_pos_errors_b=all_constraint_pos_errors_b,
             all_constraint_neg_errors_a=all_constraint_neg_errors_a,
-            all_constraint_neg_errors_b=all_constraint_neg_errors_b
+            all_constraint_neg_errors_b=all_constraint_neg_errors_b,
+            dpi=dpi
         )
         
         if not mute_mode:
@@ -1644,5 +1668,16 @@ def run_comprehensive_dtw_analysis(log_a, log_b, md_a, md_b, picked_depths_a=Non
 
     gc.collect()
     
-    return final_dtw_results, valid_dtw_pairs, segments_a, segments_b, depth_boundaries_a, depth_boundaries_b, dtw_distance_matrix_full
+    # Return unified dictionary containing all DTW analysis results
+    dtw_result = {
+        'dtw_correlation': final_dtw_results,
+        'valid_dtw_pairs': valid_dtw_pairs,
+        'segments_a': segments_a,
+        'segments_b': segments_b,
+        'depth_boundaries_a': depth_boundaries_a,
+        'depth_boundaries_b': depth_boundaries_b,
+        'dtw_distance_matrix_full': dtw_distance_matrix_full
+    }
+    
+    return dtw_result
 

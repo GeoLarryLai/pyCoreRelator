@@ -14,8 +14,7 @@ from .segments import identify_special_segments
 from .path_finding import compute_total_complete_paths
 
 
-def diagnose_chain_breaks(valid_dtw_pairs, segments_a, segments_b, 
-                          depth_boundaries_a, depth_boundaries_b):
+def diagnose_chain_breaks(dtw_result):
     """
     Comprehensive diagnostic to find exactly where segment chains break.
     
@@ -24,17 +23,22 @@ def diagnose_chain_breaks(valid_dtw_pairs, segments_a, segments_b,
     
     Parameters:
     -----------
-    valid_dtw_pairs : set or list
-        Valid segment pairs
-    segments_a, segments_b : list
-        Segments in log_a and log_b
-    depth_boundaries_a, depth_boundaries_b : list
-        Depth boundaries for log_a and log_b
+    dtw_result : dict
+        Dictionary containing DTW analysis results from run_comprehensive_dtw_analysis().
+        Expected keys: 'valid_dtw_pairs', 'segments_a', 'segments_b', 
+        'depth_boundaries_a', 'depth_boundaries_b'
     
     Returns:
     --------
     dict: Enhanced results including complete path counts and bounding paths
     """
+    
+    # Extract variables from unified dictionary
+    valid_dtw_pairs = dtw_result['valid_dtw_pairs']
+    segments_a = dtw_result['segments_a']
+    segments_b = dtw_result['segments_b']
+    depth_boundaries_a = dtw_result['depth_boundaries_a']
+    depth_boundaries_b = dtw_result['depth_boundaries_b']
     
     print("=== CHAIN BREAK DIAGNOSTIC ===")
     

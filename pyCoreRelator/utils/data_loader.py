@@ -514,7 +514,7 @@ def combine_age_constraints(age_constraint_list):
     return combined
 
 
-def load_core_age_constraints(core_name, age_base_path, consider_adjacent_core=False, data_columns=None, mute_mode=False):
+def load_core_age_constraints(core_name, age_base_path, data_columns=None, mute_mode=False):
     """
     Helper function to load age constraints for a single core.
     
@@ -524,9 +524,7 @@ def load_core_age_constraints(core_name, age_base_path, consider_adjacent_core=F
         Name of the core to load age constraints for
     age_base_path : str
         Base directory path containing age constraint CSV files
-    consider_adjacent_core : bool, default=False
-        Whether to also load age constraints from similar core names (e.g., adjacent cores)
-    data_columns : dict
+    data_columns : dict, optional
         Dictionary mapping standard column names to actual CSV column names.
         Expected keys: 'age', 'pos_error', 'neg_error', 'min_depth', 'max_depth', 
                       'in_sequence', 'core', 'interpreted_bed'
@@ -551,7 +549,6 @@ def load_core_age_constraints(core_name, age_base_path, consider_adjacent_core=F
     ...     'interpreted_bed': 'interpreted_bed'
     ... }
     >>> age_data = load_core_age_constraints('M9907-23PC', '/path/to/age/data', 
-    ...                                      consider_adjacent_core=True, 
     ...                                      data_columns=data_columns)
     """
     csv_files = []
@@ -561,17 +558,10 @@ def load_core_age_constraints(core_name, age_base_path, consider_adjacent_core=F
             print(f"Warning: Directory not found: {age_base_path}")
         return combine_age_constraints([])
     
-    # First, find CSV files that contain the whole core name
+    # Find CSV files that contain the core name
     for file in os.listdir(age_base_path):
         if file.endswith('.csv') and core_name in file:
             csv_files.append(f'{age_base_path}/{file}')
-    
-    # If consider_adjacent_core is True, also search for similar core names
-    if consider_adjacent_core:
-        core_base = core_name[:-2]  # Remove last two characters
-        for file in os.listdir(age_base_path):
-            if file.endswith('.csv') and file.startswith(f'{core_base}') and core_name not in file:
-                csv_files.append(f'{age_base_path}/{file}')
     
     # Load all CSV files
     age_constraints = []

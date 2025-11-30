@@ -66,10 +66,11 @@ def display_slice(slice_data: np.ndarray,
 
 
 
-def plot_ctimg_curves(slice_data: np.ndarray,
-                        brightness: np.ndarray,
-                        stddev: np.ndarray,
+def plot_ctimg_curves(slice_data: Optional[np.ndarray] = None,
+                        brightness: Optional[np.ndarray] = None,
+                        stddev: Optional[np.ndarray] = None,
                         pixel_spacing: Optional[Tuple[float, float]] = None,
+                        ct_metadata: Optional[dict] = None,
                         core_name: str = "",
                         save_figs: bool = False,
                         output_dir: Optional[str] = None,
@@ -87,14 +88,18 @@ def plot_ctimg_curves(slice_data: np.ndarray,
     
     Parameters
     ----------
-    slice_data : numpy.ndarray
-        2D numpy array of slice data to display
-    brightness : numpy.ndarray
-        1D array of mean brightness values along depth
-    stddev : numpy.ndarray
-        1D array of standard deviation values along depth
+    slice_data : numpy.ndarray, optional
+        2D numpy array of slice data to display (not required if ct_metadata is provided)
+    brightness : numpy.ndarray, optional
+        1D array of mean brightness values along depth (not required if ct_metadata is provided)
+    stddev : numpy.ndarray, optional
+        1D array of standard deviation values along depth (not required if ct_metadata is provided)
     pixel_spacing : tuple of float, optional
-        Tuple of (x, y) pixel spacing in mm/pixel for physical scaling
+        Tuple of (x, y) pixel spacing in mm/pixel for physical scaling (not required if ct_metadata is provided)
+    ct_metadata : dict, optional
+        Dictionary from `ct_process_and_stitch()` containing all CT data. Expected keys:
+        'slice', 'brightness', 'stddev', 'px_spacing_x', 'px_spacing_y'.
+        If provided, individual parameters (slice_data, brightness, stddev, pixel_spacing) are ignored
     core_name : str, default=""
         Name of the core to display in title and filenames
     save_figs : bool, default=False
@@ -124,11 +129,23 @@ def plot_ctimg_curves(slice_data: np.ndarray,
         
     Example
     -------
+    >>> # Using individual parameters
     >>> slice_data = np.random.rand(100, 80) * 255
     >>> brightness = np.random.rand(100) * 1000 + 400
     >>> stddev = np.random.rand(100) * 100 + 50
     >>> plot_ctimg_curves(slice_data, brightness, stddev, core_name="Test Core")
+    
+    >>> # Using metadata from ct_process_and_stitch
+    >>> ct_metadata = ct_process_and_stitch(...)
+    >>> plot_ctimg_curves(ct_metadata=ct_metadata, core_name="Test Core")
     """
+    
+    # Extract data from ct_metadata if provided
+    if ct_metadata is not None:
+        slice_data = ct_metadata['slice']
+        brightness = ct_metadata['brightness']
+        stddev = ct_metadata['stddev']
+        pixel_spacing = (ct_metadata['px_spacing_x'], ct_metadata['px_spacing_y'])
     
     # Normalize format names (handle jpg/jpeg)
     fig_format = [fmt.lower() for fmt in fig_format]

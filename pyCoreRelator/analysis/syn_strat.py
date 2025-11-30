@@ -436,8 +436,8 @@ def _process_single_parameter_combination(
         # Run comprehensive DTW analysis with original constraints
         dtw_result = run_comprehensive_dtw_analysis(
             log_a, log_b, md_a, md_b,
-            picked_depths_a=all_depths_a_cat1,
-            picked_depths_b=all_depths_b_cat1,
+            picked_datum_a=all_depths_a_cat1,
+            picked_datum_b=all_depths_b_cat1,
             independent_dtw=False,
             pca_for_dependent_dtw=pca_for_dependent_dtw,
             top_bottom=True,
@@ -448,32 +448,27 @@ def _process_single_parameter_combination(
             ages_a=pickeddepth_ages_a if age_consideration else None,
             ages_b=pickeddepth_ages_b if age_consideration else None,
             restricted_age_correlation=restricted_age_correlation if age_consideration else False,
-            all_constraint_ages_a=age_data_a['in_sequence_ages'] if age_consideration else None,
-            all_constraint_ages_b=age_data_b['in_sequence_ages'] if age_consideration else None,
-            all_constraint_depths_a=age_data_a['in_sequence_depths'] if age_consideration else None,
-            all_constraint_depths_b=age_data_b['in_sequence_depths'] if age_consideration else None,
-            all_constraint_pos_errors_a=age_data_a['in_sequence_pos_errors'] if age_consideration else None,
-            all_constraint_pos_errors_b=age_data_b['in_sequence_pos_errors'] if age_consideration else None,
-            all_constraint_neg_errors_a=age_data_a['in_sequence_neg_errors'] if age_consideration else None,
-            all_constraint_neg_errors_b=age_data_b['in_sequence_neg_errors'] if age_consideration else None
+            core_a_age_data=age_data_a if age_consideration else None,
+            core_b_age_data=age_data_b if age_consideration else None
         )
         
         # Check if DTW analysis returned None
         if dtw_result is None:
             return False, combo_id, "run_comprehensive_dtw_analysis returned None"
         
-        # Unpack the 7 return values
-        dtw_results, valid_dtw_pairs, segments_a, segments_b, depth_boundaries_a, depth_boundaries_b, dtw_distance_matrix_full = dtw_result
+        # Validate DTW results before proceeding (check required keys exist)
+        required_keys = ['dtw_correlation', 'valid_dtw_pairs', 'segments_a', 'segments_b', 
+                        'depth_boundaries_a', 'depth_boundaries_b', 'dtw_distance_matrix_full']
+        if not all(key in dtw_result for key in required_keys):
+            return False, combo_id, "DTW analysis returned incomplete dictionary"
         
-        # Validate DTW results before proceeding
-        if any(result is None for result in [dtw_results, valid_dtw_pairs, segments_a, segments_b, depth_boundaries_a, depth_boundaries_b, dtw_distance_matrix_full]):
+        if any(dtw_result[key] is None for key in required_keys):
             return False, combo_id, "DTW analysis returned None values"
         
         # Find complete core paths
         if shortest_path_search:
             _ = find_complete_core_paths(
-                valid_dtw_pairs, segments_a, segments_b, log_a, log_b,
-                depth_boundaries_a, depth_boundaries_b, dtw_results, dtw_distance_matrix_full,
+                dtw_result, log_a, log_b,
                 output_csv=temp_mapping_file,
                 start_from_top_only=True, batch_size=1000, n_jobs=1,  # Use n_jobs=1 to avoid nested parallelism
                 shortest_path_search=True, shortest_path_level=2,
@@ -481,8 +476,7 @@ def _process_single_parameter_combination(
             )
         else:
             _ = find_complete_core_paths(
-                valid_dtw_pairs, segments_a, segments_b, log_a, log_b,
-                depth_boundaries_a, depth_boundaries_b, dtw_results, dtw_distance_matrix_full,
+                dtw_result, log_a, log_b,
                 output_csv=temp_mapping_file,
                 start_from_top_only=True, batch_size=1000, n_jobs=1,  # Use n_jobs=1 to avoid nested parallelism
                 shortest_path_search=False, shortest_path_level=2,
@@ -511,7 +505,7 @@ def _process_single_parameter_combination(
                         pass  # Use default binning if extraction fails
             
             _, _, fit_params = plot_correlation_distribution(
-                csv_file=f'{temp_mapping_file}',
+                mapping_csv=f'{temp_mapping_file}',
                 quality_index=quality_index,
                 save_png=False, pdf_method='normal',
                 kde_bandwidth=0.05, mute_mode=True, targeted_binsize=targeted_binsize
@@ -540,8 +534,7 @@ def _process_single_parameter_combination(
         if os.path.exists(f'{temp_mapping_file}'):
             os.remove(f'{temp_mapping_file}')
         
-        del dtw_results, valid_dtw_pairs, segments_a, segments_b
-        del depth_boundaries_a, depth_boundaries_b, dtw_distance_matrix_full
+        del dtw_result
         gc.collect()
         
         return True, combo_id, results
@@ -663,8 +656,8 @@ def _process_single_constraint_scenario(
         # Run DTW analysis with reduced constraints
         dtw_result = run_comprehensive_dtw_analysis(
             log_a, log_b, md_a, md_b,
-            picked_depths_a=all_depths_a_cat1,
-            picked_depths_b=all_depths_b_cat1,
+            picked_datum_a=all_depths_a_cat1,
+            picked_datum_b=all_depths_b_cat1,
             independent_dtw=False,
             pca_for_dependent_dtw=pca_for_dependent_dtw,
             top_bottom=True,
@@ -675,32 +668,27 @@ def _process_single_constraint_scenario(
             ages_a=pickeddepth_ages_a,  # Use original ages for core A
             ages_b=pickeddepth_ages_b_current,  # Use modified ages for core B
             restricted_age_correlation=restricted_age_correlation,
-            all_constraint_ages_a=age_data_a['in_sequence_ages'],  # Original constraints for core A
-            all_constraint_ages_b=age_data_b_current['in_sequence_ages'],  # Modified constraints for core B
-            all_constraint_depths_a=age_data_a['in_sequence_depths'],  # Original depths for core A
-            all_constraint_depths_b=age_data_b_current['in_sequence_depths'],  # Modified depths for core B
-            all_constraint_pos_errors_a=age_data_a['in_sequence_pos_errors'],  # Original errors for core A
-            all_constraint_pos_errors_b=age_data_b_current['in_sequence_pos_errors'],  # Modified errors for core B
-            all_constraint_neg_errors_a=age_data_a['in_sequence_neg_errors'],  # Original errors for core A
-            all_constraint_neg_errors_b=age_data_b_current['in_sequence_neg_errors']  # Modified errors for core B
+            core_a_age_data=age_data_a,  # Original age constraint data for core A
+            core_b_age_data=age_data_b_current  # Modified age constraint data for core B
         )
         
         # Check if DTW analysis returned None
         if dtw_result is None:
             return False, f"{combo_id}_dtw_none", "run_comprehensive_dtw_analysis returned None"
         
-        # Unpack the 7 return values
-        dtw_results, valid_dtw_pairs, segments_a, segments_b, depth_boundaries_a, depth_boundaries_b, dtw_distance_matrix_full = dtw_result
+        # Validate DTW results before proceeding (check required keys exist)
+        required_keys = ['dtw_correlation', 'valid_dtw_pairs', 'segments_a', 'segments_b', 
+                        'depth_boundaries_a', 'depth_boundaries_b', 'dtw_distance_matrix_full']
+        if not all(key in dtw_result for key in required_keys):
+            return False, f"{combo_id}_dtw_incomplete", "DTW analysis returned incomplete dictionary"
         
-        # Validate DTW results before proceeding
-        if any(result is None for result in [dtw_results, valid_dtw_pairs, segments_a, segments_b, depth_boundaries_a, depth_boundaries_b, dtw_distance_matrix_full]):
+        if any(dtw_result[key] is None for key in required_keys):
             return False, f"{combo_id}_dtw_none", "DTW analysis returned None values"
         
         # Find paths with correct parameters
         if shortest_path_search:
             _ = find_complete_core_paths(
-                valid_dtw_pairs, segments_a, segments_b, log_a, log_b,
-                depth_boundaries_a, depth_boundaries_b, dtw_results, dtw_distance_matrix_full,
+                dtw_result, log_a, log_b,
                 output_csv=temp_mapping_file,
                 start_from_top_only=True, batch_size=1000, n_jobs=1,  # Use n_jobs=1 to avoid nested parallelism
                 shortest_path_search=True, shortest_path_level=2,
@@ -708,8 +696,7 @@ def _process_single_constraint_scenario(
             )
         else:
             _ = find_complete_core_paths(
-                valid_dtw_pairs, segments_a, segments_b, log_a, log_b,
-                depth_boundaries_a, depth_boundaries_b, dtw_results, dtw_distance_matrix_full,
+                dtw_result, log_a, log_b,
                 output_csv=temp_mapping_file,
                 start_from_top_only=True, batch_size=1000, n_jobs=1,  # Use n_jobs=1 to avoid nested parallelism
                 shortest_path_search=False, shortest_path_level=2,
@@ -738,7 +725,7 @@ def _process_single_constraint_scenario(
                         pass  # Use default binning if extraction fails
             
             _, _, fit_params = plot_correlation_distribution(
-                csv_file=f'{temp_mapping_file}',
+                mapping_csv=f'{temp_mapping_file}',
                 quality_index=quality_index,
                 save_png=False, pdf_method='normal',
                 kde_bandwidth=0.05, mute_mode=True, targeted_binsize=targeted_binsize
@@ -770,8 +757,7 @@ def _process_single_constraint_scenario(
         if os.path.exists(f'{temp_mapping_file}'):
             os.remove(f'{temp_mapping_file}')
         
-        del dtw_results, valid_dtw_pairs, segments_a, segments_b
-        del depth_boundaries_a, depth_boundaries_b, dtw_distance_matrix_full
+        del dtw_result
         del age_data_b_current, pickeddepth_ages_b_current
         gc.collect()
         
@@ -1414,7 +1400,7 @@ def plot_segment_pool(segment_logs, segment_depths, log_column_names, n_cols=8, 
     return fig, axes
 
 
-def plot_synthetic_log(synthetic_log, synthetic_md, synthetic_picked_depths, log_column_names, 
+def plot_synthetic_log(synthetic_log, synthetic_md, synthetic_picked_datum, log_column_names, 
                       title="Synthetic Log", save_plot=False, plot_filename=None):
     """
     Plot a single synthetic log with turbidite boundaries.
@@ -1422,7 +1408,7 @@ def plot_synthetic_log(synthetic_log, synthetic_md, synthetic_picked_depths, log
     Parameters:
     - synthetic_log: numpy array of log values (can be 1D or 2D for multiple log types)
     - synthetic_md: numpy array of depth values
-    - synthetic_picked_depths: list of turbidite boundary depths
+    - synthetic_picked_datum: list of turbidite boundary depths or list of (depth, category) tuples
     - log_column_names: name(s) of the log column(s) for labeling (string or list)
     - title: title for the plot (default: "Synthetic Log")
     - save_plot: whether to save the plot to file (default: False)
@@ -1478,7 +1464,9 @@ def plot_synthetic_log(synthetic_log, synthetic_md, synthetic_picked_depths, log
         ax.set_xlabel(f'{log_column_names[0]} (normalized)')
 
     # Add picked depths as horizontal lines
-    for depth in synthetic_picked_depths:
+    for item in synthetic_picked_datum:
+        # Handle both tuple format (depth, category) and plain depth values
+        depth = item[0] if isinstance(item, (tuple, list)) else item
         ax.axhline(y=depth, color='black', linestyle='--', alpha=0.7, linewidth=1)
 
     ax.set_ylabel('Depth (cm)')
@@ -1822,34 +1810,53 @@ def synthetic_correlation_quality(
     log_column_names, 
     quality_indices=['corr_coef', 'norm_dtw'], 
     number_of_iterations=20, 
-    core_a_length=600, 
-    core_b_length=600,
+    core_a_length=400, 
+    core_b_length=400,
     repetition=False, 
     pca_for_dependent_dtw=False, 
     output_csv_dir=None,
+    max_search_path=10000,
     mute_mode=True
 ):
     """
-    This function generates results of DTW correlation quality measurement analysis for synthetic core pairs with multiple iterations. 
-    It saves distribution parameters for each correlation quality metric across all iterations.
-    
-    Parameters:
-    - mod_seg_logs: list of turbidite log segments
-    - mod_seg_depths: list of turbidite depth segments  
-    - log_column_names: list of log column names
-    - quality_indices: list of quality indices to analyze (default: ['corr_coef', 'norm_dtw'])
-    - number_of_iterations: number of synthetic pairs to generate (default: 20)
-    - core_a_length: target length for synthetic core A in cm (default: 600)
-    - core_b_length: target length for synthetic core B in cm (default: 600)
-    - repetition: allow reselecting turbidite segments (default: False)
-    - pca_for_dependent_dtw: use PCA for dependent DTW analysis (default: False)
-    - output_csv_dir: directory path for output CSV files (default: None)
-                      If None, saves files in current directory. If provided, creates directory and saves files there.
-                      Files will be saved as 'synthetic_PDFs_{log_columns}_{quality_index}.csv'
-    - mute_mode: suppress detailed output messages (default: True)
-    
-    Returns:
-    - dict: mapping quality indices to their output CSV filenames
+    Run DTW correlation quality measurement analysis for synthetic core pairs over multiple iterations.
+
+    This function generates synthetic core pairs, computes selected correlation quality metrics (such as DTW and correlation coefficient) for each pair, and saves the resulting quality distributions for later plotting and assessment. Distribution parameters for each quality metric are saved across all iterations.
+
+    Parameters
+    ----------
+    mod_seg_logs : list
+        List of turbidite log segments (numpy arrays or compatible).
+    mod_seg_depths : list
+        List of turbidite depth segments (numpy arrays or compatible).
+    log_column_names : list of str
+        List of log column names to consider in the analysis.
+    quality_indices : list of str, default ['corr_coef', 'norm_dtw']
+        List of quality indices (metrics) to compute for each synthetic pair.
+    number_of_iterations : int, default 20
+        Number of synthetic core pairs to generate/analyze.
+    core_a_length : int, default 400
+        Target length (in cm) for synthetic core A.
+    core_b_length : int, default 400
+        Target length (in cm) for synthetic core B.
+    repetition : bool, default False
+        Whether to allow resampling (reuse) of turbidite segments when assembling synthetic cores.
+    pca_for_dependent_dtw : bool, default False
+        If True, applies PCA transformation to logs for dependent DTW analysis.
+    output_csv_dir : str or None, default None
+        Output directory path for saving quality metric CSV files.
+        If None, files are saved in the current directory.
+        If provided, directory is created if it does not exist.
+        Output files will be named 'synthetic_PDFs_{log_columns}_{quality_index}.csv'.
+    max_search_path : int, default 10000
+        Maximum allowable search path for the DTW algorithm.
+    mute_mode : bool, default True
+        If True, suppresses detailed informational output.
+
+    Returns
+    -------
+    dict
+        Mapping from each quality index to its corresponding output CSV filename.
     """
     
     # Import here to avoid circular imports
@@ -1904,10 +1911,10 @@ def synthetic_correlation_quality(
         syn_picked_b = [depth for depth, category in syn_pickeddepths_b]
         
         # Run DTW analysis
-        dtw_results, valid_dtw_pairs, segments_a, segments_b, _, _, dtw_distance_matrix_full = run_comprehensive_dtw_analysis(
+        dtw_result = run_comprehensive_dtw_analysis(
             syn_log_a, syn_log_b, syn_md_a, syn_md_b,
-            picked_depths_a=syn_picked_a,
-            picked_depths_b=syn_picked_b,
+            picked_datum_a=syn_picked_a,
+            picked_datum_b=syn_picked_b,
             independent_dtw=False,
             pca_for_dependent_dtw=pca_for_dependent_dtw,
             top_bottom=False,
@@ -1916,20 +1923,14 @@ def synthetic_correlation_quality(
         
         # Find complete core paths
         _ = find_complete_core_paths(
-            valid_dtw_pairs,
-            segments_a, 
-            segments_b, 
+            dtw_result,
             syn_log_a, 
             syn_log_b,
-            syn_picked_a, 
-            syn_picked_b,
-            dtw_results,
-            dtw_distance_matrix_full,
             output_csv=temp_csv,
             output_metric_only=True,
             shortest_path_search=True,
             shortest_path_level=2,
-            max_search_path=100000,
+            max_search_path=max_search_path,
             mute_mode=mute_mode,
             pca_for_dependent_dtw=pca_for_dependent_dtw
         )
@@ -1941,7 +1942,7 @@ def synthetic_correlation_quality(
 
             # Plot correlation distribution to get fit_params only
             _, _, fit_params = plot_correlation_distribution(
-                csv_file=temp_csv,
+                mapping_csv=temp_csv,
                 quality_index=targeted_quality_index,
                 save_png=False,
                 pdf_method='normal',
@@ -1971,7 +1972,7 @@ def synthetic_correlation_quality(
         del syn_log_a, syn_md_a, inds_a, syn_pickeddepths_a
         del syn_log_b, syn_md_b, inds_b, syn_pickeddepths_b
         del syn_picked_a, syn_picked_b
-        del dtw_results, valid_dtw_pairs, segments_a, segments_b
+        del dtw_result
         
         gc.collect()
 

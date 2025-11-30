@@ -142,15 +142,9 @@ def compute_total_complete_paths(valid_dtw_pairs, detailed_pairs, max_depth_a, m
 
 
 def find_complete_core_paths(
-    valid_dtw_pairs,
-    segments_a,
-    segments_b,
+    dtw_result,
     log_a,
     log_b,
-    depth_boundaries_a,
-    depth_boundaries_b,
-    dtw_results, 
-    dtw_distance_matrix_full,
     output_csv="complete_core_paths.csv",
     debug=False,
     start_from_top_only=True,
@@ -170,11 +164,10 @@ def find_complete_core_paths(
     Includes memory management, duplicate removal, and performance optimizations for large datasets.
     
     Parameters:
-        valid_dtw_pairs (set): Valid segment pairs from DTW analysis
-        segments_a, segments_b (list): Segment definitions for both cores
+        dtw_result (dict): Dictionary containing DTW analysis results from run_comprehensive_dtw_analysis().
+            Expected keys: 'valid_dtw_pairs', 'segments_a', 'segments_b', 'depth_boundaries_a',
+            'depth_boundaries_b', 'dtw_correlation', 'dtw_distance_matrix_full'
         log_a, log_b (array): Core log data for metric computation
-        depth_boundaries_a, depth_boundaries_b (list): Depth boundary indices
-        dtw_results (dict): DTW results for quality metrics
         output_csv (str): Output CSV filename
         debug (bool): Enable detailed progress reporting
         start_from_top_only (bool): Only start paths from top segments
@@ -197,14 +190,23 @@ def find_complete_core_paths(
             - search_limit_reached: Whether search limit was hit
     
     Example:
+        >>> dtw_result = run_comprehensive_dtw_analysis(...)
         >>> results = find_complete_core_paths(
-        ...     valid_pairs, segs_a, segs_b, log_a, log_b, 
-        ...     bounds_a, bounds_b, dtw_results,
+        ...     dtw_result, log_a, log_b,
         ...     max_search_path=10000, debug=True
         ... )
         >>> print(f"Found {results['total_complete_paths_found']} complete paths")
         >>> print(f"Results saved to: {results['output_csv']}")
     """
+    
+    # Extract variables from unified dictionary
+    valid_dtw_pairs = dtw_result['valid_dtw_pairs']
+    segments_a = dtw_result['segments_a']
+    segments_b = dtw_result['segments_b']
+    depth_boundaries_a = dtw_result['depth_boundaries_a']
+    depth_boundaries_b = dtw_result['depth_boundaries_b']
+    dtw_results = dtw_result['dtw_correlation']
+    dtw_distance_matrix_full = dtw_result['dtw_distance_matrix_full']
 
     # Import helper functions from path_helpers module
     from .path_helpers import (

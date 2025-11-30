@@ -302,18 +302,18 @@ def rgb_process_and_stitch(data_reading_structure, rgb_data_dir, stitchbuffer=10
         
     Returns
     -------
-    tuple
-        Contains the following stitched arrays:
-        - all_depths (numpy.ndarray): Continuous depth array in pixels
-        - all_r (numpy.ndarray): Red color values for complete core
-        - all_g (numpy.ndarray): Green color values for complete core
-        - all_b (numpy.ndarray): Blue color values for complete core
-        - all_r_std (numpy.ndarray): Red standard deviations for complete core
-        - all_g_std (numpy.ndarray): Green standard deviations for complete core
-        - all_b_std (numpy.ndarray): Blue standard deviations for complete core
-        - all_lum (numpy.ndarray): Luminance values for complete core
-        - all_lum_std (numpy.ndarray): Luminance standard deviations for complete core
-        - stitched_image (numpy.ndarray): Combined image array for complete core
+    dict
+        stitched_rgb_metadata : Dictionary containing all stitched RGB data with keys:
+        - 'depths' (numpy.ndarray): Continuous depth array in pixels
+        - 'r' (numpy.ndarray): Red color values for complete core
+        - 'g' (numpy.ndarray): Green color values for complete core
+        - 'b' (numpy.ndarray): Blue color values for complete core
+        - 'r_std' (numpy.ndarray): Red standard deviations for complete core
+        - 'g_std' (numpy.ndarray): Green standard deviations for complete core
+        - 'b_std' (numpy.ndarray): Blue standard deviations for complete core
+        - 'lum' (numpy.ndarray): Luminance values for complete core
+        - 'lum_std' (numpy.ndarray): Luminance standard deviations for complete core
+        - 'image' (numpy.ndarray): Combined image array for complete core
         
     Raises
     ------
@@ -327,10 +327,13 @@ def rgb_process_and_stitch(data_reading_structure, rgb_data_dir, stitchbuffer=10
     ...     'empty_1': {'rgb_pxlength': 1000, 'rgb_pxwidth': 500},
     ...     'section2.bmp': {'upper_rgb_threshold': 110, 'buffer': 40, 'top_trim': 60, ...}
     ... }
-    >>> depths, r, g, b, r_std, g_std, b_std, lum, lum_std, img = rgb_process_and_stitch(
+    >>> rgb_metadata = rgb_process_and_stitch(
     ...     data_reading_structure, '/path/to/images/', stitchbuffer=15,
     ...     save_csv=True, output_csv='output.csv', total_length_cm=100
     ... )
+    >>> # Access individual components
+    >>> depths = rgb_metadata['depths']
+    >>> stitched_image = rgb_metadata['image']
     """
     # Validate CSV export parameters
     if save_csv:
@@ -482,7 +485,12 @@ def rgb_process_and_stitch(data_reading_structure, rgb_data_dir, stitchbuffer=10
         )
         
         # Plot individual section
-        plot_rgbimg_curves(depths, r, g, b, r_std, g_std, b_std, lum, lum_std, img, core_name=core_name)
+        section_metadata = {
+            'depths': depths, 'r': r, 'g': g, 'b': b,
+            'r_std': r_std, 'g_std': g_std, 'b_std': b_std,
+            'lum': lum, 'lum_std': lum_std, 'image': img
+        }
+        plot_rgbimg_curves(rgb_metadata=section_metadata, core_name=core_name)
         
         # Adjust depths to continue from previous section
         adjusted_depths = depths + current_depth
@@ -575,5 +583,18 @@ def rgb_process_and_stitch(data_reading_structure, rgb_data_dir, stitchbuffer=10
         df.to_csv(output_csv, index=False)
         print(f"RGB data saved to: {output_csv}")
     
-    return (all_depths, all_r, all_g, all_b, all_r_std, all_g_std, 
-            all_b_std, all_lum, all_lum_std, stitched_image) 
+    # Create metadata dictionary containing all results
+    stitched_rgb_metadata = {
+        'depths': all_depths,
+        'r': all_r,
+        'g': all_g,
+        'b': all_b,
+        'r_std': all_r_std,
+        'g_std': all_g_std,
+        'b_std': all_b_std,
+        'lum': all_lum,
+        'lum_std': all_lum_std,
+        'image': stitched_image
+    }
+    
+    return stitched_rgb_metadata 

@@ -1013,14 +1013,14 @@ def ct_process_and_stitch(data_reading_structure, ct_data_dir, width_start_pct=0
         
     Returns
     -------
-    tuple
-        Contains the following elements:
-        - final_stitched_slice (numpy.ndarray): Complete stitched CT slice
-        - final_stitched_brightness (numpy.ndarray): Complete brightness profile
-        - final_stitched_stddev (numpy.ndarray): Complete standard deviation profile
-        - final_stitched_depth (numpy.ndarray): Depth coordinates in pixels
-        - px_spacing_x (float): Final pixel spacing in x direction (always 1.0)
-        - px_spacing_y (float): Final pixel spacing in y direction (always 1.0)
+    dict
+        Dictionary containing all stitched CT data with keys:
+        - 'slice' (numpy.ndarray): Complete stitched CT slice
+        - 'brightness' (numpy.ndarray): Complete brightness profile
+        - 'stddev' (numpy.ndarray): Complete standard deviation profile
+        - 'depths' (numpy.ndarray): Depth coordinates in pixels
+        - 'px_spacing_x' (float): Final pixel spacing in x direction (always 1.0)
+        - 'px_spacing_y' (float): Final pixel spacing in y direction (always 1.0)
         
     Raises
     ------
@@ -1036,8 +1036,11 @@ def ct_process_and_stitch(data_reading_structure, ct_data_dir, width_start_pct=0
     ...         'rgb_pxlength': 1000, 'rgb_pxwidth': 200, 'upside_down': False
     ...     }
     ... }
-    >>> result = ct_process_and_stitch(data_reading_structure, '/path/to/data', 
-    ...                                 save_csv=True, output_csv='output.csv', total_length_cm=100)
+    >>> ct_metadata = ct_process_and_stitch(data_reading_structure, '/path/to/data', 
+    ...                                      save_csv=True, output_csv='output.csv', total_length_cm=100)
+    >>> # Access individual components
+    >>> stitched_slice = ct_metadata['slice']
+    >>> brightness = ct_metadata['brightness']
     """
     # Validate CSV export parameters
     if save_csv:
@@ -1461,4 +1464,14 @@ def ct_process_and_stitch(data_reading_structure, ct_data_dir, width_start_pct=0
         df.to_csv(output_csv, index=False)
         print(f"CT data saved to: {output_csv}")
     
-    return final_stitched_slice, final_stitched_brightness, final_stitched_stddev, final_stitched_depth, 1, 1  # Use pixel units 
+    # Package all results into a single metadata dictionary
+    stitched_ct_metadata = {
+        'slice': final_stitched_slice,
+        'brightness': final_stitched_brightness,
+        'stddev': final_stitched_stddev,
+        'depths': final_stitched_depth,
+        'px_spacing_x': 1.0,
+        'px_spacing_y': 1.0
+    }
+    
+    return stitched_ct_metadata

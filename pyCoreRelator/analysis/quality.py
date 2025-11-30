@@ -407,24 +407,55 @@ def cohens_d(x, y):
     return d
 
 
-def find_best_mappings(csv_file_path, 
+def find_best_mappings(input_mapping_csv, 
                        top_n=10, 
                        filter_shortest_dtw=True,
                        metric_weight=None,
-                       picked_depths_a_cat1=None,
-                       picked_depths_b_cat1=None,
-                       interpreted_bed_a=None,
-                       interpreted_bed_b=None,
-                       valid_dtw_pairs=None,
-                       segments_a=None,
-                       segments_b=None):
+                       core_a_picked_datums=None,
+                       core_b_picked_datums=None,
+                       core_a_interpreted_beds=None,
+                       core_b_interpreted_beds=None,
+                       dtw_result=None):
     """
     Find the best DTW mappings based on multiple quality metrics with configurable scoring.
     
     If boundary correlation parameters are provided, filters mappings that comply with 
     boundary correlations between cores. If those parameters are not provided or no 
     matching boundaries are found, behaves as standard best mappings finder.
+    
+    Parameters:
+    -----------
+    input_mapping_csv : str
+        Path to CSV file containing DTW mapping results
+    top_n : int, default=10
+        Number of top mappings to return
+    filter_shortest_dtw : bool, default=True
+        Whether to filter for shortest DTW path length first
+    metric_weight : dict, optional
+        Dictionary of weights for different quality metrics
+    core_a_picked_datums : list, optional
+        Picked depth values for core A (for boundary correlation mode)
+    core_b_picked_datums : list, optional
+        Picked depth values for core B (for boundary correlation mode)
+    core_a_interpreted_beds : list, optional
+        Interpreted bed names for core A boundaries (for boundary correlation mode)
+    core_b_interpreted_beds : list, optional
+        Interpreted bed names for core B boundaries (for boundary correlation mode)
+    dtw_result : dict, optional
+        Dictionary containing DTW analysis results from run_comprehensive_dtw_analysis().
+        Expected keys: 'valid_dtw_pairs', 'segments_a', 'segments_b'.
+        Required only for boundary correlation mode.
     """
+    
+    # Extract variables from unified dictionary if provided (for boundary correlation mode)
+    if dtw_result is not None:
+        valid_dtw_pairs = dtw_result['valid_dtw_pairs']
+        segments_a = dtw_result['segments_a']
+        segments_b = dtw_result['segments_b']
+    else:
+        valid_dtw_pairs = None
+        segments_a = None
+        segments_b = None
     
     def parse_compact_path(compact_path_str):
         """Parse compact path format "2,3;4,5;6,7" back to list of tuples"""
@@ -568,10 +599,10 @@ def find_best_mappings(csv_file_path,
     weights = metric_weight if metric_weight is not None else default_weights
     
     # Load and clean the data
-    if isinstance(csv_file_path, str):
-        dtw_results_df = pd.read_csv(csv_file_path)
+    if isinstance(input_mapping_csv, str):
+        dtw_results_df = pd.read_csv(input_mapping_csv)
     else:
-        dtw_results_df = csv_file_path
+        dtw_results_df = input_mapping_csv
     
     # Always add ranking columns after loading CSV
     if 'Ranking' not in dtw_results_df.columns:
@@ -581,8 +612,8 @@ def find_best_mappings(csv_file_path,
    
     # Check if we should use boundary correlation mode
     use_boundary_mode = all(param is not None for param in [
-        picked_depths_a_cat1, picked_depths_b_cat1, interpreted_bed_a, 
-        interpreted_bed_b, valid_dtw_pairs, segments_a, segments_b
+        core_a_picked_datums, core_b_picked_datums, core_a_interpreted_beds, 
+        core_b_interpreted_beds, valid_dtw_pairs, segments_a, segments_b
     ])
     
     target_mappings_df = None
@@ -592,21 +623,21 @@ def find_best_mappings(csv_file_path,
     if use_boundary_mode:
         # Check if all interpreted bed names are empty
         all_beds_empty = (
-            all(pd.isna(name) or clean_name(name) == '' for name in interpreted_bed_a) and
-            all(pd.isna(name) or clean_name(name) == '' for name in interpreted_bed_b)
+            all(pd.isna(name) or clean_name(name) == '' for name in core_a_interpreted_beds) and
+            all(pd.isna(name) or clean_name(name) == '' for name in core_b_interpreted_beds)
         )
         
         if not all_beds_empty:
-            # Step 1: Find all bed names that appear in both interpreted_bed_a and interpreted_bed_b
+            # Step 1: Find all bed names that appear in both core_a_interpreted_beds and core_b_interpreted_beds
             bed_names_a = set()
             bed_names_b = set()
             
-            for name in interpreted_bed_a:
+            for name in core_a_interpreted_beds:
                 cleaned = clean_name(name)
                 if cleaned:
                     bed_names_a.add(cleaned)
             
-            for name in interpreted_bed_b:
+            for name in core_b_interpreted_beds:
                 cleaned = clean_name(name)
                 if cleaned:
                     bed_names_b.add(cleaned)
@@ -634,15 +665,15 @@ def find_best_mappings(csv_file_path,
                         start_idx_a, end_idx_a = seg_a
                         start_idx_b, end_idx_b = seg_b
                         
-                        # Check if boundaries exist in interpreted_bed arrays
-                        if (start_idx_a < len(interpreted_bed_a) and end_idx_a < len(interpreted_bed_a) and
-                            start_idx_b < len(interpreted_bed_b) and end_idx_b < len(interpreted_bed_b)):
+                        # Check if boundaries exist in core_a_interpreted_beds arrays
+                        if (start_idx_a < len(core_a_interpreted_beds) and end_idx_a < len(core_a_interpreted_beds) and
+                            start_idx_b < len(core_b_interpreted_beds) and end_idx_b < len(core_b_interpreted_beds)):
                             
                             # Get boundary names for this segment
-                            start_name_a = clean_name(interpreted_bed_a[start_idx_a])
-                            end_name_a = clean_name(interpreted_bed_a[end_idx_a])
-                            start_name_b = clean_name(interpreted_bed_b[start_idx_b])
-                            end_name_b = clean_name(interpreted_bed_b[end_idx_b])
+                            start_name_a = clean_name(core_a_interpreted_beds[start_idx_a])
+                            end_name_a = clean_name(core_a_interpreted_beds[end_idx_a])
+                            start_name_b = clean_name(core_b_interpreted_beds[start_idx_b])
+                            end_name_b = clean_name(core_b_interpreted_beds[end_idx_b])
                             
                             # Check for matching boundaries (top-to-top or bottom-to-bottom)
                             top_match = False
@@ -866,8 +897,8 @@ def find_best_mappings(csv_file_path,
         top_mapping_ids, top_mapping_pairs = _print_results(top_n_standard, weights, "Overall Best Mappings")
         
         # Save the updated CSV if it was loaded from a file path
-        if isinstance(csv_file_path, str):
-            dtw_results_df.to_csv(csv_file_path, index=False)
+        if isinstance(input_mapping_csv, str):
+            dtw_results_df.to_csv(input_mapping_csv, index=False)
         
         return top_mapping_ids, top_mapping_pairs, standard_ranked_df
     
@@ -918,7 +949,7 @@ def find_best_mappings(csv_file_path,
     top_mapping_ids, top_mapping_pairs = _print_results(top_mappings_df.head(top_n), weights, mode_title)
     
     # Save the updated CSV if it was loaded from a file path
-    if isinstance(csv_file_path, str):
-        dtw_results_df.to_csv(csv_file_path, index=False)
+    if isinstance(input_mapping_csv, str):
+        dtw_results_df.to_csv(input_mapping_csv, index=False)
     
     return top_mapping_ids, top_mapping_pairs, top_mappings_df

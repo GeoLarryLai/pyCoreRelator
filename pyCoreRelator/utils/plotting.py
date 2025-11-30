@@ -44,7 +44,7 @@ def plot_segment_pair_correlation(log_a, log_b, md_a, md_b,
                                   segment_pairs=None, dtw_results=None, segments_a=None, segments_b=None,
                                   depth_boundaries_a=None, depth_boundaries_b=None,
                                   wp=None, a_start=None, a_end=None, b_start=None, b_end=None,
-                                  step=5, picked_depths_a=None, picked_depths_b=None, 
+                                  step=5, picked_datum_a=None, picked_datum_b=None, 
                                   quality_indicators=None, combined_quality=None,
                                   age_consideration=False, ages_a=None, ages_b=None,
                                   all_constraint_depths_a=None, all_constraint_depths_b=None,
@@ -57,7 +57,7 @@ def plot_segment_pair_correlation(log_a, log_b, md_a, md_b,
                                   single_segment_mode=None,
                                   available_columns_a=None, available_columns_b=None,
                                   rgb_img_a=None, ct_img_a=None, rgb_img_b=None, ct_img_b=None,
-                                  color_style_map=None):
+                                  color_style_map=None, dpi=None):
     """
     Enhanced unified function to plot correlation between log segments for both single and multiple segment pairs.
     Supports both single logs and multilogs with RGB and CT images.
@@ -84,7 +84,7 @@ def plot_segment_pair_correlation(log_a, log_b, md_a, md_b,
         Start and end indices of segment B in the full log (single-segment mode)
     step : int, default=5
         Sampling interval for visualization
-    picked_depths_a, picked_depths_b : array-like, optional
+    picked_datum_a, picked_datum_b : array-like, optional
         Arrays of picked depth indices to display as markers
     quality_indicators : dict, optional
         Quality indicators for single pair
@@ -122,6 +122,8 @@ def plot_segment_pair_correlation(log_a, log_b, md_a, md_b,
         RGB and CT images for cores
     color_style_map : dict, optional
         Dictionary mapping log column names to colors and styles
+    dpi : int, optional
+        Resolution for saved figures in dots per inch. If None, uses default (150)
     
     Returns
     -------
@@ -502,16 +504,16 @@ def plot_segment_pair_correlation(log_a, log_b, md_a, md_b,
             ax.text(text_pos, adj_depth+5, age_text, fontsize=8, color='r', ha='center', va='top',
                    bbox=dict(facecolor='white', alpha=0.7, pad=2))
     
-    def add_picked_depths(picked_depths, md_array, ages=None, is_core_a=True):
+    def add_picked_depths(picked_datum, md_array, ages=None, is_core_a=True):
         """Add picked depth markers and age annotations to the plot."""
-        if picked_depths is None or len(picked_depths) == 0:
+        if picked_datum is None or len(picked_datum) == 0:
             return
         
         xmin = 0.0 if is_core_a else 0.67
         xmax = 0.33 if is_core_a else 1.0
         text_pos = 0.5 if is_core_a else 2.5
         
-        for depth in picked_depths:
+        for depth in picked_datum:
             # Handle tuple case (depth, category)
             if isinstance(depth, tuple) and len(depth) >= 1:
                 depth_value = depth[0]
@@ -654,20 +656,20 @@ def plot_segment_pair_correlation(log_a, log_b, md_a, md_b,
     # Add picked depth markers
     if mark_depths:
         if multi_segment_mode:
-            if picked_depths_a is not None:
-                add_picked_depths(picked_depths_a, md_a, ages_a if mark_ages else None, is_core_a=True)
+            if picked_datum_a is not None:
+                add_picked_depths(picked_datum_a, md_a, ages_a if mark_ages else None, is_core_a=True)
             elif depth_boundaries_a is not None:
                 converted_depths_a = [md_a[idx] for idx in depth_boundaries_a]
                 add_picked_depths(converted_depths_a, md_a, ages_a if mark_ages else None, is_core_a=True)
             
-            if picked_depths_b is not None:
-                add_picked_depths(picked_depths_b, md_b, ages_b if mark_ages else None, is_core_a=False)
+            if picked_datum_b is not None:
+                add_picked_depths(picked_datum_b, md_b, ages_b if mark_ages else None, is_core_a=False)
             elif depth_boundaries_b is not None:
                 converted_depths_b = [md_b[idx] for idx in depth_boundaries_b]
                 add_picked_depths(converted_depths_b, md_b, ages_b if mark_ages else None, is_core_a=False)
         else:
-            add_picked_depths(picked_depths_a, md_a, ages_a if mark_ages else None, is_core_a=True)
-            add_picked_depths(picked_depths_b, md_b, ages_b if mark_ages else None, is_core_a=False)
+            add_picked_depths(picked_datum_a, md_a, ages_a if mark_ages else None, is_core_a=True)
+            add_picked_depths(picked_datum_b, md_b, ages_b if mark_ages else None, is_core_a=False)
     
     # Setup axes and labels
     ax.set_xticks([])
@@ -728,7 +730,8 @@ def plot_segment_pair_correlation(log_a, log_b, md_a, md_b,
         if output_dir:
             os.makedirs(output_dir, exist_ok=True)
         
-        plt.savefig(final_save_path, dpi=150, bbox_inches='tight')
+        save_dpi = dpi if dpi is not None else 150
+        plt.savefig(final_save_path, dpi=save_dpi, bbox_inches='tight')
     
     return fig
 
@@ -739,7 +742,7 @@ def plot_multilog_segment_pair_correlation(log_a, log_b, md_a, md_b,
                                   available_columns=None,
                                   rgb_img_a=None, ct_img_a=None,
                                   rgb_img_b=None, ct_img_b=None,
-                                  picked_depths_a=None, picked_depths_b=None,
+                                  picked_datum_a=None, picked_datum_b=None,
                                   picked_categories_a=None, picked_categories_b=None,
                                   category_colors=None,
                                   title=None):
@@ -768,7 +771,7 @@ def plot_multilog_segment_pair_correlation(log_a, log_b, md_a, md_b,
         RGB images for cores A and B
     ct_img_a, ct_img_b : array-like, optional
         CT images for cores A and B
-    picked_depths_a, picked_depths_b : list, optional
+    picked_datum_a, picked_datum_b : list, optional
         Lists of picked depths to mark on the plots
     picked_categories_a, picked_categories_b : list, optional
         Categories for picked depths (for coloring)
@@ -956,8 +959,8 @@ def plot_multilog_segment_pair_correlation(log_a, log_b, md_a, md_b,
                 ax.fill(x, y, facecolor=get_yl_br_color(mean_logs), edgecolor=None)
     
     # Add picked depths if provided
-    if picked_depths_a is not None:
-        for i, depth in enumerate(picked_depths_a):
+    if picked_datum_a is not None:
+        for i, depth in enumerate(picked_datum_a):
             # Get the category if available
             category = 1  # Default category
             if picked_categories_a and i < len(picked_categories_a):
@@ -973,8 +976,8 @@ def plot_multilog_segment_pair_correlation(log_a, log_b, md_a, md_b,
             ax.text(0.1, depth, f"#{category}", fontsize=8, color=color, 
                    bbox=dict(facecolor='white', alpha=0.7, pad=1))
     
-    if picked_depths_b is not None:
-        for i, depth in enumerate(picked_depths_b):
+    if picked_datum_b is not None:
+        for i, depth in enumerate(picked_datum_b):
             # Get the category if available
             category = 1  # Default category
             if picked_categories_b and i < len(picked_categories_b):
@@ -1049,9 +1052,7 @@ def plot_multilog_segment_pair_correlation(log_a, log_b, md_a, md_b,
     return fig
 
 
-def visualize_combined_segments(log_a, log_b, md_a, md_b, dtw_results, valid_dtw_pairs, 
-                              segments_a, segments_b, depth_boundaries_a, depth_boundaries_b,
-                              dtw_distance_matrix_full, segment_pairs_to_combine, 
+def visualize_combined_segments(dtw_result, log_a, log_b, md_a, md_b, segment_pairs_to_combine, 
                               correlation_save_path='CombinedSegmentPairs_DTW_correlation.png',
                               matrix_save_path='CombinedSegmentPairs_DTW_matrix.png',
                               color_interval_size=None,
@@ -1059,40 +1060,29 @@ def visualize_combined_segments(log_a, log_b, md_a, md_b, dtw_results, valid_dtw
                               visualize_segment_labels=True,
                               mark_depths=True, mark_ages=False,
                               ages_a=None, ages_b=None,
-                              all_constraint_depths_a=None, all_constraint_depths_b=None,
-                              all_constraint_ages_a=None, all_constraint_ages_b=None,
-                              all_constraint_pos_errors_a=None, all_constraint_pos_errors_b=None,
-                              all_constraint_neg_errors_a=None, all_constraint_neg_errors_b=None,
-                              # Age constraint visualization parameters (default None)
-                              age_constraint_a_source_cores=None,
-                              age_constraint_b_source_cores=None,
+                              core_a_age_data=None, core_b_age_data=None,
                               core_a_name=None,
                               core_b_name=None,
                               # Bed correlation parameters
-                              interpreted_bed_a=None,
-                              interpreted_bed_b=None):
+                              core_a_interpreted_beds=None,
+                              core_b_interpreted_beds=None,
+                              dpi=None):
     """
     Combine selected segment pairs and visualize the results.
     
     Parameters:
     -----------
+    dtw_result : dict
+        Dictionary containing DTW analysis results from run_comprehensive_dtw_analysis().
+        Expected keys: 'dtw_correlation', 'valid_dtw_pairs', 'segments_a', 'segments_b',
+        'depth_boundaries_a', 'depth_boundaries_b', 'dtw_distance_matrix_full'
     log_a, log_b : array-like
         Log data arrays
     md_a, md_b : array-like
         Measured depth arrays
-    dtw_results : dict
-        Dictionary containing DTW results for each segment pair
-    valid_dtw_pairs : set
-        Set of valid segment pairs (a_idx, b_idx)
-    segments_a, segments_b : list
-        Segments in log_a and log_b
-    depth_boundaries_a, depth_boundaries_b : list
-        Depth boundaries for log_a and log_b
-    dtw_distance_matrix_full : numpy.ndarray
-        The full DTW distance matrix
     segment_pairs_to_combine : list
         List of tuples (a_idx, b_idx) for segment pairs to combine
-    interpreted_bed_a, interpreted_bed_b : array-like, optional
+    core_a_interpreted_beds, core_b_interpreted_beds : array-like, optional
         Arrays of interpreted bed names corresponding to depth boundaries (excluding first and last).
         When both provided with matching bed names, correlation lines will be drawn between cores.
     [... other parameters remain the same ...]
@@ -1100,8 +1090,48 @@ def visualize_combined_segments(log_a, log_b, md_a, md_b, dtw_results, valid_dtw
     Returns:
     --------
     tuple
-        (combined_wp, combined_quality, correlation_fig, matrix_fig)
+        (combined_wp, combined_quality)
+        - combined_wp : numpy.ndarray
+            Combined warping path spanning all selected segments
+        - combined_quality : dict
+            Aggregated quality metrics for the combined correlation
     """
+    
+    # Extract variables from unified dictionary
+    dtw_results = dtw_result['dtw_correlation']
+    valid_dtw_pairs = dtw_result['valid_dtw_pairs']
+    segments_a = dtw_result['segments_a']
+    segments_b = dtw_result['segments_b']
+    depth_boundaries_a = dtw_result['depth_boundaries_a']
+    depth_boundaries_b = dtw_result['depth_boundaries_b']
+    dtw_distance_matrix_full = dtw_result['dtw_distance_matrix_full']
+    
+    # Extract age constraint data from core_a_age_data and core_b_age_data if provided
+    if core_a_age_data is not None:
+        all_constraint_depths_a = core_a_age_data.get('in_sequence_depths')
+        all_constraint_ages_a = core_a_age_data.get('in_sequence_ages')
+        all_constraint_pos_errors_a = core_a_age_data.get('in_sequence_pos_errors')
+        all_constraint_neg_errors_a = core_a_age_data.get('in_sequence_neg_errors')
+        age_constraint_a_source_cores = core_a_age_data.get('core')
+    else:
+        all_constraint_depths_a = None
+        all_constraint_ages_a = None
+        all_constraint_pos_errors_a = None
+        all_constraint_neg_errors_a = None
+        age_constraint_a_source_cores = None
+    
+    if core_b_age_data is not None:
+        all_constraint_depths_b = core_b_age_data.get('in_sequence_depths')
+        all_constraint_ages_b = core_b_age_data.get('in_sequence_ages')
+        all_constraint_pos_errors_b = core_b_age_data.get('in_sequence_pos_errors')
+        all_constraint_neg_errors_b = core_b_age_data.get('in_sequence_neg_errors')
+        age_constraint_b_source_cores = core_b_age_data.get('core')
+    else:
+        all_constraint_depths_b = None
+        all_constraint_ages_b = None
+        all_constraint_pos_errors_b = None
+        all_constraint_neg_errors_b = None
+        age_constraint_b_source_cores = None
     
     # Helper function: Create a global colormap function that uses the full log data
     def create_global_colormap(log_a, log_b):
@@ -1217,7 +1247,7 @@ def visualize_combined_segments(log_a, log_b, md_a, md_b, dtw_results, valid_dtw
     
     if combined_wp is None:
         print("Failed to combine segment pairs. No visualization created.")
-        return None, None, None, None
+        return None, None
     
     # Use color_interval_size if provided, otherwise use default calculation
     if color_interval_size is not None:
@@ -1271,12 +1301,13 @@ def visualize_combined_segments(log_a, log_b, md_a, md_b, dtw_results, valid_dtw
         all_constraint_pos_errors_a=all_constraint_pos_errors_a,
         all_constraint_pos_errors_b=all_constraint_pos_errors_b,
         all_constraint_neg_errors_a=all_constraint_neg_errors_a,
-        all_constraint_neg_errors_b=all_constraint_neg_errors_b
+        all_constraint_neg_errors_b=all_constraint_neg_errors_b,
+        dpi=dpi
     )
 
     # NEW: Add bed correlation lines if conditions are met
     if correlation_fig is not None:
-        bed_matches = validate_bed_arrays(interpreted_bed_a, interpreted_bed_b, 
+        bed_matches = validate_bed_arrays(core_a_interpreted_beds, core_b_interpreted_beds, 
                                         depth_boundaries_a, depth_boundaries_b)
         
         if bed_matches:
@@ -1286,25 +1317,11 @@ def visualize_combined_segments(log_a, log_b, md_a, md_b, dtw_results, valid_dtw
             
             # Re-save the correlation figure with bed correlation lines
             os.makedirs(os.path.dirname(correlation_save_path), exist_ok=True)
-            correlation_fig.savefig(correlation_save_path, dpi=150, bbox_inches='tight')
+            save_dpi = dpi if dpi is not None else 150
+            correlation_fig.savefig(correlation_save_path, dpi=save_dpi, bbox_inches='tight')
 
     # Create DTW matrix plot
-    if mark_ages:
-        matrix_age_constraint_a_depths = all_constraint_depths_a
-        matrix_age_constraint_a_ages = all_constraint_ages_a
-        matrix_age_constraint_a_source_cores = age_constraint_a_source_cores
-        matrix_age_constraint_b_depths = all_constraint_depths_b
-        matrix_age_constraint_b_ages = all_constraint_ages_b
-        matrix_age_constraint_b_source_cores = age_constraint_b_source_cores
-    else:
-        matrix_age_constraint_a_depths = None
-        matrix_age_constraint_a_ages = None
-        matrix_age_constraint_a_source_cores = None
-        matrix_age_constraint_b_depths = None
-        matrix_age_constraint_b_ages = None
-        matrix_age_constraint_b_source_cores = None
-
-    matrix_fig = plot_dtw_matrix_with_paths(
+    plot_dtw_matrix_with_paths(
         dtw_distance_matrix_full, 
         mode='combined_path',
         segment_pairs=segment_pairs_to_combine, 
@@ -1317,38 +1334,35 @@ def visualize_combined_segments(log_a, log_b, md_a, md_b, dtw_results, valid_dtw
         output_filename=matrix_save_path,
         visualize_pairs=visualize_pairs,
         visualize_segment_labels=visualize_segment_labels,
-        # Age constraint parameters (conditionally set)
-        age_constraint_a_depths=matrix_age_constraint_a_depths,
-        age_constraint_a_ages=matrix_age_constraint_a_ages,
-        age_constraint_a_source_cores=matrix_age_constraint_a_source_cores,
-        age_constraint_b_depths=matrix_age_constraint_b_depths,
-        age_constraint_b_ages=matrix_age_constraint_b_ages,
-        age_constraint_b_source_cores=matrix_age_constraint_b_source_cores,
+        core_a_age_data=core_a_age_data if mark_ages else None,
+        core_b_age_data=core_b_age_data if mark_ages else None,
         md_a=md_a,
         md_b=md_b,
         core_a_name=core_a_name,
-        core_b_name=core_b_name
+        core_b_name=core_b_name,
+        dpi=dpi
     )
 
-    return combined_wp, combined_quality, correlation_fig, matrix_fig
+    return combined_wp, combined_quality
 
 
-def plot_correlation_distribution(csv_file, target_mapping_id=None, quality_index=None, save_png=True, png_filename=None, core_a_name=None, core_b_name=None, bin_width=None, pdf_method='KDE', kde_bandwidth=0.05, mute_mode=False, targeted_binsize=None):
+def plot_correlation_distribution(mapping_csv, target_mapping_id=None, quality_index=None, save_png=True, png_filename=None, core_a_name=None, core_b_name=None, bin_width=None, pdf_method='normal', kde_bandwidth=0.05, mute_mode=False, targeted_binsize=None, dpi=None):
     """
     UPDATED: Handle new CSV format with different column structure.
     Plot distribution of a specified quality index.
     
     Parameters:
-    - csv_file: path to the CSV/Parquet file containing mapping results
+    - mapping_csv: path to the CSV/Parquet file containing mapping results
     - quality_index: required parameter specifying which quality index to plot
     - target_mapping_id: optional mapping ID to highlight in the plot
     - save_png: whether to save the plot as PNG (default: True)
     - png_filename: optional custom filename for saving PNG
     - bin_width: width of histogram bins (default: None for automatic estimation based on quality_index)
-    - pdf_method: str, method for probability density function overlay: 'KDE' (default), 'skew-normal', or 'normal'
+    - pdf_method: str, method for probability density function overlay: 'KDE', 'skew-normal', or 'normal' (default)
     - kde_bandwidth: float, bandwidth for KDE when pdf_method='KDE' (default: 0.05)
     - mute_mode: bool, if True, suppress all print statements (default: False)
     - targeted_binsize: tuple or None, (synthetic_bins, bin_width) for consistent bin sizing with synthetic data (default: None)
+    - dpi: int, optional resolution for saved figures in dots per inch. If None, uses default (150)
     """
     
     # Define quality index display names and descriptions
@@ -1372,17 +1386,17 @@ def plot_correlation_distribution(csv_file, target_mapping_id=None, quality_inde
     
     # Load the file - auto-detect format
     try:
-        if csv_file.lower().endswith('.pkl'):
-            df = pd.read_pickle(csv_file)
+        if mapping_csv.lower().endswith('.pkl'):
+            df = pd.read_pickle(mapping_csv)
         else:
-            df = pd.read_csv(csv_file)
+            df = pd.read_csv(mapping_csv)
     except FileNotFoundError:
         if not mute_mode:
-            print(f"File not found: {csv_file}")
+            print(f"File not found: {mapping_csv}")
         return None, None, {}
     except Exception as e:
         if not mute_mode:
-            print(f"Error reading file {csv_file}: {e}")
+            print(f"Error reading file {mapping_csv}: {e}")
         return None, None, {}
     
     # Check if quality_index column exists
@@ -1632,7 +1646,8 @@ def plot_correlation_distribution(csv_file, target_mapping_id=None, quality_inde
             if output_dir:
                 os.makedirs(output_dir, exist_ok=True)
             
-            plt.savefig(final_png_path, dpi=150, bbox_inches='tight')
+            save_dpi = dpi if dpi is not None else 150
+            plt.savefig(final_png_path, dpi=save_dpi, bbox_inches='tight')
         
         # Show the plot
         plt.tight_layout()
@@ -1966,7 +1981,7 @@ def _create_histogram_and_pdf_like_plot_correlation_distribution(quality_values,
 def plot_quality_distributions(quality_data, target_quality_indices, output_figure_filenames, 
                                CORE_A, CORE_B, debug=True, return_plot_info=False,
                                plot_real_data_histogram=True, plot_age_removal_step_pdf=True,
-                               synthetic_csv_filenames=None, best_datum_values=None):
+                               synthetic_csv_filenames=None, best_datum_values=None, dpi=None):
     """
     Plot quality index distributions comparing real data vs synthetic null hypothesis.
     
@@ -1997,6 +2012,8 @@ def plot_quality_distributions(quality_data, target_quality_indices, output_figu
         Dictionary mapping quality_index to synthetic CSV filename paths for loading histogram data
     best_datum_values : dict, optional
         Dictionary mapping quality_index to best datum match values to plot as vertical lines
+    dpi : int, optional
+        Resolution for saved figures in dots per inch. If None, uses default (150)
     
     Returns:
     --------
@@ -2858,7 +2875,8 @@ def plot_quality_distributions(quality_data, target_quality_indices, output_figu
             if output_dir:
                 os.makedirs(output_dir, exist_ok=True)
             
-            plt.savefig(output_filename, dpi=150, bbox_inches='tight')
+            save_dpi = dpi if dpi is not None else 150
+            plt.savefig(output_filename, dpi=save_dpi, bbox_inches='tight')
             
             if debug:  # debug=True means mute_mode=True, show essential info only
                 print(f"✓ Distribution plot saved as: {output_filename}")
@@ -2888,7 +2906,7 @@ def plot_quality_distributions(quality_data, target_quality_indices, output_figu
 
 
 def plot_t_statistics_vs_constraints(quality_data, target_quality_indices, output_figure_filenames,
-                                     CORE_A, CORE_B, debug=True, n_jobs=-1, batch_size=None, return_plot_info=False):
+                                     CORE_A, CORE_B, debug=True, n_jobs=-1, batch_size=None, return_plot_info=False, dpi=None):
     """
     Plot t-statistics vs number of age constraints for each quality index.
     OPTIMIZED with parallel processing and dynamic sizing.
@@ -3331,7 +3349,8 @@ def plot_t_statistics_vs_constraints(quality_data, target_quality_indices, outpu
             if output_dir:
                 os.makedirs(output_dir, exist_ok=True)
             
-            plt.savefig(t_stat_filename, dpi=150, bbox_inches='tight')
+            save_dpi = dpi if dpi is not None else 150
+            plt.savefig(t_stat_filename, dpi=save_dpi, bbox_inches='tight')
             if debug:  # debug=True means mute_mode=True, show essential info only
                 print(f"✓ t-statistics plot saved as: {t_stat_filename}")
             else:  # debug=False means mute_mode=False, show detailed info

@@ -36,16 +36,13 @@ def plot_dtw_matrix_with_paths(dtw_distance_matrix_full,
                            visualize_segment_labels=False,
                            n_jobs=-1,
                            color_metric=None,
-                           age_constraint_a_depths=None,
-                           age_constraint_a_ages=None, 
-                           age_constraint_a_source_cores=None,
-                           age_constraint_b_depths=None,
-                           age_constraint_b_ages=None,
-                           age_constraint_b_source_cores=None,
+                           core_a_age_data=None,
+                           core_b_age_data=None,
                            md_a=None,
                            md_b=None,
                            core_a_name=None,
-                           core_b_name=None):
+                           core_b_name=None,
+                           dpi=None):
     """
     Visualize DTW distance matrices with various path plotting options and age constraints.
     
@@ -89,17 +86,14 @@ def plot_dtw_matrix_with_paths(dtw_distance_matrix_full,
     color_metric : str, optional
         Metric for coloring paths in 'all_paths_colored' mode. Options: 'corr_coef',
         'norm_dtw', 'dtw_ratio', 'perc_diag', 'dtw_warp_eff', 'perc_age_overlap'. If None, uses mapping_id
-    age_constraint_a_depths : list, optional
-        List of constraint depths for core A
-    age_constraint_a_ages : list, optional
-        List of constraint ages for core A
-    age_constraint_a_source_cores : list, optional
-        List of source core names for core A constraints. When provided,
+    core_a_age_data : dict, optional
+        Complete age constraint data for core A from load_core_age_constraints(). Expected keys: 
+        'in_sequence_ages', 'in_sequence_depths', 'core'. When provided with 'core' key,
         horizontal constraint lines will be drawn
-    age_constraint_b_depths : list, optional
-        List of constraint depths for core B
-    age_constraint_b_ages : list, optional
-        List of constraint ages for core B
+    core_b_age_data : dict, optional
+        Complete age constraint data for core B from load_core_age_constraints(). Expected keys: 
+        'in_sequence_ages', 'in_sequence_depths', 'core'. When provided with 'core' key,
+        vertical constraint lines will be drawn
     age_constraint_b_source_cores : list, optional
         List of source core names for core B constraints. When provided,
         vertical constraint lines will be drawn
@@ -107,6 +101,8 @@ def plot_dtw_matrix_with_paths(dtw_distance_matrix_full,
         Measured depth arrays for cores A and B (needed for age constraint positioning)
     core_a_name, core_b_name : str, optional
         Core names for constraint line coloring and axis labels
+    dpi : int, optional
+        Resolution for saved figures in dots per inch. If None, uses default (150)
         
     Returns
     -------
@@ -160,6 +156,25 @@ def plot_dtw_matrix_with_paths(dtw_distance_matrix_full,
     from joblib import Parallel, delayed
     import warnings
     from tqdm.auto import tqdm
+
+    # Extract age constraint data from core_a_age_data and core_b_age_data if provided
+    if core_a_age_data is not None:
+        age_constraint_a_depths = core_a_age_data.get('in_sequence_depths')
+        age_constraint_a_ages = core_a_age_data.get('in_sequence_ages')
+        age_constraint_a_source_cores = core_a_age_data.get('core')
+    else:
+        age_constraint_a_depths = None
+        age_constraint_a_ages = None
+        age_constraint_a_source_cores = None
+    
+    if core_b_age_data is not None:
+        age_constraint_b_depths = core_b_age_data.get('in_sequence_depths')
+        age_constraint_b_ages = core_b_age_data.get('in_sequence_ages')
+        age_constraint_b_source_cores = core_b_age_data.get('core')
+    else:
+        age_constraint_b_depths = None
+        age_constraint_b_ages = None
+        age_constraint_b_source_cores = None
 
     def parse_compact_warping_path(compact_wp_str):
         """
@@ -646,7 +661,8 @@ def plot_dtw_matrix_with_paths(dtw_distance_matrix_full,
             os.makedirs(output_dir, exist_ok=True)
         
         plt.tight_layout()
-        plt.savefig(output_filename, dpi=150, bbox_inches='tight')
+        save_dpi = dpi if dpi is not None else 150
+        plt.savefig(output_filename, dpi=save_dpi, bbox_inches='tight')
         
         return output_filename
 

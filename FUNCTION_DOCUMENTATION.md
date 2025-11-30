@@ -13,30 +13,61 @@ This document provides detailed documentation for all functions in the pyCoreRel
 **Parameters:**
 - `log_a, log_b` (array-like): Well log data for cores A and B (1D or multidimensional)
 - `md_a, md_b` (array-like): Measured depth arrays corresponding to the logs
-- `picked_depths_a, picked_depths_b` (list, optional): User-picked depth boundaries for segmentation
+- `picked_datum_a, picked_datum_b` (list, optional): User-picked depth boundaries for segmentation
 - `core_a_name, core_b_name` (str, optional): Core identifiers for output files
 - `top_bottom` (bool, default=True): Whether to include top and bottom boundaries automatically
 - `top_depth` (float, default=0.0): Depth value for top boundary
 - `independent_dtw` (bool, default=False): Whether to process multidimensional logs independently
-- `exclude_deadend` (bool, default=True): Whether to filter out dead-end segment pairs
-- `age_consideration` (bool, default=False): Whether to apply age-based filtering
-- `ages_a, ages_b` (dict, optional): Age constraint dictionaries with interpolated ages
-- `restricted_age_correlation` (bool, default=True): Whether to use strict age correlation filtering
-- `all_constraint_ages_a, all_constraint_ages_b` (list, optional): All age constraints for filtering
-- `all_constraint_depths_a, all_constraint_depths_b` (list, optional): Corresponding depth constraints
-- `all_constraint_pos_errors_a, all_constraint_pos_errors_b` (list, optional): Positive age uncertainties
-- `all_constraint_neg_errors_a, all_constraint_neg_errors_b` (list, optional): Negative age uncertainties
+- `create_dtw_matrix` (bool, default=False): Whether to generate DTW matrix visualization
 - `visualize_pairs` (bool, default=True): Whether to create segment pair visualizations
-- `create_dtw_matrix` (bool, default=True): Whether to generate DTW matrix visualization
+- `visualize_segment_labels` (bool, default=False): Whether to show segment labels in visualizations
+- `dtwmatrix_output_filename` (str, default='SegmentPair_DTW_matrix.png'): Filename for DTW matrix output
 - `creategif` (bool, default=False): Whether to create animated GIF sequences
+- `gif_output_filename` (str, default='SegmentPair_DTW_animation.gif'): Filename for animation output
+- `max_frames` (int, default=100): Maximum number of frames in animation
+- `debug` (bool, default=False): Enable debug output
+- `color_interval_size` (float, default=10): Color interval size for visualizations
+- `keep_frames` (bool, default=True): Keep individual animation frames
+- `age_consideration` (bool, default=False): Whether to apply age-based filtering
+- `ages_a, ages_b` (dict, optional): Age constraint dictionaries with interpolated ages for picked depths
+- `restricted_age_correlation` (bool, default=True): Whether to use strict age correlation filtering
+- `core_a_age_data, core_b_age_data` (dict, optional): Complete age constraint data from `load_core_age_constraints()`. Expected keys: 'in_sequence_ages', 'in_sequence_depths', 'in_sequence_pos_errors', 'in_sequence_neg_errors', 'core'. Required when `age_consideration=True`
+- `dtw_distance_threshold` (float, default=None): Maximum allowed DTW distance for segment acceptance
+- `exclude_deadend` (bool, default=True): Whether to filter out dead-end segment pairs
 - `mute_mode` (bool, default=False): Whether to suppress print output for batch processing
+- `pca_for_dependent_dtw` (bool, default=False): Use PCA for dependent multidimensional DTW (if False, uses conventional multidimensional DTW)
+- `dpi` (int, default=None): Resolution for saved figures and GIF frames in dots per inch. If None, uses default (150)
 
 **Returns:**
-- `dtw_results` (dict): Comprehensive DTW results for each valid segment pair
-- `valid_dtw_pairs` (set): Set of valid segment pair indices after all filtering
-- `segments_a, segments_b` (list): Lists of segment boundaries for each core
-- `depth_boundaries_a, depth_boundaries_b` (list): Depth boundary indices
-- `dtw_distance_matrix_full` (np.ndarray): Full DTW distance matrix for visualization
+- `dict`: Dictionary containing all DTW analysis results with the following keys:
+  - `dtw_correlation` (dict): DTW results for valid segment pairs (renamed from dtw_results)
+  - `valid_dtw_pairs` (set): Set of valid segment pair indices after all filtering
+  - `segments_a` (list): Segment definitions for log_a
+  - `segments_b` (list): Segment definitions for log_b
+  - `depth_boundaries_a` (list): Depth boundaries for log_a segments
+  - `depth_boundaries_b` (list): Depth boundaries for log_b segments
+  - `dtw_distance_matrix_full` (np.ndarray): Full DTW distance matrix for visualization
+
+**Example:**
+```python
+# Load age constraint data
+age_data_a = load_core_age_constraints('M9907-25PC', 'example_data/raw_data/C14age_data', data_columns)
+age_data_b = load_core_age_constraints('M9907-23PC', 'example_data/raw_data/C14age_data', data_columns)
+
+# Run DTW analysis with simplified age data parameters
+dtw_result = run_comprehensive_dtw_analysis(
+    log_a, log_b, md_a, md_b,
+    picked_datum_a=picked_depths_a,
+    picked_datum_b=picked_depths_b,
+    age_consideration=True,
+    ages_a=estimated_datum_ages_a,
+    ages_b=estimated_datum_ages_b,
+    core_a_age_data=age_data_a,  # Simplified parameter
+    core_b_age_data=age_data_b,  # Simplified parameter
+    core_a_name='M9907-25PC',
+    core_b_name='M9907-23PC'
+)
+```
 
 #### `handle_single_point_dtw(log1, log2, exponent=1, QualityIndex=False)`
 
@@ -131,26 +162,88 @@ Calculates the percentage of age range overlap between two age intervals relativ
 **Returns:**
 - `float`: Percentage overlap (0-100) of age ranges relative to their combined span
 
-### Age Models (`age_models.py`)
+#### `find_best_mappings(input_mapping_csv, top_n=10, filter_shortest_dtw=True, metric_weight=None, core_a_picked_datums=None, core_b_picked_datums=None, core_a_interpreted_beds=None, core_b_interpreted_beds=None, dtw_result=None)`
 
-#### `calculate_interpolated_ages(picked_depths, age_constraints_depths, age_constraints_ages, age_constraints_pos_errors, age_constraints_neg_errors, **kwargs)`
-
-**ENHANCED** - Calculates interpolated or extrapolated ages for picked depths based on age constraints using various uncertainty propagation methods.
+Finds the best DTW mappings based on multiple quality metrics with configurable scoring. Supports two modes: standard best mappings finder and boundary correlation filtering mode.
 
 **Parameters:**
-- `picked_depths` (list): List of picked depths in cm requiring age estimates
-- `age_constraints_depths` (list): Mean depths for age constraint points
-- `age_constraints_ages` (list): Calibrated ages for constraint points
-- `age_constraints_pos_errors, age_constraints_neg_errors` (list): Positive and negative age uncertainties
-- `age_constraints_in_sequence_flags` (list, optional): Boolean flags indicating which constraints are stratigraphically in-sequence
+- `input_mapping_csv` (str): Path to CSV file containing DTW mapping results
+- `top_n` (int, default=10): Number of top mappings to return
+- `filter_shortest_dtw` (bool, default=True): Whether to filter for shortest DTW path length first
+- `metric_weight` (dict, optional): Dictionary of weights for different quality metrics. If None, uses default weights
+- `core_a_picked_datums` (list, optional): Picked depth values for core A. Required for boundary correlation mode
+- `core_b_picked_datums` (list, optional): Picked depth values for core B. Required for boundary correlation mode
+- `core_a_interpreted_beds` (list, optional): Interpreted bed names for core A boundaries. Required for boundary correlation mode
+- `core_b_interpreted_beds` (list, optional): Interpreted bed names for core B boundaries. Required for boundary correlation mode
+- `dtw_result` (dict, optional): Dictionary containing DTW analysis results from `run_comprehensive_dtw_analysis()`. Expected keys: 'valid_dtw_pairs', 'segments_a', 'segments_b'. Required only for boundary correlation mode
+
+**Returns:**
+- `tuple`: (top_mapping_ids, top_mapping_pairs, top_mappings_df)
+  - `top_mapping_ids` (list): List of best mapping IDs
+  - `top_mapping_pairs` (list): List of segment pair combinations for each mapping
+  - `top_mappings_df` (pandas.DataFrame): DataFrame containing top mappings with scores
+
+**Example:**
+```python
+# Standard mode - find best mappings by quality metrics
+top_ids, top_pairs, top_df = find_best_mappings(
+    input_mapping_csv='mappings.csv',
+    top_n=10,
+    filter_shortest_dtw=True,
+    metric_weight={'corr_coef': 1.0, 'norm_dtw': 1.0}
+)
+
+# Boundary correlation mode - find mappings that match interpreted bed correlations
+dtw_result = run_comprehensive_dtw_analysis(...)
+top_ids, top_pairs, top_df = find_best_mappings(
+    input_mapping_csv='mappings.csv',
+    core_a_picked_datums=picked_depths_a,
+    core_b_picked_datums=picked_depths_b,
+    core_a_interpreted_beds=interpreted_bed_a,
+    core_b_interpreted_beds=interpreted_bed_b,
+    dtw_result=dtw_result
+)
+```
+
+### Age Models (`age_models.py`)
+
+#### `calculate_interpolated_ages(picked_datum, age_data=None, **kwargs)`
+
+**ENHANCED** - Calculates interpolated or extrapolated ages for picked depths based on age constraints using various uncertainty propagation methods. Supports both simplified `age_data` parameter and legacy individual parameters.
+
+**Parameters:**
+- `picked_datum` (list): List of picked depths in cm requiring age estimates
+- `age_data` (dict, optional): Dictionary containing age constraint data from `load_core_age_constraints()`. If provided, this will be used instead of individual age constraint parameters. Expected keys: 'depths', 'ages', 'pos_errors', 'neg_errors', 'in_sequence_flags', 'core'
+- `age_constraints_depths` (list, optional): Mean depths for age constraint points (not required if `age_data` is provided)
+- `age_constraints_ages` (list, optional): Calibrated ages for constraint points (not required if `age_data` is provided)
+- `age_constraints_pos_errors, age_constraints_neg_errors` (list, optional): Positive and negative age uncertainties (not required if `age_data` is provided)
+- `age_constraints_in_sequence_flags` (list, optional): Boolean flags indicating which constraints are stratigraphically in-sequence (not required if `age_data` is provided)
+- `age_constraint_source_core` (list, optional): Source core names for each age constraint (not required if `age_data` is provided)
 - `uncertainty_method` (str, default='MonteCarlo'): Method for uncertainty propagation ('Linear', 'MonteCarlo', 'Gaussian')
 - `n_monte_carlo` (int, default=10000): Number of Monte Carlo iterations for uncertainty estimation
 - `top_age, top_age_pos_error, top_age_neg_error` (float): Age and uncertainties at top depth
+- `bottom_depth` (float, optional): Depth at the bottom of the core in cm
 - `show_plot` (bool, default=False): Whether to display age-depth model plot
 - `export_csv` (bool, default=True): Whether to export results to CSV file
+- `csv_filename` (str, optional): Full path for output CSV file
+- `print_ages` (bool, default=True): If True, print age constraint data and estimated ages information. If False, suppress printing
+- `core_name` (str, optional): Name of the core for plot title and file naming
+- `mute_mode` (bool, default=False): If True, suppress all print outputs
 
 **Returns:**
-- `dict`: Dictionary containing interpolated ages and uncertainties for each depth with keys 'depths', 'ages', 'pos_uncertainties', 'neg_uncertainties'
+- `dict`: Dictionary containing interpolated ages and uncertainties for each depth with keys 'depths', 'ages', 'pos_uncertainties', 'neg_uncertainties', 'uncertainty_method'
+
+**Example:**
+```python
+# Recommended method using age_data
+age_data = load_core_age_constraints('M9907-25PC', 'example_data/raw_data/C14age_data', data_columns)
+result = calculate_interpolated_ages(
+    picked_datum=[10, 20, 30],
+    age_data=age_data,
+    uncertainty_method='MonteCarlo',
+    core_name='M9907-25PC'
+)
+```
 
 #### `check_age_constraint_compatibility(a_lower_bound, a_upper_bound, b_lower_bound, b_upper_bound, constraint_ages_a, constraint_ages_b, constraint_pos_errors_a, constraint_pos_errors_b, constraint_neg_errors_a, constraint_neg_errors_b, ages_a=None, ages_b=None)`
 
@@ -169,14 +262,14 @@ Checks compatibility between two segment pairs based on their age ranges and con
 
 ### Segment Operations (`segments.py`)
 
-#### `find_all_segments(log_a, log_b, md_a, md_b, picked_depths_a=None, picked_depths_b=None, top_bottom=True, top_depth=0.0, mute_mode=False)`
+#### `find_all_segments(log_a, log_b, md_a, md_b, picked_datum_a=None, picked_datum_b=None, top_bottom=True, top_depth=0.0, mute_mode=False)`
 
 Identifies segments in two logs using picked depths, creating consecutive boundary segments and single point segments for correlation analysis.
 
 **Parameters:**
 - `log_a, log_b` (array-like): Log data arrays for cores A and B
 - `md_a, md_b` (array-like): Measured depth arrays corresponding to logs
-- `picked_depths_a, picked_depths_b` (list, optional): User-picked depth values (not indices)
+- `picked_datum_a, picked_datum_b` (list, optional): User-picked depth values (not indices)
 - `top_bottom` (bool, default=True): Whether to include top and bottom boundaries
 - `top_depth` (float, default=0.0): Depth value for top boundary
 
@@ -185,33 +278,34 @@ Identifies segments in two logs using picked depths, creating consecutive bounda
 - `depth_boundaries_a, depth_boundaries_b` (list): Lists of depth boundary indices
 - `depth_values_a, depth_values_b` (list): Lists of actual depth values used as boundaries
 
-#### `find_complete_core_paths(valid_dtw_pairs, segments_a, segments_b, log_a, log_b, depth_boundaries_a, depth_boundaries_b, dtw_results, **kwargs)`
+#### `find_complete_core_paths(dtw_result, log_a, log_b, **kwargs)`
 
 Finds complete correlation paths spanning entire cores by connecting valid segment pairs from top to bottom.
 
 **Parameters:**
-- `valid_dtw_pairs` (set): Set of valid segment pair indices
-- `segments_a, segments_b` (list): Segment definitions for each core
+- `dtw_result` (dict): Dictionary containing DTW analysis results from `run_comprehensive_dtw_analysis()`. Expected keys: 'dtw_correlation', 'valid_dtw_pairs', 'segments_a', 'segments_b', 'depth_boundaries_a', 'depth_boundaries_b', 'dtw_distance_matrix_full'
 - `log_a, log_b` (array-like): Log data for path quality assessment
-- `depth_boundaries_a, depth_boundaries_b` (list): Depth boundary indices
-- `dtw_results` (dict): DTW results for segment pairs
 - `output_csv` (str, default="complete_core_paths.csv"): Output file for complete paths
 - `debug` (bool, default=False): Whether to print detailed progress information
 - `start_from_top_only` (bool, default=True): Whether to only consider paths starting from top segments
+- `batch_size` (int, default=1000): Processing batch size for memory management
+- `n_jobs` (int, default=-1): Number of parallel jobs (-1 uses all CPU cores)
 - `shortest_path_search` (bool, default=True): Whether to prioritize shorter paths
-- `max_search_path` (int, default=5000): Maximum number of paths to explore
+- `shortest_path_level` (int, default=2): Number of shortest unique lengths to keep (higher = more segments)
+- `max_search_path` (int, default=5000): Maximum number of paths to explore per segment pair to prevent memory overflow
+- `output_metric_only` (bool, default=False): If True, only output quality metrics without full path details
+- `mute_mode` (bool, default=False): Suppress all print output
+- `pca_for_dependent_dtw` (bool, default=False): Use PCA for dependent DTW quality calculations
 
 **Returns:**
 - `str`: Path to output CSV file containing complete correlation paths with quality metrics
 
-#### `diagnose_chain_breaks(valid_dtw_pairs, segments_a, segments_b, depth_boundaries_a, depth_boundaries_b)`
+#### `diagnose_chain_breaks(dtw_result)`
 
 Diagnoses connectivity issues in segment chains by identifying missing connections and isolated segments.
 
 **Parameters:**
-- `valid_dtw_pairs` (set): Set of valid segment pairs
-- `segments_a, segments_b` (list): Segment definitions
-- `depth_boundaries_a, depth_boundaries_b` (list): Depth boundary indices
+- `dtw_result` (dict): Dictionary containing DTW analysis results from `run_comprehensive_dtw_analysis()`. Expected keys: 'valid_dtw_pairs', 'segments_a', 'segments_b', 'depth_boundaries_a', 'depth_boundaries_b'
 
 **Returns:**
 - `dict`: Diagnostic information including missing connections, isolated segments, and connectivity statistics
@@ -337,7 +431,23 @@ Create synthetic log using turbidite database approach with picked depths at tur
 - `repetition` (bool, default=False): If True, allow reusing turbidite segments; if False, each segment can only be used once
 
 **Returns:**
-- `tuple`: (log, d, valid_picked_depths, inds) containing synthetic log data, depths, turbidite boundary depths, and indices of segments used
+- `tuple`: (log, d, valid_picked_depths, inds)
+  - `log` (numpy.ndarray): Synthetic log data array
+  - `d` (numpy.ndarray): Depth values for the synthetic log
+  - `valid_picked_depths` (list): List of (depth, category) tuples marking turbidite boundaries
+  - `inds` (list): Indices of segments used from the segment pool
+
+**Example:**
+```python
+syn_log_a, syn_md_a, syn_depth_a, inds_a = create_synthetic_log(
+    target_thickness=600,
+    segment_logs=mod_seg_logs,
+    segment_depths=mod_seg_depths,
+    repetition=False
+)
+# syn_depth_a is a list of (depth, category) tuples
+# Extract just depths if needed: depths_only = [d for d, c in syn_depth_a]
+```
 
 #### `create_synthetic_core_pair(core_a_length, core_b_length, seg_logs, seg_depths, log_columns, repetition=False, plot_results=True, save_plot=False, plot_filename=None)`
 
@@ -356,15 +466,21 @@ Generate synthetic core pair (computation only) with optional plotting.
 
 **Returns:**
 - `tuple`: (synthetic_log_a, synthetic_md_a, inds_a, synthetic_picked_a, synthetic_log_b, synthetic_md_b, inds_b, synthetic_picked_b)
+  - `synthetic_log_a, synthetic_log_b` (numpy.ndarray): Synthetic log data arrays
+  - `synthetic_md_a, synthetic_md_b` (numpy.ndarray): Depth values for synthetic logs
+  - `inds_a, inds_b` (list): Indices of segments used from the segment pool
+  - `synthetic_picked_a, synthetic_picked_b` (list): Lists of depth values only (extracted from tuples returned by `create_synthetic_log`)
 
-#### `plot_synthetic_log(synthetic_log, synthetic_md, synthetic_picked_depths, log_column_names, title="Synthetic Log", save_plot=False, plot_filename=None)`
+**Note:** This function internally calls `create_synthetic_log()` which returns tuples `(depth, category)`, but `create_synthetic_core_pair()` extracts just the depth values for convenience.
+
+#### `plot_synthetic_log(synthetic_log, synthetic_md, synthetic_picked_datum, log_column_names, title="Synthetic Log", save_plot=False, plot_filename=None)`
 
 Plot a single synthetic log with turbidite boundaries.
 
 **Parameters:**
 - `synthetic_log` (array-like): Numpy array of log values (can be 1D or 2D for multiple log types)
 - `synthetic_md` (array-like): Numpy array of depth values
-- `synthetic_picked_depths` (list): List of turbidite boundary depths
+- `synthetic_picked_datum` (list): List of turbidite boundary depths or list of (depth, category) tuples
 - `log_column_names` (str or list): Name(s) of the log column(s) for labeling
 - `title` (str, default="Synthetic Log"): Title for the plot
 - `save_plot` (bool, default=False): Whether to save the plot to file
@@ -513,26 +629,78 @@ Removes specified pixels from top and bottom edges of image array to eliminate b
 
 ### RGB Image Plotting (`rgb_plotting.py`)
 
-#### `plot_rgbimg_curves(depths, r, g, b, r_std, g_std, b_std, lum, lum_std, img, core_name=None, save_figs=False, output_dir=None, fig_format=['png'])`
+#### `plot_rgbimg_curves(depths=None, r=None, g=None, b=None, r_std=None, g_std=None, b_std=None, lum=None, lum_std=None, img=None, rgb_metadata=None, core_name=None, save_figs=False, output_dir=None, fig_format=['png'], dpi=150)`
 
 Creates comprehensive three-panel visualization of RGB analysis results with image, color profiles, and standard deviation plots, supporting multiple output formats.
 
 **Parameters:**
-- `depths` (array-like): Depth positions in pixels
-- `r, g, b` (array-like): RGB color intensity values
-- `r_std, g_std, b_std` (array-like): RGB standard deviations
-- `lum, lum_std` (array-like): Luminance values and standard deviations
-- `img` (array-like): Core image array for display
+- `depths` (array-like, optional): Depth positions in pixels (not required if rgb_metadata is provided)
+- `r, g, b` (array-like, optional): RGB color intensity values (not required if rgb_metadata is provided)
+- `r_std, g_std, b_std` (array-like, optional): RGB standard deviations (not required if rgb_metadata is provided)
+- `lum, lum_std` (array-like, optional): Luminance values and standard deviations (not required if rgb_metadata is provided)
+- `img` (array-like, optional): Core image array for display (not required if rgb_metadata is provided)
+- `rgb_metadata` (dict, optional): Dictionary from `rgb_process_and_stitch()` containing all RGB data. Expected keys: 'depths', 'r', 'g', 'b', 'r_std', 'g_std', 'b_std', 'lum', 'lum_std', 'image'. If provided, individual parameters are ignored
 - `core_name` (str, optional): Core identifier for titles and file naming
 - `save_figs` (bool, default=False): Whether to save plots as files
 - `output_dir` (str, optional): Directory for saved files
-- `fig_format` (list, default=['png']): List of file formats to save. Acceptable formats: 'png', 'jpg'/'jpeg', 'svg', 'tiff', 'pdf'
+- `fig_format` (list, default=['png', 'tiff']): List of file formats to save. Acceptable formats: 'png', 'jpg'/'jpeg', 'svg', 'tiff', 'pdf'
+- `dpi` (int, default=150): Resolution in dots per inch for saved figures
 
 **Returns:**
 - None (displays plot and optionally saves files)
 
 **Raises:**
 - `ValueError`: If output_dir is not provided when save_figs is True
+
+**Example:**
+```python
+# Using individual parameters
+plot_rgbimg_curves(depths, r, g, b, r_std, g_std, b_std, lum, lum_std, img,
+                   core_name='M9907-23PC_RGB', save_figs=True, output_dir='output/')
+
+# Using metadata from rgb_process_and_stitch
+rgb_metadata = rgb_process_and_stitch(...)
+plot_rgbimg_curves(rgb_metadata=rgb_metadata, core_name='M9907-23PC_RGB', 
+                   save_figs=True, output_dir='output/')
+```
+
+### CT Image Plotting (`ct_plotting.py`)
+
+#### `plot_ctimg_curves(slice_data=None, brightness=None, stddev=None, pixel_spacing=None, ct_metadata=None, core_name="", save_figs=False, output_dir=None, vmin=400, vmax=2400, fig_format=['png', 'tiff'], dpi=150)`
+
+Creates comprehensive three-panel visualization of CT analysis results with CT slice, brightness trace, and standard deviation plots, supporting multiple output formats.
+
+**Parameters:**
+- `slice_data` (numpy.ndarray, optional): 2D CT slice data to display (not required if ct_metadata is provided)
+- `brightness` (numpy.ndarray, optional): 1D array of mean brightness values along depth (not required if ct_metadata is provided)
+- `stddev` (numpy.ndarray, optional): 1D array of standard deviation values along depth (not required if ct_metadata is provided)
+- `pixel_spacing` (tuple of float, optional): Tuple of (x, y) pixel spacing in mm/pixel for physical scaling (not required if ct_metadata is provided)
+- `ct_metadata` (dict, optional): Dictionary from `ct_process_and_stitch()` containing all CT data. Expected keys: 'slice', 'brightness', 'stddev', 'px_spacing_x', 'px_spacing_y'. If provided, individual parameters are ignored
+- `core_name` (str, default=""): Name of the core for title and filenames
+- `save_figs` (bool, default=False): Whether to save figures to files
+- `output_dir` (str, optional): Directory to save figures (required if save_figs=True)
+- `vmin` (float, default=400): Minimum value for colormap scaling
+- `vmax` (float, default=2400): Maximum value for colormap scaling
+- `fig_format` (list, default=['png', 'tiff']): List of file formats to save. Acceptable formats: 'png', 'jpg'/'jpeg', 'svg', 'pdf', 'tiff'
+- `dpi` (int, default=150): Resolution in dots per inch for saved figures
+
+**Returns:**
+- None (displays plot and optionally saves files)
+
+**Raises:**
+- `ValueError`: If output_dir is not provided when save_figs is True
+
+**Example:**
+```python
+# Using individual parameters
+plot_ctimg_curves(slice_data, brightness, stddev, pixel_spacing=(1, 1),
+                  core_name='M9907-23PC_CT', save_figs=True, output_dir='output/')
+
+# Using metadata from ct_process_and_stitch
+ct_metadata = ct_process_and_stitch(...)
+plot_ctimg_curves(ct_metadata=ct_metadata, core_name='M9907-23PC_CT', 
+                  save_figs=True, output_dir='output/')
+```
 
 ### RGB Image Processing (`rgb_processing.py`)
 
@@ -550,10 +718,34 @@ Stitches multiple core section images by processing RGB profiles with section-sp
 - `total_length_cm` (float, optional): Total core length in centimeters for depth conversion (required if save_csv=True)
 
 **Returns:**
-- `tuple`: (all_depths, all_r, all_g, all_b, all_r_std, all_g_std, all_b_std, all_lum, all_lum_std, stitched_image) containing continuous RGB data and combined image
+- `stitched_rgb_metadata` (dict): Dictionary containing all stitched RGB data with keys:
+  - `depths` (numpy.ndarray): Depth values in pixels
+  - `r` (numpy.ndarray): Red channel intensities
+  - `g` (numpy.ndarray): Green channel intensities
+  - `b` (numpy.ndarray): Blue channel intensities
+  - `r_std` (numpy.ndarray): Red channel standard deviations
+  - `g_std` (numpy.ndarray): Green channel standard deviations
+  - `b_std` (numpy.ndarray): Blue channel standard deviations
+  - `lum` (numpy.ndarray): Relative luminance values
+  - `lum_std` (numpy.ndarray): Luminance standard deviations
+  - `image` (numpy.ndarray): Complete stitched RGB core image
 
 **Raises:**
 - `ValueError`: If save_csv is True but output_csv or total_length_cm is not specified
+
+**Example:**
+```python
+rgb_metadata = rgb_process_and_stitch(
+    data_reading_structure, 
+    rgb_data_dir='example_data/raw_data/Image_data',
+    save_csv=True,
+    output_csv='output/M9907-23PC_RGB.csv',
+    total_length_cm=783
+)
+# Access individual components
+depths = rgb_metadata['depths']
+stitched_image = rgb_metadata['image']
+```
 
 ### CT Image Processing (`ct_processing.py`)
 
@@ -688,10 +880,30 @@ Orchestrates complete processing workflow for multi-segment core with rescaling 
 - `total_length_cm` (float, optional): Total core length in centimeters for depth conversion (required if save_csv=True)
 
 **Returns:**
-- `tuple`: (final_stitched_slice, final_stitched_brightness, final_stitched_stddev, final_stitched_depth, px_spacing_x, px_spacing_y) containing complete core data
+- `stitched_ct_metadata` (dict): Dictionary containing all stitched CT data with keys:
+  - `slice` (numpy.ndarray): Complete stitched CT slice
+  - `brightness` (numpy.ndarray): Complete brightness profile
+  - `stddev` (numpy.ndarray): Complete standard deviation profile
+  - `depths` (numpy.ndarray): Depth coordinates in pixels
+  - `px_spacing_x` (float): Final pixel spacing in x direction (always 1.0)
+  - `px_spacing_y` (float): Final pixel spacing in y direction (always 1.0)
 
 **Raises:**
 - `ValueError`: If save_csv is True but output_csv or total_length_cm is not specified
+
+**Example:**
+```python
+ct_metadata = ct_process_and_stitch(
+    data_reading_structure, 
+    ct_data_dir='example_data/raw_data/CT_data',
+    save_csv=True,
+    output_csv='output/M9907-23PC_CT.csv',
+    total_length_cm=783
+)
+# Access individual components
+stitched_slice = ct_metadata['slice']
+brightness = ct_metadata['brightness']
+```
 
 ### CT Image Plotting (`ct_plotting.py`)
 
@@ -708,21 +920,6 @@ Display CT slice with proper aspect ratio and axis labels.
 **Returns:**
 - None (displays plot)
 
-#### `plot_ctimg_curves(slice_data, brightness, stddev, depths, px_spacing_x, px_spacing_y, core_name='', depth_units='mm')`
-
-Display CT slices with brightness traces and standard deviation plots.
-
-**Parameters:**
-- `slice_data` (array-like): 2D CT scan slice data
-- `brightness` (array-like): Brightness values
-- `stddev` (array-like): Standard deviation values
-- `depths` (array-like): Depth values
-- `px_spacing_x, px_spacing_y` (float): Pixel spacing values
-- `core_name` (str, default=''): Core identifier for title
-- `depth_units` (str, default='mm'): Units for depth axis
-
-**Returns:**
-- None (displays plot)
 
 #### `plot_stitched_curves(st_bright, st_std, st_depth, core_name='', depth_units='cm')`
 
@@ -757,7 +954,7 @@ Preprocesses core data by cleaning and scaling depth values using configurable p
 **Returns:**
 - None (saves cleaned data files to the specified output directory)
 
-#### `plot_core_logs(data_config, file_type='clean', title=None)`
+#### `plot_core_logs(data_config, file_type='clean', title=None, pickeddepth_csv=None, save_fig=False, output_dir=None, fig_format=['png'], dpi=None)`
 
 Plot core logs using fully configurable parameters from data_config. Creates subplot panels for different types of core data (images and logs) based on the configuration provided.
 
@@ -769,9 +966,14 @@ Plot core logs using fully configurable parameters from data_config. Creates sub
   - `core_name`: Core name for title
 - `file_type` (str, default='clean'): Type of data files to plot ('clean' or 'filled')
 - `title` (str, optional): Custom title for the plot. If None, generates default title
+- `pickeddepth_csv` (str, optional): Path to CSV file containing picked datum depths for visualization
+- `save_fig` (bool, default=False): Whether to save the figure to disk
+- `output_dir` (str, optional): Directory to save figures (required if save_fig=True)
+- `fig_format` (list, default=['png']): List of file formats to save (options: 'png', 'jpg', 'svg', 'pdf')
+- `dpi` (int, optional): Resolution in dots per inch for saved figures
 
 **Returns:**
-- `tuple`: (fig, axes) - matplotlib figure and axes objects
+- None (displays the plot and optionally saves figures)
 
 #### `plot_filled_data(target_log, original_data, filled_data, data_config, ML_type='ML')`
 
@@ -1064,19 +1266,18 @@ Maps category identifiers to specific colors for visualization.
 **Returns:**
 - `tuple`: (log, md, available_columns, rgb_img, ct_img) containing loaded data and images
 
-#### `load_core_age_constraints(core_name, age_base_path, consider_adjacent_core=False, data_columns=None, mute_mode=False)`
+#### `load_core_age_constraints(core_name, age_base_path, data_columns=None, mute_mode=False)`
 
-Loads age constraint data from CSV files with support for adjacent cores and flexible column mapping.
+Loads age constraint data from CSV files with flexible column mapping.
 
 **Parameters:**
 - `core_name` (str): Name of the core to load age constraints for
 - `age_base_path` (str): Base directory path containing age constraint CSV files
-- `consider_adjacent_core` (bool, default=False): Whether to also search for similar core names
-- `data_columns` (list, optional): Specific column names to load from CSV files
+- `data_columns` (dict, optional): Dictionary mapping standard column names to actual CSV column names. Expected keys: 'age', 'pos_error', 'neg_error', 'min_depth', 'max_depth', 'in_sequence', 'core', 'interpreted_bed'
 - `mute_mode` (bool, default=False): If True, suppress print output
 
 **Returns:**
-- `dict`: Age constraint data with keys: 'depths', 'ages', 'pos_errors', 'neg_errors', 'core', 'in_sequence_flags'
+- `dict`: Age constraint data with keys: 'depths', 'ages', 'pos_errors', 'neg_errors', 'core', 'in_sequence_flags', 'interpreted_bed'
 
 #### `resample_datasets(datasets, target_resolution_factor=2)`
 
@@ -1145,29 +1346,63 @@ Creates comprehensive visualization of DTW correlation between log segments with
 **Returns:**
 - `matplotlib.figure.Figure`: Complete correlation visualization figure
 
-#### `visualize_combined_segments(log_a, log_b, md_a, md_b, segment_pairs, dtw_results, segments_a, segments_b, depth_boundaries_a, depth_boundaries_b, **kwargs)`
+#### `visualize_combined_segments(dtw_result, log_a, log_b, md_a, md_b, segment_pairs_to_combine, **kwargs)`
 
-Display segment correlations overlaid on log plots.
+Display segment correlations overlaid on log plots with optional age constraint visualization.
 
 **Parameters:**
+- `dtw_result` (dict): Dictionary containing DTW analysis results from `run_comprehensive_dtw_analysis()`. Expected keys: 'dtw_correlation', 'valid_dtw_pairs', 'segments_a', 'segments_b', 'depth_boundaries_a', 'depth_boundaries_b', 'dtw_distance_matrix_full'
 - `log_a, log_b` (array-like): Log data arrays
 - `md_a, md_b` (array-like): Measured depth arrays
-- `segment_pairs` (list): List of segment pair tuples to visualize
-- `dtw_results` (dict): DTW results dictionary
-- `segments_a, segments_b` (list): Segment definitions
-- `depth_boundaries_a, depth_boundaries_b` (list): Depth boundary indices
-- Additional kwargs for images and visualization options
+- `segment_pairs_to_combine` (list): List of segment pairs to combine and visualize
+- `ages_a, ages_b` (dict, optional): Age data dictionaries for picked depths
+- `core_a_age_data, core_b_age_data` (dict, optional): Complete age constraint data from `load_core_age_constraints()`. Expected keys: 'in_sequence_ages', 'in_sequence_depths', 'in_sequence_pos_errors', 'in_sequence_neg_errors', 'core'
+- `mark_ages` (bool, optional): Whether to mark age constraints in visualization
+- `correlation_save_path, matrix_save_path` (str, optional): Paths to save output figures
+- `core_a_interpreted_beds, core_b_interpreted_beds` (list, optional): Interpreted bed names for bed correlation
+- `dpi` (int, default=None): Resolution for saved figures in dots per inch. If None, uses default (150)
+- Additional kwargs for visualization options
 
 **Returns:**
-- `matplotlib.figure.Figure`: Visualization figure
+- `tuple`: (combined_wp, combined_quality)
+  - `combined_wp` (numpy.ndarray): Combined warping path spanning all selected segments
+  - `combined_quality` (dict): Aggregated quality metrics for the combined correlation
 
-#### `plot_correlation_distribution(quality_dict, save_path=None)`
+**Example:**
+```python
+dtw_result = run_comprehensive_dtw_analysis(...)
+combined_wp, combined_quality = visualize_combined_segments(
+    dtw_result,
+    log_a, log_b, md_a, md_b,
+    segment_pairs_to_combine=top_mapping_pairs[0],
+    correlation_save_path='outputs/correlation.png',
+    matrix_save_path='outputs/matrix.png',
+    mark_ages=True,
+    ages_a=estimated_datum_ages_a,
+    ages_b=estimated_datum_ages_b,
+    core_a_age_data=age_data_a,
+    core_b_age_data=age_data_b
+)
+# Figures are automatically saved to the specified paths
+```
+
+#### `plot_correlation_distribution(mapping_csv, target_mapping_id=None, quality_index=None, save_png=True, png_filename=None, core_a_name=None, core_b_name=None, bin_width=None, pdf_method='normal', kde_bandwidth=0.05, mute_mode=False, targeted_binsize=None, dpi=None)`
 
 Visualize and statistically analyze the distributions of the correlation quality metrics.
 
 **Parameters:**
-- `quality_dict` (dict): Dictionary of quality metrics
-- `save_path` (str, optional): Path to save the figure
+- `mapping_csv` (str): Path to the CSV/Parquet file containing mapping results
+- `target_mapping_id` (int, optional): Optional mapping ID to highlight in the plot
+- `quality_index` (str, **required**): Quality metric to plot ('corr_coef', 'norm_dtw', 'dtw_ratio', 'variance_deviation', 'perc_diag', 'match_min', 'match_mean', 'perc_age_overlap')
+- `save_png` (bool, default=True): Whether to save plot as PNG
+- `png_filename` (str, optional): Output PNG filename
+- `core_a_name, core_b_name` (str, optional): Core names for plot title
+- `bin_width` (float, optional): Histogram bin width (auto if None, based on quality_index)
+- `pdf_method` (str, default='normal'): PDF fitting method ('KDE', 'skew-normal', or 'normal')
+- `kde_bandwidth` (float, default=0.05): Bandwidth for KDE when pdf_method='KDE'
+- `mute_mode` (bool, default=False): If True, suppress all print statements
+- `targeted_binsize` (tuple, optional): (synthetic_bins, bin_width) for consistent bin sizing with synthetic data
+- `dpi` (int, default=None): Resolution for saved figures in dots per inch. If None, uses default (150)
 
 **Returns:**
 - None (displays plot and optionally saves)
@@ -1197,37 +1432,92 @@ Plot quality metric comparison results with statistical analysis.
 
 ### Matrix Plots (`matrix_plots.py`)
 
-#### `plot_dtw_matrix_with_paths(D, paths, log1=None, log2=None, save_path=None, **kwargs)`
+#### `plot_dtw_matrix_with_paths(dtw_distance_matrix_full, mode=None, **kwargs)`
 
-Visualize DTW cost matrices with correlation paths.
+Visualize DTW cost matrices with correlation paths and optional age constraint masking.
 
 **Parameters:**
-- `D` (np.ndarray): DTW cost matrix
-- `paths` (list): List of warping paths to overlay
-- `log1, log2` (array-like, optional): Log data for additional context
-- `save_path` (str, optional): Path to save the figure
+- `dtw_distance_matrix_full` (np.ndarray): DTW cost matrix to visualize
+- `mode` (str): Visualization mode ('segment_paths', 'combined_path', 'all_paths_colored')
+- `valid_dtw_pairs` (list, optional): List of valid segment pairs
+- `dtw_results` (dict, optional): DTW results dictionary
+- `sequential_mappings_csv` (str, optional): Path to CSV with multiple paths
+- `segments_a, segments_b` (list, optional): Segment definitions
+- `depth_boundaries_a, depth_boundaries_b` (list, optional): Depth boundaries
+- `core_a_age_data, core_b_age_data` (dict, optional): Complete age constraint data from `load_core_age_constraints()`. Expected keys: 'in_sequence_ages', 'in_sequence_depths', 'core'. When 'core' key is provided, constraint lines will be drawn
+- `md_a, md_b` (array-like, optional): Measured depth arrays
+- `core_a_name, core_b_name` (str, optional): Core names for labels
+- `output_filename` (str, optional): Path to save the figure
+- `color_metric` (str, optional): Metric for coloring paths ('corr_coef', 'norm_dtw', etc.)
+- `dpi` (int, default=None): Resolution for saved figures in dots per inch. If None, uses default (150)
 - Additional kwargs for plot customization
 
 **Returns:**
-- `matplotlib.figure.Figure`: DTW matrix visualization
+- `str or None`: Path to saved figure if output_filename provided
+
+**Example:**
+```python
+plot_dtw_matrix_with_paths(
+    dtw_distance_matrix_full,
+    mode='all_paths_colored',
+    sequential_mappings_csv='mappings.csv',
+    color_metric='norm_dtw',
+    core_a_age_data=age_data_a,
+    core_b_age_data=age_data_b,
+    md_a=md_a, md_b=md_b,
+    core_a_name='M9907-25PC',
+    core_b_name='M9907-23PC'
+)
+```
 
 ### Animation (`animation.py`)
 
-#### `visualize_dtw_results_from_csv(csv_path, log_a, log_b, md_a, md_b, segments_a, segments_b, dtw_results, output_gif=None, **kwargs)`
+#### `visualize_dtw_results_from_csv(input_mapping_csv, dtw_result, log_a, log_b, md_a, md_b, **kwargs)`
 
-Generate animated correlation sequences from results.
+Generate animated correlation sequences from results with optional age constraint visualization. When `creategif=True`, automatically displays the generated GIFs in Jupyter/IPython environments.
 
 **Parameters:**
-- `csv_path` (str): Path to CSV containing correlation results
+- `input_mapping_csv` (str): Path to CSV file containing correlation mapping results
+- `dtw_result` (dict): Dictionary containing DTW analysis results from `run_comprehensive_dtw_analysis()`. Expected keys: 'dtw_correlation', 'valid_dtw_pairs', 'segments_a', 'segments_b', 'depth_boundaries_a', 'depth_boundaries_b', 'dtw_distance_matrix_full'
 - `log_a, log_b` (array-like): Log data arrays
 - `md_a, md_b` (array-like): Measured depth arrays
-- `segments_a, segments_b` (list): Segment definitions
-- `dtw_results` (dict): DTW results dictionary
-- `output_gif` (str, optional): Path to save animated GIF
-- Additional kwargs for animation options
+- `color_interval_size` (int, default=10): Step size for warping path visualization
+- `max_frames` (int, default=100): Maximum number of frames to generate
+- `debug` (bool, default=False): Enable debug output
+- `creategif` (bool, default=True): Whether to create and display GIF files
+- `keep_frames` (bool, default=False): Whether to preserve individual frame files
+- `correlation_gif_output_filename` (str, default='CombinedDTW_correlation_mappings.gif'): Path to save correlation GIF
+- `matrix_gif_output_filename` (str, default='CombinedDTW_matrix_mappings.gif'): Path to save matrix GIF
+- `visualize_pairs` (bool, default=False): Whether to visualize segment pairs
+- `visualize_segment_labels` (bool, default=False): Whether to show segment labels
+- `mark_depths` (bool, default=True): Whether to mark depth boundaries
+- `mark_ages` (bool, default=True): Whether to mark age constraints in visualization
+- `ages_a, ages_b` (dict, optional): Age data dictionaries for picked depths
+- `core_a_age_data, core_b_age_data` (dict, optional): Complete age constraint data from `load_core_age_constraints()`. Expected keys: 'in_sequence_ages', 'in_sequence_depths', 'in_sequence_pos_errors', 'in_sequence_neg_errors', 'core'
+- `core_a_name, core_b_name` (str, optional): Core names for labels
+- `core_a_interpreted_beds, core_b_interpreted_beds` (dict, optional): Interpreted bed names for cores
+- `dpi` (int, default=None): Resolution for saved frames and GIFs in dots per inch. If None, uses default (150)
 
 **Returns:**
-- None (creates and saves animation)
+- None (creates, saves, and displays animations when creategif=True)
+
+**Example:**
+```python
+dtw_result = run_comprehensive_dtw_analysis(...)
+visualize_dtw_results_from_csv(
+    input_mapping_csv=f'example_data/analytical_outputs/{CORE_A}_{CORE_B}/mappings.csv',
+    dtw_result=dtw_result,
+    log_a=log_a, log_b=log_b, md_a=md_a, md_b=md_b,
+    correlation_gif_output_filename=f'outputs/correlation_{CORE_A}_{CORE_B}.gif',
+    matrix_gif_output_filename=f'outputs/matrix_{CORE_A}_{CORE_B}.gif',
+    mark_ages=True,
+    ages_a=estimated_datum_ages_a,
+    ages_b=estimated_datum_ages_b,
+    core_a_age_data=age_data_a,
+    core_b_age_data=age_data_b
+)
+# GIFs are automatically displayed after creation
+```
 
 ### Helpers (`helpers.py`)
 

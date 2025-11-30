@@ -20,14 +20,14 @@ from joblib import Parallel, delayed
 import itertools
 
 
-def calculate_interpolated_ages(picked_depths, age_constraints_depths, age_constraints_ages, 
-                                age_constraints_pos_errors, age_constraints_neg_errors,
+def calculate_interpolated_ages(picked_datum, age_constraints_depths=None, age_constraints_ages=None, 
+                                age_constraints_pos_errors=None, age_constraints_neg_errors=None,
                                 age_constraint_source_core=None,
-                                age_constraints_in_sequence_flags=None, top_bottom=True, top_age=0, top_age_pos_error=0, 
+                                age_constraints_in_sequence_flags=None, age_data=None, top_bottom=True, top_age=0, top_age_pos_error=0, 
                                 top_age_neg_error=0, top_depth=0.0, bottom_depth=None, 
                                 uncertainty_method='MonteCarlo', n_monte_carlo=10000,
-                                show_plot=False, save_plot=False, plot_filename=None, core_name=None, export_csv=True, csv_filename=None,
-                                mute_mode=False):
+                                show_plot=True, save_plot=False, plot_filename=None, core_name=None, export_csv=True, csv_filename=None,
+                                print_ages=True, mute_mode=False):
     """
     Calculate interpolated/extrapolated ages for picked depths based on age constraints.
     
@@ -37,21 +37,31 @@ def calculate_interpolated_ages(picked_depths, age_constraints_depths, age_const
     
     Parameters
     ----------
-    picked_depths : list
+    picked_datum : list
         List of picked depths in cm where ages should be calculated
-    age_constraints_depths : list or pd.Series
-        List of mean depths for all age constraints (calculated from mindepth_cm and maxdepth_cm)
-    age_constraints_ages : list
-        List of calibrated ages for all age constraints in years BP
-    age_constraints_pos_errors : list
-        List of positive error values for all age constraints in years
-    age_constraints_neg_errors : list
-        List of negative error values for all age constraints in years
+    age_constraints_depths : list or pd.Series, optional
+        List of mean depths for all age constraints (calculated from mindepth_cm and maxdepth_cm).
+        Not required if age_data is provided
+    age_constraints_ages : list, optional
+        List of calibrated ages for all age constraints in years BP.
+        Not required if age_data is provided
+    age_constraints_pos_errors : list, optional
+        List of positive error values for all age constraints in years.
+        Not required if age_data is provided
+    age_constraints_neg_errors : list, optional
+        List of negative error values for all age constraints in years.
+        Not required if age_data is provided
     age_constraint_source_core : list or None, default=None
-        List of source core names for each age constraint. Used for plotting differentiation
+        List of source core names for each age constraint. Used for plotting differentiation.
+        Not required if age_data is provided
     age_constraints_in_sequence_flags : list or None, optional
         List indicating which age constraints are in sequence (True/False or 1/0).
-        If None, all constraints are treated as in-sequence
+        If None, all constraints are treated as in-sequence.
+        Not required if age_data is provided
+    age_data : dict, optional
+        Dictionary containing age constraint data from load_core_age_constraints().
+        If provided, this will be used instead of individual age constraint parameters.
+        Expected keys: 'depths', 'ages', 'pos_errors', 'neg_errors', 'in_sequence_flags', 'core'
     top_bottom : bool, default=True
         If True, include top and bottom depths/ages in the results
     top_age : float, default=0
@@ -68,7 +78,7 @@ def calculate_interpolated_ages(picked_depths, age_constraints_depths, age_const
         Method for calculating uncertainties. Options: 'Linear', 'MonteCarlo', 'Gaussian'
     n_monte_carlo : int, default=10000
         Number of Monte Carlo iterations (only used when uncertainty_method='MonteCarlo')
-    show_plot : bool, default=False
+    show_plot : bool, default=True
         If True, plot the age-depth model and constraints
     core_name : str, optional
         Name of the core for plot title and file naming
@@ -76,6 +86,8 @@ def calculate_interpolated_ages(picked_depths, age_constraints_depths, age_const
         If True, export the results to a CSV file
     csv_filename : str, optional
         Name of the CSV file to export the results to. If None, the default name is '{core_name}_pickeddepth_age_{uncertainty_method}.csv'
+    print_ages : bool, default=True
+        If True, print age constraint data and estimated ages information
     mute_mode : bool, default=False
         If True, suppress all print outputs
         
@@ -91,14 +103,26 @@ def calculate_interpolated_ages(picked_depths, age_constraints_depths, age_const
         
     Example
     -------
+    # Method 1: Using age_data dictionary (recommended)
+    >>> age_data = load_core_age_constraints('M9907-23PC', 'age_data_path', data_columns)
+    >>> depths = [10, 20, 30, 40]
+    >>> result = calculate_interpolated_ages(
+    ...     picked_datum=depths,
+    ...     age_data=age_data,
+    ...     uncertainty_method='MonteCarlo',
+    ...     show_plot=False
+    ... )
+    >>> print(f"Ages: {result['ages']}")
+    >>> print(f"Uncertainties: +{result['pos_uncertainties']}, -{result['neg_uncertainties']}")
+    
+    # Method 2: Using individual parameters (legacy)
     >>> depths = [10, 20, 30, 40]
     >>> constraint_depths = [15, 35]
     >>> constraint_ages = [1000, 3000]
     >>> constraint_pos_errors = [50, 100]
     >>> constraint_neg_errors = [50, 100]
-    >>> 
     >>> result = calculate_interpolated_ages(
-    ...     picked_depths=depths,
+    ...     picked_datum=depths,
     ...     age_constraints_depths=constraint_depths,
     ...     age_constraints_ages=constraint_ages,
     ...     age_constraints_pos_errors=constraint_pos_errors,
@@ -110,6 +134,22 @@ def calculate_interpolated_ages(picked_depths, age_constraints_depths, age_const
     >>> print(f"Uncertainties: +{result['pos_uncertainties']}, -{result['neg_uncertainties']}")
     """
     
+    # If age_data is provided, extract individual parameters from it
+    if age_data is not None:
+        age_constraints_depths = age_data.get('depths', [])
+        age_constraints_ages = age_data.get('ages', [])
+        age_constraints_pos_errors = age_data.get('pos_errors', [])
+        age_constraints_neg_errors = age_data.get('neg_errors', [])
+        age_constraints_in_sequence_flags = age_data.get('in_sequence_flags', None)
+        age_constraint_source_core = age_data.get('core', None)
+    else:
+        # Ensure all required parameters are provided when age_data is not used
+        if age_constraints_depths is None or age_constraints_ages is None or \
+           age_constraints_pos_errors is None or age_constraints_neg_errors is None:
+            raise ValueError("Either age_data must be provided, or all of age_constraints_depths, "
+                           "age_constraints_ages, age_constraints_pos_errors, and age_constraints_neg_errors "
+                           "must be provided.")
+    
     # Handle case with no age constraints
     if len(age_constraints_depths) == 0:
         if not mute_mode:
@@ -117,17 +157,17 @@ def calculate_interpolated_ages(picked_depths, age_constraints_depths, age_const
         
         # Return empty structure with same format as normal output
         if top_bottom:
-            all_depths = [top_depth] + list(picked_depths) + [bottom_depth if bottom_depth is not None else (max(picked_depths) if picked_depths else 100.0)]
+            all_depths = [top_depth] + list(picked_datum) + [bottom_depth if bottom_depth is not None else (max(picked_datum) if picked_datum else 100.0)]
             # Create lists with top age values for first entry, nan for picked depths, nan for bottom
-            all_ages = [top_age] + [np.nan] * len(picked_depths) + [np.nan]
-            all_pos_uncertainties = [top_age_pos_error] + [np.nan] * len(picked_depths) + [np.nan]
-            all_neg_uncertainties = [top_age_neg_error] + [np.nan] * len(picked_depths) + [np.nan]
+            all_ages = [top_age] + [np.nan] * len(picked_datum) + [np.nan]
+            all_pos_uncertainties = [top_age_pos_error] + [np.nan] * len(picked_datum) + [np.nan]
+            all_neg_uncertainties = [top_age_neg_error] + [np.nan] * len(picked_datum) + [np.nan]
         else:
-            all_depths = list(picked_depths)
-            # Create nan lists with same length as picked_depths
-            all_ages = [np.nan] * len(picked_depths)
-            all_pos_uncertainties = [np.nan] * len(picked_depths)
-            all_neg_uncertainties = [np.nan] * len(picked_depths)
+            all_depths = list(picked_datum)
+            # Create nan lists with same length as picked_datum
+            all_ages = [np.nan] * len(picked_datum)
+            all_pos_uncertainties = [np.nan] * len(picked_datum)
+            all_neg_uncertainties = [np.nan] * len(picked_datum)
         
         result = {
             'depths': all_depths,
@@ -246,7 +286,7 @@ def calculate_interpolated_ages(picked_depths, age_constraints_depths, age_const
         
         return samples
     
-    def monte_carlo_iteration(picked_depths, all_constraint_depths_with_top, 
+    def monte_carlo_iteration(picked_datum, all_constraint_depths_with_top, 
                             all_constraint_ages_with_top, all_constraint_pos_errors_with_top,
                             all_constraint_neg_errors_with_top, bottom_depth, top_bottom):
         """Perform a single Monte Carlo iteration."""
@@ -260,7 +300,7 @@ def calculate_interpolated_ages(picked_depths, age_constraints_depths, age_const
         
         iteration_ages = []
         
-        for depth in picked_depths:
+        for depth in picked_datum:
             # Find bracketing indices and interpolate
             if len(all_constraint_depths_with_top) <= 1:
                 age = sampled_ages[0]
@@ -310,7 +350,7 @@ def calculate_interpolated_ages(picked_depths, age_constraints_depths, age_const
     # Calculate central values using linear interpolation/extrapolation
     estimated_ages = []
     
-    for depth in picked_depths:
+    for depth in picked_datum:
         if len(constraint_depths) == 0:
             estimated_age = top_age + (depth - top_depth) * 100  
             estimated_ages.append(estimated_age)
@@ -363,7 +403,7 @@ def calculate_interpolated_ages(picked_depths, age_constraints_depths, age_const
         max_constraint_ages = all_constraint_ages_with_top + all_constraint_pos_errors_with_top
         min_constraint_ages = all_constraint_ages_with_top - all_constraint_neg_errors_with_top
         
-        for i, depth in enumerate(picked_depths):
+        for i, depth in enumerate(picked_datum):
             if len(constraint_depths) == 0:
                 estimated_pos_uncertainties.append(top_age_pos_error + (depth - top_depth) * 50)
                 estimated_neg_uncertainties.append(top_age_neg_error + (depth - top_depth) * 50)
@@ -439,7 +479,7 @@ def calculate_interpolated_ages(picked_depths, age_constraints_depths, age_const
         
         results = Parallel(n_jobs=-1)(
             delayed(monte_carlo_iteration)(
-                picked_depths, all_constraint_depths_with_top, 
+                picked_datum, all_constraint_depths_with_top, 
                 all_constraint_ages_with_top, all_constraint_pos_errors_with_top,
                 all_constraint_neg_errors_with_top, bottom_depth, top_bottom
             ) for _ in range(n_monte_carlo)
@@ -451,7 +491,7 @@ def calculate_interpolated_ages(picked_depths, age_constraints_depths, age_const
         estimated_pos_uncertainties = []
         estimated_neg_uncertainties = []
         
-        n_picked = len(picked_depths)
+        n_picked = len(picked_datum)
         for i in range(n_picked):
             percentile_max = np.percentile(results[:, i], 97.5)
             percentile_min = np.percentile(results[:, i], 2.5)
@@ -472,7 +512,7 @@ def calculate_interpolated_ages(picked_depths, age_constraints_depths, age_const
         estimated_pos_uncertainties = []
         estimated_neg_uncertainties = []
         
-        for i, depth in enumerate(picked_depths):
+        for i, depth in enumerate(picked_datum):
             if len(constraint_depths) == 0:
                 estimated_pos_uncertainties.append(top_age_pos_error + (depth - top_depth) * 50)
                 estimated_neg_uncertainties.append(top_age_neg_error + (depth - top_depth) * 50)
@@ -544,12 +584,12 @@ def calculate_interpolated_ages(picked_depths, age_constraints_depths, age_const
     
     # Prepare final results
     if top_bottom:
-        all_depths = [top_depth] + list(picked_depths) + [bottom_depth]
+        all_depths = [top_depth] + list(picked_datum) + [bottom_depth]
         all_ages = [top_age] + estimated_ages + [bottom_age]
         all_pos_uncertainties = [top_age_pos_error] + estimated_pos_uncertainties + [bottom_pos_uncertainty]
         all_neg_uncertainties = [top_age_neg_error] + estimated_neg_uncertainties + [bottom_neg_uncertainty]
     else:
-        all_depths = list(picked_depths)
+        all_depths = list(picked_datum)
         all_ages = estimated_ages
         all_pos_uncertainties = estimated_pos_uncertainties
         all_neg_uncertainties = estimated_neg_uncertainties
@@ -561,6 +601,36 @@ def calculate_interpolated_ages(picked_depths, age_constraints_depths, age_const
         'neg_uncertainties': all_neg_uncertainties,
         'uncertainty_method': uncertainty_method
     }
+    
+    # Print age information if requested
+    if print_ages and not mute_mode:
+        # Print the age constraint data
+        print(f"\nAge Constraints for {core_name if core_name else 'Core'}:")
+        if len(age_constraints_depths) > 0:
+            for i in range(len(age_constraints_depths)):
+                depth_val = age_constraints_depths[i]
+                age_val = age_constraints_ages[i]
+                pos_err_val = age_constraints_pos_errors[i]
+                neg_err_val = age_constraints_neg_errors[i]
+                in_seq = in_seq_mask[i]
+                
+                # Add source core info if available
+                source_core_info = ""
+                if age_constraint_source_core is not None and i < len(age_constraint_source_core):
+                    source_core_info = f", Source Core: {age_constraint_source_core[i]}"
+                
+                print(f"Depth: {depth_val:.2f} cm, Age: {age_val:.1f} years BP (+{pos_err_val:.1f} ; -{neg_err_val:.1f}), In Sequence: {in_seq}{source_core_info}")
+        else:
+            print(f"No age constraints available")
+        
+        # Print the estimated ages for picked depths
+        print(f"\nEstimated Ages for picked depths in {core_name if core_name else 'Core'}:")
+        for i, depth in enumerate(picked_datum):
+            # Find the index in all_depths that corresponds to this picked depth
+            picked_idx = list(picked_datum).index(depth)
+            if top_bottom:
+                picked_idx += 1  # Offset by 1 because top depth is first
+            print(f"Depth: {depth:.2f} cm, Age: {all_ages[picked_idx]:.1f} years BP (+{all_pos_uncertainties[picked_idx]:.1f} ; -{all_neg_uncertainties[picked_idx]:.1f})")
     
     # Export results to CSV if requested
     if export_csv:

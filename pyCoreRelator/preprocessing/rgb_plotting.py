@@ -17,8 +17,8 @@ import os
 import pandas as pd
 
 
-def plot_rgbimg_curves(depths, r, g, b, r_std, g_std, b_std, lum, lum_std, img, 
-                    core_name=None, save_figs=False, output_dir=None, fig_format=['png', 'tiff'], dpi=150):
+def plot_rgbimg_curves(depths=None, r=None, g=None, b=None, r_std=None, g_std=None, b_std=None, lum=None, lum_std=None, img=None,
+                    rgb_metadata=None, core_name=None, save_figs=False, output_dir=None, fig_format=['png', 'tiff'], dpi=150):
     """
     Create visualization plots of RGB analysis results.
     
@@ -29,26 +29,30 @@ def plot_rgbimg_curves(depths, r, g, b, r_std, g_std, b_std, lum, lum_std, img,
     
     Parameters
     ----------
-    depths : numpy.ndarray
-        Depth positions in pixels for the RGB data
-    r : numpy.ndarray
-        Red color intensity values
-    g : numpy.ndarray
-        Green color intensity values
-    b : numpy.ndarray
-        Blue color intensity values
-    r_std : numpy.ndarray
-        Standard deviations of red values
-    g_std : numpy.ndarray
-        Standard deviations of green values
-    b_std : numpy.ndarray
-        Standard deviations of blue values
-    lum : numpy.ndarray
-        Relative luminance values
-    lum_std : numpy.ndarray
-        Standard deviations of luminance values
-    img : numpy.ndarray
-        Core image array to display
+    depths : numpy.ndarray, optional
+        Depth positions in pixels for the RGB data (not required if rgb_metadata is provided)
+    r : numpy.ndarray, optional
+        Red color intensity values (not required if rgb_metadata is provided)
+    g : numpy.ndarray, optional
+        Green color intensity values (not required if rgb_metadata is provided)
+    b : numpy.ndarray, optional
+        Blue color intensity values (not required if rgb_metadata is provided)
+    r_std : numpy.ndarray, optional
+        Standard deviations of red values (not required if rgb_metadata is provided)
+    g_std : numpy.ndarray, optional
+        Standard deviations of green values (not required if rgb_metadata is provided)
+    b_std : numpy.ndarray, optional
+        Standard deviations of blue values (not required if rgb_metadata is provided)
+    lum : numpy.ndarray, optional
+        Relative luminance values (not required if rgb_metadata is provided)
+    lum_std : numpy.ndarray, optional
+        Standard deviations of luminance values (not required if rgb_metadata is provided)
+    img : numpy.ndarray, optional
+        Core image array to display (not required if rgb_metadata is provided)
+    rgb_metadata : dict, optional
+        Dictionary containing all RGB data from rgb_process_and_stitch(). Expected keys:
+        'depths', 'r', 'g', 'b', 'r_std', 'g_std', 'b_std', 'lum', 'lum_std', 'image'.
+        If provided, individual parameters are ignored.
     core_name : str, optional
         Name of the core for plot title and file naming
     save_figs : bool, default=False
@@ -77,7 +81,22 @@ def plot_rgbimg_curves(depths, r, g, b, r_std, g_std, b_std, lum, lum_std, img,
     >>> plot_rgbimg_curves(depths, r, g, b, r_std, g_std, b_std, lum, lum_std, img,
     ...                     core_name='Core_A_RGB', save_figs=True, output_dir='./output',
     ...                     fig_format=['png', 'svg'])
+    >>> # Or using metadata from rgb_process_and_stitch:
+    >>> plot_rgbimg_curves(rgb_metadata=rgb_metadata, core_name='Core_A_RGB', save_figs=True, output_dir='./output')
     """
+    # Extract data from rgb_metadata if provided
+    if rgb_metadata is not None:
+        depths = rgb_metadata['depths']
+        r = rgb_metadata['r']
+        g = rgb_metadata['g']
+        b = rgb_metadata['b']
+        r_std = rgb_metadata['r_std']
+        g_std = rgb_metadata['g_std']
+        b_std = rgb_metadata['b_std']
+        lum = rgb_metadata['lum']
+        lum_std = rgb_metadata['lum_std']
+        img = rgb_metadata['image']
+    
     # Normalize format names (handle jpg/jpeg)
     fig_format = [fmt.lower() for fmt in fig_format]
     fig_format = ['jpeg' if fmt == 'jpg' else fmt for fmt in fig_format]

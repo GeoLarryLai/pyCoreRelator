@@ -16,7 +16,7 @@ import numpy as np
 from collections import defaultdict
 
 
-def find_all_segments(log_a, log_b, md_a, md_b, picked_depths_a=None, picked_depths_b=None, top_bottom=True, top_depth=0.0, mute_mode=False):
+def find_all_segments(log_a, log_b, md_a, md_b, picked_datum_a=None, picked_datum_b=None, top_bottom=True, top_depth=0.0, mute_mode=False):
     """
     Find segments in two logs using depth boundaries to create consecutive and single-point segments.
     
@@ -28,8 +28,8 @@ def find_all_segments(log_a, log_b, md_a, md_b, picked_depths_a=None, picked_dep
         log_b (array): Log data for core B
         md_a (array): Measured depth values corresponding to log_a
         md_b (array): Measured depth values corresponding to log_b
-        picked_depths_a (list, optional): User-selected depth values for core A boundaries
-        picked_depths_b (list, optional): User-selected depth values for core B boundaries
+        picked_datum_a (list, optional): User-selected depth values for core A boundaries
+        picked_datum_b (list, optional): User-selected depth values for core B boundaries
         top_bottom (bool): Whether to add top and bottom boundaries automatically
         top_depth (float): Depth value to use for top boundary
         mute_mode (bool, default=False): If True, suppress all print output
@@ -43,29 +43,29 @@ def find_all_segments(log_a, log_b, md_a, md_b, picked_depths_a=None, picked_dep
     Example:
         >>> segments_a, segments_b, bounds_a, bounds_b, depths_a, depths_b = find_all_segments(
         ...     log_a, log_b, md_a, md_b, 
-        ...     picked_depths_a=[0, 100, 200], 
-        ...     picked_depths_b=[0, 150, 300]
+        ...     picked_datum_a=[0, 100, 200], 
+        ...     picked_datum_b=[0, 150, 300]
         ... )
         >>> print(f"Core A has {len(segments_a)} segments")
         >>> print(f"First segment A spans indices {segments_a[0]}")
     """
     
     # Initialize depth lists
-    if picked_depths_a is None:
-        picked_depths_a = []
-    if picked_depths_b is None:
-        picked_depths_b = []
+    if picked_datum_a is None:
+        picked_datum_a = []
+    if picked_datum_b is None:
+        picked_datum_b = []
     
-    # Ensure picked_depths are Python lists
-    if isinstance(picked_depths_a, np.ndarray):
-        depth_values_a = picked_depths_a.tolist()
+    # Ensure picked_datum are Python lists
+    if isinstance(picked_datum_a, np.ndarray):
+        depth_values_a = picked_datum_a.tolist()
     else:
-        depth_values_a = list(picked_depths_a)
+        depth_values_a = list(picked_datum_a)
         
-    if isinstance(picked_depths_b, np.ndarray):
-        depth_values_b = picked_depths_b.tolist()
+    if isinstance(picked_datum_b, np.ndarray):
+        depth_values_b = picked_datum_b.tolist()
     else:
-        depth_values_b = list(picked_depths_b)
+        depth_values_b = list(picked_datum_b)
     
     # Add top and bottom boundaries if requested
     if top_bottom:

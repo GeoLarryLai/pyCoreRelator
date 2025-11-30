@@ -74,8 +74,8 @@ def plot_core_logs(data_config, file_type='clean', title=None, pickeddepth_csv=N
         
     Returns
     -------
-    tuple
-        (fig, axes) - matplotlib figure and axes objects
+    None
+        Displays the plot and optionally saves figures
         
     Notes
     -----
@@ -335,7 +335,7 @@ def plot_core_logs(data_config, file_type='clean', title=None, pickeddepth_csv=N
                 fig.savefig(output_path, bbox_inches='tight')
             print(f"Figure saved to: {output_path}")
     
-    return fig, axes
+    plt.show()
 
 
 
