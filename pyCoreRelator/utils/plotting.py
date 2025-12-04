@@ -3569,9 +3569,9 @@ def calculate_quality_comparison_t_statistics(target_quality_indices, master_csv
 
 def plot_quality_comparison_t_statistics(target_quality_indices, master_csv_filenames, 
                                         synthetic_csv_filenames, CORE_A, CORE_B, 
-                                        mute_mode=False, save_fig=True, output_figure_filenames=None,
+                                        mute_mode=False, save_fig=False, output_figure_filenames=None,
                                         save_gif=False, output_gif_filenames=None, max_frames=50,
-                                        plot_real_data_histogram=False, plot_age_removal_step_pdf=True,
+                                        plot_real_data_histogram=False, plot_age_removal_step_pdf=False,
                                         show_best_datum_match=True, sequential_mappings_csv=None):
     """
     Plot quality index distributions comparing real data vs synthetic null hypothesis
@@ -3594,14 +3594,16 @@ def plot_quality_comparison_t_statistics(target_quality_indices, master_csv_file
     CORE_B : str
         Name of core B
     mute_mode : bool, default False
-        If True, suppress figure/gif display and show only essential progress information.
-        If False, display figures/gifs and show detailed output messages.
-    save_fig : bool, default True
-        If True, save figures to files
+        If True, suppress detailed output messages and show only essential progress information.
+        If False, show detailed output messages.
+    save_fig : bool, default False
+        If True, save static figures to files
     output_figure_filenames : dict, optional
         Dictionary mapping quality_index to output figure filename paths. Only used when save_fig=True.
     save_gif : bool, default False
-        If True, create animated gif showing progressive addition of age constraints
+        If True, create animated gif showing progressive addition of age constraints.
+        When save_gif=True and save_fig=False, static figures will not be displayed (only GIFs are shown at the end).
+        When save_gif=False, static figures will be displayed normally regardless of save_fig value
     output_gif_filenames : dict, optional
         Dictionary mapping quality_index to gif filename paths. Only used when save_gif=True.
         Expected format: {'quality_index': 'distribution_filename.gif'} for distribution gifs
@@ -3613,7 +3615,7 @@ def plot_quality_comparison_t_statistics(target_quality_indices, master_csv_file
     plot_real_data_histogram : bool, default True
         If True, plot histograms for real data (no age constraints and all age constraints cases)
         and include them in the legend. If False, skip real data histograms and keep current legend.
-    plot_age_removal_step_pdf : bool, default True
+    plot_age_removal_step_pdf : bool, default False
         If True, plot all PDF curves including dashed lines for partially removed age constraints
         and show the legend color bar. If False, skip dashed PDF curves and hide color bar.
     show_best_datum_match : bool, default True
@@ -3789,6 +3791,12 @@ def plot_quality_comparison_t_statistics(target_quality_indices, master_csv_file
     # Keep track of created GIFs for display at the end
     created_gifs = []
     
+    # Determine whether to show figures:
+    # - If save_gif=True and save_fig=False: suppress figure display (show only GIFs at the end)
+    # - Otherwise: show figures normally (respecting mute_mode)
+    suppress_figure_display = save_gif and not save_fig
+    debug_param = True if suppress_figure_display else mute_mode
+    
     # Process each quality index: distribution plot followed by t-statistics plot
     for quality_index in target_quality_indices:
         if quality_index not in quality_data:
@@ -3803,7 +3811,7 @@ def plot_quality_comparison_t_statistics(target_quality_indices, master_csv_file
             # Get plot info for gif creation while creating static plots
             distribution_plot_info = plot_quality_distributions(
                 quality_data, [quality_index], output_figure_filenames if save_fig else {}, 
-                CORE_A, CORE_B, debug=mute_mode, return_plot_info=True,
+                CORE_A, CORE_B, debug=debug_param, return_plot_info=True,
                 plot_real_data_histogram=plot_real_data_histogram, plot_age_removal_step_pdf=plot_age_removal_step_pdf,
                 synthetic_csv_filenames=synthetic_csv_filenames,
                 best_datum_values=best_datum_values
@@ -3813,7 +3821,7 @@ def plot_quality_comparison_t_statistics(target_quality_indices, master_csv_file
             if has_valid_age_constraints:
                 tstat_plot_info = plot_t_statistics_vs_constraints(
                     quality_data, [quality_index], output_figure_filenames if save_fig else {},
-                    CORE_A, CORE_B, debug=mute_mode, return_plot_info=True
+                    CORE_A, CORE_B, debug=debug_param, return_plot_info=True
                 )
             
             # Create gifs using the plot info
@@ -3834,7 +3842,7 @@ def plot_quality_comparison_t_statistics(target_quality_indices, master_csv_file
             # Just create static plots
             plot_quality_distributions(
                 quality_data, [quality_index], output_figure_filenames if save_fig else {}, 
-                CORE_A, CORE_B, debug=mute_mode, return_plot_info=False,
+                CORE_A, CORE_B, debug=debug_param, return_plot_info=False,
                 plot_real_data_histogram=plot_real_data_histogram, plot_age_removal_step_pdf=plot_age_removal_step_pdf,
                 synthetic_csv_filenames=synthetic_csv_filenames,
                 best_datum_values=best_datum_values
@@ -3844,7 +3852,7 @@ def plot_quality_comparison_t_statistics(target_quality_indices, master_csv_file
             if has_valid_age_constraints:
                 plot_t_statistics_vs_constraints(
                     quality_data, [quality_index], output_figure_filenames if save_fig else {},
-                    CORE_A, CORE_B, debug=mute_mode, return_plot_info=False
+                    CORE_A, CORE_B, debug=debug_param, return_plot_info=False
                 )
     
     # Display all created GIFs at the end when save_gif=True

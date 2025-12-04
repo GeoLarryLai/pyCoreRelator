@@ -642,7 +642,7 @@ def _process_single_constraint_scenario(
         
         # Recalculate interpolated ages for core B with reduced constraints
         pickeddepth_ages_b_current = calculate_interpolated_ages(
-            picked_depths=all_depths_b_cat1,
+            picked_datum=all_depths_b_cat1,
             age_constraints_depths=np.array(age_data_b_current['depths']),
             age_constraints_ages=np.array(age_data_b_current['ages']),
             age_constraints_pos_errors=np.array(age_data_b_current['pos_errors']),
@@ -807,17 +807,18 @@ def run_multi_parameter_analysis(
     age_data_a, age_data_b,
     uncertainty_method,
     
-    # Analysis parameters
-    parameter_combinations,
-    target_quality_indices,
-    test_age_constraint_removal,
-    
     # Core identifiers
-    core_a_name, core_b_name,
+    core_a_name, 
+    core_b_name,
     
     # Output configuration
     output_csv_filenames,  # Dict with quality_index as key and filename as value
     
+    # Analysis parameters
+    parameter_combinations,
+    target_quality_indices,
+    test_age_constraint_removal = True,
+
     # Optional parameters
     synthetic_csv_filenames=None,  # Dict with quality_index as key and synthetic CSV filename as value
     pca_for_dependent_dtw=False,
@@ -849,7 +850,7 @@ def run_multi_parameter_analysis(
         List of parameter combinations to test
     target_quality_indices : list
         Quality indices to analyze (e.g., ['corr_coef', 'norm_dtw', 'perc_diag'])
-    test_age_constraint_removal : bool
+    test_age_constraint_removal : bool (default=True)
         Whether to test age constraint removal scenarios
     core_a_name, core_b_name : str
         Names of cores A and B

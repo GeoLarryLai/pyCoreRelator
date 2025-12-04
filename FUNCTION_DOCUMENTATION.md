@@ -1416,16 +1416,29 @@ Calculate t-statistics for quality metric comparisons.
 **Returns:**
 - `dict`: T-statistics and p-values for each quality metric
 
-#### `plot_quality_comparison_t_statistics(t_stats_dict, save_path=None)`
+#### `plot_quality_comparison_t_statistics(target_quality_indices, master_csv_filenames, synthetic_csv_filenames, CORE_A, CORE_B, mute_mode=False, save_fig=True, output_figure_filenames=None, save_gif=False, output_gif_filenames=None, max_frames=50, plot_real_data_histogram=False, plot_age_removal_step_pdf=True, show_best_datum_match=True, sequential_mappings_csv=None)`
 
-Plot quality metric comparison results with statistical analysis.
+Plot quality index distributions comparing real data vs synthetic null hypothesis with t-statistics analysis.
 
 **Parameters:**
-- `t_stats_dict` (dict): Dictionary of t-statistics
-- `save_path` (str, optional): Path to save the figure
+- `target_quality_indices` (list): Quality metrics to plot (e.g., ['corr_coef', 'norm_dtw', 'perc_diag'])
+- `master_csv_filenames` (dict): Dictionary mapping quality indices to master CSV file paths (should contain t-statistics columns)
+- `synthetic_csv_filenames` (dict): Dictionary mapping quality indices to synthetic CSV file paths
+- `CORE_A` (str): Name of core A for plot titles
+- `CORE_B` (str): Name of core B for plot titles
+- `mute_mode` (bool, default=False): If True, suppress detailed output messages and show only essential progress information
+- `save_fig` (bool, default=True): If True, save static figures to files
+- `output_figure_filenames` (dict, optional): Dictionary mapping quality indices to output figure file paths (only used when save_fig=True)
+- `save_gif` (bool, default=False): If True, create animated GIF showing progressive addition of age constraints. When save_gif=True and save_fig=False, static figures will not be displayed (only GIFs are shown at the end). When save_gif=False (default), static figures will be displayed normally regardless of save_fig value
+- `output_gif_filenames` (dict, optional): Dictionary mapping quality indices to GIF file paths (only used when save_gif=True)
+- `max_frames` (int, default=50): Maximum number of frames for GIF animations
+- `plot_real_data_histogram` (bool, default=False): If True, plot histograms for real data (no age and all age constraint cases)
+- `plot_age_removal_step_pdf` (bool, default=True): If True, plot all PDF curves including dashed lines for partially removed constraints
+- `show_best_datum_match` (bool, default=True): If True, plot vertical line showing best datum match value from sequential_mappings_csv
+- `sequential_mappings_csv` (str or dict, optional): Path to CSV file(s) containing sequential mappings with 'Ranking_datums' column. Can be a single CSV path (str) or dictionary mapping quality indices to CSV paths
 
 **Returns:**
-- None (displays plot and optionally saves)
+- None (creates static plots and/or animated GIFs based on parameters)
 
 ### Matrix Plots (`matrix_plots.py`)
 
