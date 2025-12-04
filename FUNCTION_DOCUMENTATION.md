@@ -390,18 +390,18 @@ Computes quality metrics for combined correlation paths by aggregating segment-l
 
 ### Synthetic Stratigraphy (`syn_strat.py`)
 
-#### `load_segment_pool(core_names, core_log_paths, picked_depth_paths, log_column_names, depth_column, alternative_column_names=None, boundary_category=1, neglect_topbottom=True)`
+#### `load_segment_pool(core_names, log_data_csv, log_data_type, picked_datum, depth_column, alternative_column_names=None, boundary_category=None, neglect_topbottom=True)`
 
 Load segment pool data from turbidite database for synthetic core generation.
 
 **Parameters:**
 - `core_names` (list): List of core names to process
-- `core_log_paths` (dict): Dictionary mapping core names to log file paths
-- `picked_depth_paths` (dict): Dictionary mapping core names to picked depth file paths
-- `log_column_names` (list): List of log column names to load
+- `log_data_csv` (dict): Dictionary mapping core names to log file paths
+- `log_data_type` (list): List of log column names to load
+- `picked_datum` (dict): Dictionary mapping core names to picked depth file paths
 - `depth_column` (str): Name of depth column
 - `alternative_column_names` (dict, optional): Dictionary of alternative column names
-- `boundary_category` (int, default=1): Category number for turbidite boundaries
+- `boundary_category` (int, default=None): Category number for turbidite boundaries. If None, uses category 1 if available, otherwise uses the lowest available category
 - `neglect_topbottom` (bool, default=True): If True, skip the first and last segments of each core
 
 **Returns:**
@@ -434,7 +434,7 @@ Create synthetic log using turbidite database approach with picked depths at tur
 - `tuple`: (log, d, valid_picked_depths, inds)
   - `log` (numpy.ndarray): Synthetic log data array
   - `d` (numpy.ndarray): Depth values for the synthetic log
-  - `valid_picked_depths` (list): List of (depth, category) tuples marking turbidite boundaries
+  - `valid_picked_depths` (list): List of boundary depth values
   - `inds` (list): Indices of segments used from the segment pool
 
 **Example:**
@@ -445,8 +445,7 @@ syn_log_a, syn_md_a, syn_depth_a, inds_a = create_synthetic_log(
     segment_depths=mod_seg_depths,
     repetition=False
 )
-# syn_depth_a is a list of (depth, category) tuples
-# Extract just depths if needed: depths_only = [d for d, c in syn_depth_a]
+# syn_depth_a is a list of depth values (e.g., [0, 59.48, 92.21, ...])
 ```
 
 #### `create_synthetic_core_pair(core_a_length, core_b_length, seg_logs, seg_depths, log_columns, repetition=False, plot_results=True, save_plot=False, plot_filename=None)`
@@ -469,19 +468,17 @@ Generate synthetic core pair (computation only) with optional plotting.
   - `synthetic_log_a, synthetic_log_b` (numpy.ndarray): Synthetic log data arrays
   - `synthetic_md_a, synthetic_md_b` (numpy.ndarray): Depth values for synthetic logs
   - `inds_a, inds_b` (list): Indices of segments used from the segment pool
-  - `synthetic_picked_a, synthetic_picked_b` (list): Lists of depth values only (extracted from tuples returned by `create_synthetic_log`)
+  - `synthetic_picked_a, synthetic_picked_b` (list): Lists of boundary depth values
 
-**Note:** This function internally calls `create_synthetic_log()` which returns tuples `(depth, category)`, but `create_synthetic_core_pair()` extracts just the depth values for convenience.
-
-#### `plot_synthetic_log(synthetic_log, synthetic_md, synthetic_picked_datum, log_column_names, title="Synthetic Log", save_plot=False, plot_filename=None)`
+#### `plot_synthetic_log(synthetic_log, synthetic_md, synthetic_picked_datum, log_data_type, title="Synthetic Log", save_plot=False, plot_filename=None)`
 
 Plot a single synthetic log with turbidite boundaries.
 
 **Parameters:**
 - `synthetic_log` (array-like): Numpy array of log values (can be 1D or 2D for multiple log types)
 - `synthetic_md` (array-like): Numpy array of depth values
-- `synthetic_picked_datum` (list): List of turbidite boundary depths or list of (depth, category) tuples
-- `log_column_names` (str or list): Name(s) of the log column(s) for labeling
+- `synthetic_picked_datum` (list): List of turbidite boundary depths
+- `log_data_type` (str or list): Name(s) of the log column(s) for labeling
 - `title` (str, default="Synthetic Log"): Title for the plot
 - `save_plot` (bool, default=False): Whether to save the plot to file
 - `plot_filename` (str, optional): Filename for saving plot (if save_plot=True)
@@ -489,14 +486,14 @@ Plot a single synthetic log with turbidite boundaries.
 **Returns:**
 - `tuple`: (fig, ax) matplotlib figure and axis objects
 
-#### `synthetic_correlation_quality(mod_seg_logs, mod_seg_depths, log_column_names, quality_indices=['corr_coef', 'norm_dtw'], number_of_iterations=20, core_a_length=600, core_b_length=600, repetition=False, pca_for_dependent_dtw=False, output_csv_dir=None, mute_mode=True)`
+#### `synthetic_correlation_quality(segment_logs, segment_depths, log_data_type, quality_indices=['corr_coef', 'norm_dtw'], number_of_iterations=20, core_a_length=600, core_b_length=600, repetition=False, pca_for_dependent_dtw=False, output_csv_dir=None, mute_mode=True)`
 
 Generate DTW correlation quality analysis for synthetic core pairs with multiple iterations. This function saves distribution parameters for each correlation quality metric across all iterations.
 
 **Parameters:**
-- `mod_seg_logs` (list): List of turbidite log segments
-- `mod_seg_depths` (list): List of turbidite depth segments
-- `log_column_names` (list): List of log column names
+- `segment_logs` (list): List of turbidite log segments from `load_segment_pool()` or `modify_segment_pool()`
+- `segment_depths` (list): List of turbidite depth segments from `load_segment_pool()` or `modify_segment_pool()`
+- `log_data_type` (list): List of log column names
 - `quality_indices` (list, default=['corr_coef', 'norm_dtw']): List of quality indices to analyze
 - `number_of_iterations` (int, default=20): Number of synthetic pairs to generate
 - `core_a_length` (float, default=600): Target length for synthetic core A in cm
@@ -560,14 +557,14 @@ Run comprehensive multi-parameter analysis for core correlation with optional ag
 
 ### Synthetic Stratigraphy Plotting (`syn_strat_plot.py`)
 
-#### `plot_segment_pool(segment_logs, segment_depths, log_column_names, n_cols=8, figsize_per_row=4, plot_segments=True, save_plot=False, plot_filename=None)`
+#### `plot_segment_pool(segment_logs, segment_depths, log_data_type, n_cols=8, figsize_per_row=4, plot_segments=True, save_plot=False, plot_filename=None)`
 
 Plot all segments from the pool in a grid layout.
 
 **Parameters:**
 - `segment_logs` (list): List of log data arrays (segments)
 - `segment_depths` (list): List of depth arrays corresponding to each segment
-- `log_column_names` (list): List of column names for labeling
+- `log_data_type` (list): List of column names for labeling
 - `n_cols` (int, default=8): Number of columns in the subplot grid
 - `figsize_per_row` (float, default=4): Height per row in the figure
 - `plot_segments` (bool, default=True): Whether to plot the segments
@@ -575,7 +572,7 @@ Plot all segments from the pool in a grid layout.
 - `plot_filename` (str, optional): Filename for saving plot
 
 **Returns:**
-- `tuple`: (fig, axes) matplotlib figure and axes objects
+- None
 
 #### `create_and_plot_synthetic_core_pair(core_a_length, core_b_length, turb_logs, depth_logs, log_columns, repetition=False, plot_results=True, save_plot=False, plot_filename=None)`
 
@@ -1405,7 +1402,7 @@ Visualize and statistically analyze the distributions of the correlation quality
 - `dpi` (int, default=None): Resolution for saved figures in dots per inch. If None, uses default (150)
 
 **Returns:**
-- None (displays plot and optionally saves)
+- `fit_params` (dict): Dictionary containing distribution statistics including histogram data, PDF parameters, bin information, and percentile data when target_mapping_id is specified
 
 #### `calculate_quality_comparison_t_statistics(real_data, syn_data, quality_indices)`
 

@@ -40,19 +40,20 @@ from .age_models import calculate_interpolated_ages
 # Note: plot_correlation_distribution is imported inside functions to avoid circular imports
 
 
-def load_segment_pool(core_names, core_log_paths, picked_depth_paths, log_column_names, 
-                     depth_column, alternative_column_names=None, boundary_category=1, neglect_topbottom=True):
+def load_segment_pool(core_names, log_data_csv, log_data_type, picked_datum, 
+                     depth_column, alternative_column_names=None, boundary_category=None, neglect_topbottom=True):
     """
     Load segment pool data from turbidite database.
     
     Parameters:
     - core_names: list of core names to process
-    - core_log_paths: dict mapping core names to log file paths
-    - picked_depth_paths: dict mapping core names to picked depth file paths
-    - log_column_names: list of log column names to load
+    - log_data_csv: dict mapping core names to log file paths
+    - log_data_type: list of log column names to load
+    - picked_datum: dict mapping core names to picked depth file paths
     - depth_column: name of depth column
     - alternative_column_names: dict of alternative column names (optional)
-    - boundary_category: category number for turbidite boundaries (default: 1)
+    - boundary_category: category number for turbidite boundaries (default: None). 
+                        If None, uses category 1 if available, otherwise uses the lowest available category
     - neglect_topbottom: if True, skip the first and last segments of each core (default: True)
     
     Returns:
@@ -73,9 +74,9 @@ def load_segment_pool(core_names, core_log_paths, picked_depth_paths, log_column
         try:
             # Load data for segment pool
             log_data, md_data, available_columns, _, _ = load_log_data(
-                core_log_paths[core_name],
+                log_data_csv[core_name],
                 {},  # No images needed
-                log_column_names,
+                log_data_type,
                 depth_column=depth_column,
                 normalize=True,
                 column_alternatives=alternative_column_names or {}
@@ -83,7 +84,7 @@ def load_segment_pool(core_names, core_log_paths, picked_depth_paths, log_column
             
             # Check if all required log columns are available
             missing_columns = []
-            for col in log_column_names:
+            for col in log_data_type:
                 if col not in available_columns:
                     missing_columns.append(col)
             
@@ -99,11 +100,31 @@ def load_segment_pool(core_names, core_log_paths, picked_depth_paths, log_column
             }
             
             # Load turbidite boundaries for this core
-            picked_file = picked_depth_paths[core_name]
+            picked_file = picked_datum[core_name]
             try:
                 picked_df = pd.read_csv(picked_file)
+                
+                # Determine boundary_category to use
+                effective_category = boundary_category
+                if effective_category is None:
+                    # Get all available categories
+                    available_categories = sorted(picked_df['category'].unique())
+                    if len(available_categories) == 0:
+                        raise ValueError(f"No categories found in picked datum file for {core_name}")
+                    
+                    # Use category 1 if available, otherwise use the lowest available category
+                    if 1 in available_categories:
+                        effective_category = 1
+                    else:
+                        effective_category = available_categories[0]
+                    print(f"  Using boundary_category={effective_category} (auto-detected)")
+                
                 # Filter for specified category boundaries only
-                category_depths = picked_df[picked_df['category'] == boundary_category]['picked_depths_cm'].values
+                category_depths = picked_df[picked_df['category'] == effective_category]['picked_depths_cm'].values
+                
+                if len(category_depths) == 0:
+                    raise ValueError(f"No boundaries found for category {effective_category} in {core_name}")
+                
                 category_depths = np.sort(category_depths)  # Ensure sorted order
                 
                 # Create turbidite segments (from boundary to boundary)
@@ -218,12 +239,13 @@ def create_synthetic_log(target_thickness, segment_logs, segment_depths, exclude
     - segment_depths: list of corresponding depth arrays
     - exclude_inds: indices to exclude from selection (optional)
     - repetition: if True, allow reusing turbidite segments; if False, each segment can only be used once (default: False)
-    - plot_results: whether to display plots (default: True)
-    - save_plot: whether to save plots (default: False)
-    - plot_filename: filename for saving plots (optional)
     
     Returns:
-    - tuple: (log, d, inds, valid_picked_depths)
+    - tuple: (log, d, valid_picked_depths, inds)
+      - log: synthetic log data array
+      - d: depth values array
+      - valid_picked_depths: list of boundary depth values (just depths, no category info)
+      - inds: list of indices of segments used from the pool
     """
     # Determine target dimensions from the first available segment
     target_dimensions = segment_logs[0].shape[1] if len(segment_logs) > 0 and segment_logs[0].ndim > 1 else 1
@@ -314,11 +336,12 @@ def create_synthetic_log(target_thickness, segment_logs, segment_depths, exclude
     d = md_log[valid_indices]
     
     # Filter picked depths to only include those within the valid range
-    valid_picked_depths = [(depth, category) for depth, category in picked_depths if depth <= target_thickness]
+    # Extract just the depth values (no category info)
+    valid_picked_depths = [depth for depth, category in picked_depths if depth <= target_thickness]
     
     # Ensure we have an end boundary
-    if len(valid_picked_depths) == 0 or valid_picked_depths[-1][0] != d[-1]:
-        valid_picked_depths.append((d[-1], 1))
+    if len(valid_picked_depths) == 0 or valid_picked_depths[-1] != d[-1]:
+        valid_picked_depths.append(d[-1])
     
     return log, d, valid_picked_depths, inds
 
@@ -504,7 +527,7 @@ def _process_single_parameter_combination(
                     except Exception:
                         pass  # Use default binning if extraction fails
             
-            _, _, fit_params = plot_correlation_distribution(
+            fit_params = plot_correlation_distribution(
                 mapping_csv=f'{temp_mapping_file}',
                 quality_index=quality_index,
                 save_png=False, pdf_method='normal',
@@ -724,7 +747,7 @@ def _process_single_constraint_scenario(
                     except Exception:
                         pass  # Use default binning if extraction fails
             
-            _, _, fit_params = plot_correlation_distribution(
+            fit_params = plot_correlation_distribution(
                 mapping_csv=f'{temp_mapping_file}',
                 quality_index=quality_index,
                 save_png=False, pdf_method='normal',
@@ -1195,16 +1218,12 @@ def create_synthetic_core_pair(core_a_length, core_b_length, seg_logs, seg_depth
     # Generate synthetic logs for cores A and B
     print("Generating synthetic core pair...")
 
-    synthetic_log_a, synthetic_md_a, synthetic_picked_a_tuples, inds_a = create_synthetic_log(
+    synthetic_log_a, synthetic_md_a, synthetic_picked_a, inds_a = create_synthetic_log(
         core_a_length, seg_logs, seg_depths, exclude_inds=None, repetition=repetition
     )
-    synthetic_log_b, synthetic_md_b, synthetic_picked_b_tuples, inds_b = create_synthetic_log(
+    synthetic_log_b, synthetic_md_b, synthetic_picked_b, inds_b = create_synthetic_log(
         core_b_length, seg_logs, seg_depths, exclude_inds=None, repetition=repetition
     )
-
-    # Extract just the depths from the tuples
-    synthetic_picked_a = [depth for depth, category in synthetic_picked_a_tuples]
-    synthetic_picked_b = [depth for depth, category in synthetic_picked_b_tuples]
 
     # Plot synthetic core pair if requested
     if plot_results:
@@ -1305,7 +1324,7 @@ def create_synthetic_core_pair(core_a_length, core_b_length, seg_logs, seg_depth
             synthetic_log_b, synthetic_md_b, inds_b, synthetic_picked_b)
 
 
-def plot_segment_pool(segment_logs, segment_depths, log_column_names, n_cols=8, figsize_per_row=4, 
+def plot_segment_pool(segment_logs, segment_depths, log_data_type, n_cols=8, figsize_per_row=4, 
                      plot_segments=True, save_plot=False, plot_filename=None):
     """
     Plot all segments from the pool in a grid layout.
@@ -1313,7 +1332,7 @@ def plot_segment_pool(segment_logs, segment_depths, log_column_names, n_cols=8, 
     Parameters:
     - segment_logs: list of log data arrays (segments)
     - segment_depths: list of depth arrays corresponding to each segment
-    - log_column_names: list of column names for labeling
+    - log_data_type: list of column names for labeling
     - n_cols: number of columns in the subplot grid
     - figsize_per_row: height per row in the figure
     - plot_segments: whether to plot the segments (default True)
@@ -1321,12 +1340,12 @@ def plot_segment_pool(segment_logs, segment_depths, log_column_names, n_cols=8, 
     - plot_filename: filename for saving plot (optional)
     
     Returns:
-    - fig, axes: matplotlib figure and axes objects
+    - None
     """
     print(f"Plotting {len(segment_logs)} segments from the pool...")
     
     if not plot_segments:
-        return None, None
+        return
     
     # Create subplot grid
     n_segments = len(segment_logs)
@@ -1352,17 +1371,17 @@ def plot_segment_pool(segment_logs, segment_depths, log_column_names, n_cols=8, 
                 line_style = line_styles[col_idx % len(line_styles)]
                 
                 # Get column name for label
-                col_name = log_column_names[col_idx] if col_idx < len(log_column_names) else f'Log_{col_idx}'
+                col_name = log_data_type[col_idx] if col_idx < len(log_data_type) else f'Log_{col_idx}'
                 
                 ax.plot(segment[:, col_idx], depth, 
                        color=color, linestyle=line_style, linewidth=1, 
                        label=col_name, alpha=0.8)
             
             # Set xlabel to show all log types
-            if len(log_column_names) > 1:
-                ax.set_xlabel(f'Multiple Logs: {", ".join(log_column_names[:n_log_types])} (normalized)')
+            if len(log_data_type) > 1:
+                ax.set_xlabel(f'Multiple Logs: {", ".join(log_data_type[:n_log_types])} (normalized)')
             else:
-                ax.set_xlabel(f'{log_column_names[0]} (normalized)')
+                ax.set_xlabel(f'{log_data_type[0]} (normalized)')
                 
             # Add legend if multiple log types
             if n_log_types > 1:
@@ -1371,7 +1390,7 @@ def plot_segment_pool(segment_logs, segment_depths, log_column_names, n_cols=8, 
         else:
             # 1D data
             ax.plot(segment, depth, 'b-', linewidth=1)
-            ax.set_xlabel(f'{log_column_names[0]} (normalized)')
+            ax.set_xlabel(f'{log_data_type[0]} (normalized)')
         
         ax.set_ylabel('Relative Depth (cm)')
         ax.set_title(f'Segment {i+1}\n({len(segment)} pts, {depth[-1]:.1f} cm)')
@@ -1385,8 +1404,8 @@ def plot_segment_pool(segment_logs, segment_depths, log_column_names, n_cols=8, 
     plt.tight_layout()
     
     # Update title to reflect multiple log types if present
-    if len(log_column_names) > 1:
-        plt.suptitle(f'Turbidite Segment Pool ({len(segment_logs)} segments, {len(log_column_names)} log types)', 
+    if len(log_data_type) > 1:
+        plt.suptitle(f'Turbidite Segment Pool ({len(segment_logs)} segments, {len(log_data_type)} log types)', 
                      y=1.02, fontsize=16)
     else:
         plt.suptitle(f'Turbidite Segment Pool ({len(segment_logs)} segments)', y=1.02, fontsize=16)
@@ -1396,11 +1415,9 @@ def plot_segment_pool(segment_logs, segment_depths, log_column_names, n_cols=8, 
         print(f"Plot saved as: {plot_filename}")
     
     plt.show()
-    
-    return fig, axes
 
 
-def plot_synthetic_log(synthetic_log, synthetic_md, synthetic_picked_datum, log_column_names, 
+def plot_synthetic_log(synthetic_log, synthetic_md, synthetic_picked_datum, log_data_type, 
                       title="Synthetic Log", save_plot=False, plot_filename=None):
     """
     Plot a single synthetic log with turbidite boundaries.
@@ -1408,8 +1425,8 @@ def plot_synthetic_log(synthetic_log, synthetic_md, synthetic_picked_datum, log_
     Parameters:
     - synthetic_log: numpy array of log values (can be 1D or 2D for multiple log types)
     - synthetic_md: numpy array of depth values
-    - synthetic_picked_datum: list of turbidite boundary depths or list of (depth, category) tuples
-    - log_column_names: name(s) of the log column(s) for labeling (string or list)
+    - synthetic_picked_datum: list of turbidite boundary depths
+    - log_data_type: name(s) of the log column(s) for labeling (string or list)
     - title: title for the plot (default: "Synthetic Log")
     - save_plot: whether to save the plot to file (default: False)
     - plot_filename: filename for saving plot (if save_plot=True)
@@ -1418,9 +1435,9 @@ def plot_synthetic_log(synthetic_log, synthetic_md, synthetic_picked_datum, log_
     - fig, ax: matplotlib figure and axis objects
     """
 
-    # Convert log_column_names to list if it's a string
-    if isinstance(log_column_names, str):
-        log_column_names = [log_column_names]
+    # Convert log_data_type to list if it's a string
+    if isinstance(log_data_type, str):
+        log_data_type = [log_data_type]
 
     # Increase width for legend outside plot
     fig, ax = plt.subplots(1, 1, figsize=(2.5, 8))
@@ -1440,7 +1457,7 @@ def plot_synthetic_log(synthetic_log, synthetic_md, synthetic_picked_datum, log_
             line_style = line_styles[col_idx % len(line_styles)]
 
             # Get column name for label
-            col_name = log_column_names[col_idx] if col_idx < len(log_column_names) else f'Log_{col_idx}'
+            col_name = log_data_type[col_idx] if col_idx < len(log_data_type) else f'Log_{col_idx}'
 
             ax.plot(synthetic_log[:, col_idx], synthetic_md,
                     color=color, linestyle=line_style, linewidth=1,
@@ -1454,19 +1471,17 @@ def plot_synthetic_log(synthetic_log, synthetic_md, synthetic_picked_datum, log_
             legend_handle = ax.legend(fontsize=8, loc='center left', bbox_to_anchor=(1.02, 0.5))
 
         # Set xlabel to show all log types
-        if len(log_column_names) > 1:
+        if len(log_data_type) > 1:
             ax.set_xlabel(f'Multiple Logs\n(Normalized)')
         else:
-            ax.set_xlabel(f'{log_column_names[0]}\n(normalized)')
+            ax.set_xlabel(f'{log_data_type[0]}\n(normalized)')
     else:
         # 1D data
         ax.plot(synthetic_log, synthetic_md, 'b-', linewidth=1)
-        ax.set_xlabel(f'{log_column_names[0]} (normalized)')
+        ax.set_xlabel(f'{log_data_type[0]} (normalized)')
 
     # Add picked depths as horizontal lines
-    for item in synthetic_picked_datum:
-        # Handle both tuple format (depth, category) and plain depth values
-        depth = item[0] if isinstance(item, (tuple, list)) else item
+    for depth in synthetic_picked_datum:
         ax.axhline(y=depth, color='black', linestyle='--', alpha=0.7, linewidth=1)
 
     ax.set_ylabel('Depth (cm)')
@@ -1805,9 +1820,9 @@ def plot_synthetic_correlation_quality(
 
 
 def synthetic_correlation_quality(
-    mod_seg_logs, 
-    mod_seg_depths, 
-    log_column_names, 
+    segment_logs, 
+    segment_depths, 
+    log_data_type, 
     quality_indices=['corr_coef', 'norm_dtw'], 
     number_of_iterations=20, 
     core_a_length=400, 
@@ -1825,11 +1840,11 @@ def synthetic_correlation_quality(
 
     Parameters
     ----------
-    mod_seg_logs : list
+    segment_logs : list
         List of turbidite log segments (numpy arrays or compatible).
-    mod_seg_depths : list
+    segment_depths : list
         List of turbidite depth segments (numpy arrays or compatible).
-    log_column_names : list of str
+    log_data_type : list of str
         List of log column names to consider in the analysis.
     quality_indices : list of str, default ['corr_coef', 'norm_dtw']
         List of quality indices (metrics) to compute for each synthetic pair.
@@ -1870,14 +1885,14 @@ def synthetic_correlation_quality(
     output_files = {}
     for targeted_quality_index in quality_indices:
         # Construct filename
-        filename = f'synthetic_PDFs_{"_".join(log_column_names)}_{targeted_quality_index}.csv'
+        filename = f'synthetic_PDFs_{"_".join(log_data_type)}_{targeted_quality_index}.csv'
         if output_csv_dir:
             output_files[targeted_quality_index] = os.path.join(output_csv_dir, filename)
         else:
             output_files[targeted_quality_index] = filename
     
     # Define temp CSV path
-    temp_filename = f'temp_synthetic_{"_".join(log_column_names)}_core_pair_metrics.csv'
+    temp_filename = f'temp_synthetic_{"_".join(log_data_type)}_core_pair_metrics.csv'
     if output_csv_dir:
         temp_csv = os.path.join(output_csv_dir, temp_filename)
     else:
@@ -1891,26 +1906,22 @@ def synthetic_correlation_quality(
     for iteration in tqdm(range(number_of_iterations), desc="Running synthetic analysis"):
         
         # Generate synthetic core pair
-        syn_log_a, syn_md_a, syn_pickeddepths_a, inds_a = create_synthetic_log(
+        syn_log_a, syn_md_a, syn_picked_a, inds_a = create_synthetic_log(
             target_thickness=core_a_length, 
-            segment_logs=mod_seg_logs, 
-            segment_depths=mod_seg_depths, 
+            segment_logs=segment_logs, 
+            segment_depths=segment_depths, 
             exclude_inds=None, 
             repetition=repetition
         )
-        syn_log_b, syn_md_b, syn_pickeddepths_b, inds_b = create_synthetic_log(
+        syn_log_b, syn_md_b, syn_picked_b, inds_b = create_synthetic_log(
             target_thickness=core_b_length, 
-            segment_logs=mod_seg_logs, 
-            segment_depths=mod_seg_depths, 
+            segment_logs=segment_logs, 
+            segment_depths=segment_depths, 
             exclude_inds=None, 
             repetition=repetition
         )
         
-        # Extract depths from tuples
-        syn_picked_a = [depth for depth, category in syn_pickeddepths_a]
-        syn_picked_b = [depth for depth, category in syn_pickeddepths_b]
-        
-        # Run DTW analysis
+        # Run DTW analysis (syn_picked_a and syn_picked_b are already just depth values)
         dtw_result = run_comprehensive_dtw_analysis(
             syn_log_a, syn_log_b, syn_md_a, syn_md_b,
             picked_datum_a=syn_picked_a,
@@ -1941,7 +1952,7 @@ def synthetic_correlation_quality(
             output_csv_filename = output_files[targeted_quality_index]
 
             # Plot correlation distribution to get fit_params only
-            _, _, fit_params = plot_correlation_distribution(
+            fit_params = plot_correlation_distribution(
                 mapping_csv=temp_csv,
                 quality_index=targeted_quality_index,
                 save_png=False,
@@ -1969,9 +1980,8 @@ def synthetic_correlation_quality(
             del fit_params
         
         # Clear memory after each iteration
-        del syn_log_a, syn_md_a, inds_a, syn_pickeddepths_a
-        del syn_log_b, syn_md_b, inds_b, syn_pickeddepths_b
-        del syn_picked_a, syn_picked_b
+        del syn_log_a, syn_md_a, inds_a, syn_picked_a
+        del syn_log_b, syn_md_b, inds_b, syn_picked_b
         del dtw_result
         
         gc.collect()

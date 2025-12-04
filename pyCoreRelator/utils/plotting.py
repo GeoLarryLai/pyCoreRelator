@@ -1683,10 +1683,10 @@ def plot_correlation_distribution(mapping_csv, target_mapping_id=None, quality_i
             print(f"\nMapping ID {target_mapping_id} {quality_display_name}: {target_value:.3f}")
             print(f"Percentile: {percentile:.3f}%")
         
-        return fig, ax, fit_params
+        return fit_params
     else:
         # In mute mode, just return fit_params
-        return None, None, fit_params
+        return fit_params
     
 def process_single_row_parallel(row_data, combined_data, debug=False):
     """

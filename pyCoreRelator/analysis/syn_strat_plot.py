@@ -37,7 +37,7 @@ from .age_models import calculate_interpolated_ages
 
 from .syn_strat import create_synthetic_log
 
-def plot_segment_pool(segment_logs, segment_depths, log_column_names, n_cols=8, figsize_per_row=4, 
+def plot_segment_pool(segment_logs, segment_depths, log_data_type, n_cols=8, figsize_per_row=4, 
                      plot_segments=True, save_plot=False, plot_filename=None):
     """
     Plot all segments from the pool in a grid layout.
@@ -45,7 +45,7 @@ def plot_segment_pool(segment_logs, segment_depths, log_column_names, n_cols=8, 
     Parameters:
     - segment_logs: list of log data arrays (segments)
     - segment_depths: list of depth arrays corresponding to each segment
-    - log_column_names: list of column names for labeling
+    - log_data_type: list of column names for labeling
     - n_cols: number of columns in the subplot grid
     - figsize_per_row: height per row in the figure
     - plot_segments: whether to plot the segments (default True)
@@ -53,12 +53,12 @@ def plot_segment_pool(segment_logs, segment_depths, log_column_names, n_cols=8, 
     - plot_filename: filename for saving plot (optional)
     
     Returns:
-    - fig, axes: matplotlib figure and axes objects
+    - None
     """
     print(f"Plotting {len(segment_logs)} segments from the pool...")
     
     if not plot_segments:
-        return None, None
+        return
     
     # Create subplot grid
     n_segments = len(segment_logs)
@@ -84,17 +84,17 @@ def plot_segment_pool(segment_logs, segment_depths, log_column_names, n_cols=8, 
                 line_style = line_styles[col_idx % len(line_styles)]
                 
                 # Get column name for label
-                col_name = log_column_names[col_idx] if col_idx < len(log_column_names) else f'Log_{col_idx}'
+                col_name = log_data_type[col_idx] if col_idx < len(log_data_type) else f'Log_{col_idx}'
                 
                 ax.plot(segment[:, col_idx], depth, 
                        color=color, linestyle=line_style, linewidth=1, 
                        label=col_name, alpha=0.8)
             
             # Set xlabel to show all log types
-            if len(log_column_names) > 1:
-                ax.set_xlabel(f'Multiple Logs: {", ".join(log_column_names[:n_log_types])} (normalized)')
+            if len(log_data_type) > 1:
+                ax.set_xlabel(f'Multiple Logs: {", ".join(log_data_type[:n_log_types])} (normalized)')
             else:
-                ax.set_xlabel(f'{log_column_names[0]} (normalized)')
+                ax.set_xlabel(f'{log_data_type[0]} (normalized)')
                 
             # Add legend if multiple log types
             if n_log_types > 1:
@@ -103,7 +103,7 @@ def plot_segment_pool(segment_logs, segment_depths, log_column_names, n_cols=8, 
         else:
             # 1D data
             ax.plot(segment, depth, 'b-', linewidth=1)
-            ax.set_xlabel(f'{log_column_names[0]} (normalized)')
+            ax.set_xlabel(f'{log_data_type[0]} (normalized)')
         
         ax.set_ylabel('Relative Depth (cm)')
         ax.set_title(f'Segment {i+1}\n({len(segment)} pts, {depth[-1]:.1f} cm)')
@@ -117,8 +117,8 @@ def plot_segment_pool(segment_logs, segment_depths, log_column_names, n_cols=8, 
     plt.tight_layout()
     
     # Update title to reflect multiple log types if present
-    if len(log_column_names) > 1:
-        plt.suptitle(f'Turbidite Segment Pool ({len(segment_logs)} segments, {len(log_column_names)} log types)', 
+    if len(log_data_type) > 1:
+        plt.suptitle(f'Turbidite Segment Pool ({len(segment_logs)} segments, {len(log_data_type)} log types)', 
                      y=1.02, fontsize=16)
     else:
         plt.suptitle(f'Turbidite Segment Pool ({len(segment_logs)} segments)', y=1.02, fontsize=16)
@@ -128,8 +128,6 @@ def plot_segment_pool(segment_logs, segment_depths, log_column_names, n_cols=8, 
         print(f"Plot saved as: {plot_filename}")
     
     plt.show()
-    
-    return fig, axes
 
 
 
