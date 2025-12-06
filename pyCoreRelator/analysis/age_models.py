@@ -843,7 +843,7 @@ def check_age_constraint_compatibility(a_lower_bound, a_upper_bound, b_lower_bou
                                       constraint_ages_a, constraint_ages_b,
                                       constraint_pos_errors_a, constraint_pos_errors_b, 
                                       constraint_neg_errors_a, constraint_neg_errors_b,
-                                      ages_a=None, ages_b=None):
+                                      datum_ages_a=None, datum_ages_b=None):
     """
     Check if segments in each core are compatible with age constraints.
     
@@ -873,9 +873,9 @@ def check_age_constraint_compatibility(a_lower_bound, a_upper_bound, b_lower_bou
         Negative uncertainties for core A constraints in years
     constraint_neg_errors_b : array-like
         Negative uncertainties for core B constraints in years
-    ages_a : dict, optional
+    datum_ages_a : dict, optional
         Age model results for core A from calculate_interpolated_ages()
-    ages_b : dict, optional
+    datum_ages_b : dict, optional
         Age model results for core B from calculate_interpolated_ages()
         
     Returns
@@ -907,23 +907,23 @@ def check_age_constraint_compatibility(a_lower_bound, a_upper_bound, b_lower_bou
     """
     
     # Create extended constraints including top and bottom ages if available
-    if ages_a and ages_b and len(ages_a['ages']) > 0 and len(ages_b['ages']) > 0:
+    if datum_ages_a and datum_ages_b and len(datum_ages_a['ages']) > 0 and len(datum_ages_b['ages']) > 0:
         # Extract top and bottom ages from age models
-        top_age_a = ages_a['ages'][0]
-        top_age_pos_error_a = ages_a['pos_uncertainties'][0]
-        top_age_neg_error_a = ages_a['neg_uncertainties'][0]
+        top_age_a = datum_ages_a['ages'][0]
+        top_age_pos_error_a = datum_ages_a['pos_uncertainties'][0]
+        top_age_neg_error_a = datum_ages_a['neg_uncertainties'][0]
         
-        top_age_b = ages_b['ages'][0]
-        top_age_pos_error_b = ages_b['pos_uncertainties'][0]
-        top_age_neg_error_b = ages_b['neg_uncertainties'][0]
+        top_age_b = datum_ages_b['ages'][0]
+        top_age_pos_error_b = datum_ages_b['pos_uncertainties'][0]
+        top_age_neg_error_b = datum_ages_b['neg_uncertainties'][0]
         
-        bottom_age_a = ages_a['ages'][-1]
-        bottom_age_pos_error_a = ages_a['pos_uncertainties'][-1]
-        bottom_age_neg_error_a = ages_a['neg_uncertainties'][-1]
+        bottom_age_a = datum_ages_a['ages'][-1]
+        bottom_age_pos_error_a = datum_ages_a['pos_uncertainties'][-1]
+        bottom_age_neg_error_a = datum_ages_a['neg_uncertainties'][-1]
         
-        bottom_age_b = ages_b['ages'][-1]
-        bottom_age_pos_error_b = ages_b['pos_uncertainties'][-1]
-        bottom_age_neg_error_b = ages_b['neg_uncertainties'][-1]
+        bottom_age_b = datum_ages_b['ages'][-1]
+        bottom_age_pos_error_b = datum_ages_b['pos_uncertainties'][-1]
+        bottom_age_neg_error_b = datum_ages_b['neg_uncertainties'][-1]
         
         # Create extended constraints arrays including top and bottom
         ext_ages_a = np.concatenate(([top_age_a], constraint_ages_a, [bottom_age_a]))

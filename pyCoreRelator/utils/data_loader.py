@@ -22,32 +22,23 @@ import csv
 from scipy import stats
 
 
-def load_log_data(log_paths, img_paths=None, log_columns=None, depth_column='SB_DEPTH_cm', normalize=True, column_alternatives=None):
+def load_log_data(log_paths, log_columns=None, depth_column='SB_DEPTH_cm', normalize=True):
     """
-    Load log data and images for a core with support for both file paths and directories.
+    Load log data from CSV files and resample to common depth scale.
     
     This function loads multiple log datasets from CSV files, resamples them to a common
-    depth scale, and optionally loads RGB and CT images. It supports alternative column
-    names, automatic data normalization, and can load images from both direct file paths
-    and directory structures (loading the first valid image file found).
+    depth scale, and optionally normalizes the data.
     
     Parameters
     ----------
     log_paths : dict
         Dictionary mapping log names to file paths
-    img_paths : dict, optional
-        Dictionary mapping image types ('rgb', 'ct') to file paths or directories.
-        If a directory is provided, the function will load the first valid image file found.
-        Supports common image formats: .jpg, .jpeg, .png, .tiff, .tif, .bmp
-    log_columns : list of str
-        List of log column names to load from the CSV files
+    log_columns : list of str, optional
+        List of log column names to load from the CSV files. If None, uses all keys from log_paths
     depth_column : str, default='SB_DEPTH_cm'
         Name of the depth column in the CSV files
     normalize : bool, default=True
         Whether to normalize each log to the range [0, 1]
-    column_alternatives : dict, optional
-        Dictionary mapping log column names to lists of alternative column names
-        to try if the primary column name is not found
     
     Returns
     -------
@@ -55,87 +46,23 @@ def load_log_data(log_paths, img_paths=None, log_columns=None, depth_column='SB_
         Log data with shape (n_samples, n_logs) for multiple logs or (n_samples,) for single log
     md : numpy.ndarray
         Measured depths array
-    available_columns : list of str
-        Names of the logs that were successfully loaded
-    rgb_img : numpy.ndarray or None
-        RGB image array if available, None otherwise
-    ct_img : numpy.ndarray or None
-        CT image array if available, None otherwise
     
     Example
     -------
     >>> log_paths = {'MS': 'data/core1_ms.csv', 'Lumin': 'data/core1_lumin.csv'}
-    >>> img_paths = {'rgb': 'data/rgb_images/', 'ct': 'data/ct_images/CT.tiff'}
     >>> log_columns = ['MS', 'Lumin']
-    >>> log, md, cols, rgb_img, ct_img = load_log_data(log_paths, img_paths, log_columns)
+    >>> log, md = load_log_data(log_paths, log_columns)
     """
     # Check if log_paths is provided
     if log_paths is None:
         raise ValueError("log_paths must be provided")
     
-    # Check if log_columns is provided
+    # If log_columns not provided, use all keys from log_paths
     if log_columns is None:
-        raise ValueError("log_columns must be provided")
+        log_columns = list(log_paths.keys())
     
     # Initialize lists to store data
     datasets = []
-    available_columns = []
-    
-    # Try to load images only if img_paths is provided
-    rgb_img = None
-    ct_img = None
-    
-    if img_paths is not None:
-        # Helper function to load image from path or directory
-        def load_image_from_path(path, img_type):
-            """Load image from file path or directory."""
-            if path is None:
-                return None
-            
-            # Check if path is a directory
-            if os.path.isdir(path):
-                # Define supported image extensions
-                image_extensions = ('.jpg', '.jpeg', '.png', '.tiff', '.tif', '.bmp')
-                
-                # Get list of files in directory
-                try:
-                    files = sorted([f for f in os.listdir(path) if os.path.isfile(os.path.join(path, f))])
-                    
-                    # Find first image file with supported extension
-                    for file in files:
-                        if file.lower().endswith(image_extensions):
-                            img_path = os.path.join(path, file)
-                            try:
-                                img = plt.imread(img_path)
-                                print(f"Loaded {img_type.upper()} image from directory: {file}")
-                                return img
-                            except Exception as e:
-                                print(f"Warning: Could not load {file}: {e}")
-                                continue
-                    
-                    print(f"Warning: No valid image files found in directory {path}")
-                    return None
-                    
-                except Exception as e:
-                    print(f"Warning: Could not read directory {path}: {e}")
-                    return None
-            else:
-                # Try to load as a file path
-                try:
-                    img = plt.imread(path)
-                    print(f"Loaded {img_type.upper()} image from file")
-                    return img
-                except Exception as e:
-                    print(f"Warning: {img_type.upper()} image not available: {e}")
-                    return None
-        
-        # Load RGB image
-        if 'rgb' in img_paths:
-            rgb_img = load_image_from_path(img_paths['rgb'], 'rgb')
-        
-        # Load CT image
-        if 'ct' in img_paths:
-            ct_img = load_image_from_path(img_paths['ct'], 'ct')
     
     # Process each log column
     for log_column in log_columns:
@@ -154,27 +81,15 @@ def load_log_data(log_paths, img_paths=None, log_columns=None, depth_column='SB_
                 print(f"Warning: Depth column {depth_column} not found in {log_path}. Skipping.")
                 continue
                 
-            # Find the effective column name
-            effective_column = log_column
+            # Check if the log column exists
             if log_column not in df.columns:
-                # Try alternative column names if provided
-                found = False
-                if column_alternatives and log_column in column_alternatives:
-                    for alt in column_alternatives[log_column]:
-                        if alt in df.columns:
-                            effective_column = alt
-                            found = True
-                            print(f"Using alternative column {alt} for {log_column}")
-                            break
-                
-                if not found:
-                    print(f"Warning: Log column {log_column} not found in {log_path}. Available columns: {list(df.columns)}. Skipping.")
-                    continue
+                print(f"Warning: Log column {log_column} not found in {log_path}. Available columns: {list(df.columns)}. Skipping.")
+                continue
             
             # Extract data
             data = {}
             data['depth'] = np.array(df[depth_column])
-            data[log_column] = np.array(df[effective_column])
+            data[log_column] = np.array(df[log_column])
             
             # Normalize the log data if requested
             if normalize:
@@ -185,9 +100,8 @@ def load_log_data(log_paths, img_paths=None, log_columns=None, depth_column='SB_
                 else:
                     data[log_column] = np.zeros_like(data[log_column])
             
-            # Add to datasets and available columns
+            # Add to datasets
             datasets.append(data)
-            available_columns.append(log_column)
             
         except Exception as e:
             print(f"Error loading {log_path}: {e}")
@@ -195,20 +109,20 @@ def load_log_data(log_paths, img_paths=None, log_columns=None, depth_column='SB_
     # If no datasets were loaded, return empty arrays
     if not datasets:
         print(f"No log datasets were loaded")
-        return np.array([]), np.array([]), [], rgb_img, ct_img
+        return np.array([]), np.array([])
     
     # Resample all datasets to a common depth scale
     resampled_data = resample_datasets(datasets)
     
     # Stack the selected columns
-    log = np.column_stack([resampled_data[col] for col in available_columns])
+    log = np.column_stack([resampled_data[col] for col in log_columns])
     md = resampled_data['depth']
     
     # If only one log column was loaded, return as 1D array for backward compatibility
-    if len(available_columns) == 1:
+    if len(log_columns) == 1:
         log = log.flatten()
     
-    return log, md, available_columns, rgb_img, ct_img
+    return log, md
 
 def resample_datasets(datasets, target_resolution_factor=2):
     """
@@ -898,7 +812,7 @@ def load_sequential_mappings(csv_path):
 
 
 def load_core_log_data(log_paths, core_name, log_columns=None, depth_column='SB_DEPTH_cm',
-                       normalize=True, column_alternatives=None,
+                       normalize=True,
                        core_img_1=None, core_img_2=None, figsize=(20, 4),
                        picked_datum=None, categories=None,
                        show_bed_number=False, cluster_data=None,
@@ -923,9 +837,6 @@ def load_core_log_data(log_paths, core_name, log_columns=None, depth_column='SB_
         Name of the depth column in the CSV files
     normalize : bool, default=True
         Whether to normalize each log to the range [0, 1]
-    column_alternatives : dict, optional
-        Dictionary mapping log column names to lists of alternative column names
-        to try if the primary column name is not found
     core_img_1 : str or array_like, optional
         First core image to display. Can be either:
         - str: Path to image file (will be loaded with plt.imread)
@@ -985,14 +896,12 @@ def load_core_log_data(log_paths, core_name, log_columns=None, depth_column='SB_
     if log_columns is None:
         log_columns = list(log_paths.keys())
     
-    # Load log data using load_log_data function (without img_paths)
-    log, md, available_columns, _, _ = load_log_data(
+    # Load log data using load_log_data function
+    log, md = load_log_data(
         log_paths=log_paths,
-        img_paths=None,
         log_columns=log_columns,
         depth_column=depth_column,
-        normalize=normalize,
-        column_alternatives=column_alternatives
+        normalize=normalize
     )
     
     # Check if data was successfully loaded
@@ -1053,7 +962,7 @@ def load_core_log_data(log_paths, core_name, log_columns=None, depth_column='SB_
         core_img_2=core_img_2,
         miny=0,
         maxy=1,
-        available_logs=available_columns
+        available_logs=log_columns
     )
     
     # Add title

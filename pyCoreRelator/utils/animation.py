@@ -69,7 +69,7 @@ def create_segment_dtw_animation(dtw_result, log_a, log_b, md_a, md_b,
                               color_interval_size=None, 
                               keep_frames=True, output_filename='SegmentPair_DTW_animation.gif',
                               max_frames=100, parallel=True, debug=False,
-                              age_consideration=False, ages_a=None, ages_b=None,
+                              age_consideration=False, datum_ages_a=None, datum_ages_b=None,
                               restricted_age_correlation=True,
                               all_constraint_depths_a=None, all_constraint_depths_b=None,
                               all_constraint_ages_a=None, all_constraint_ages_b=None,
@@ -105,7 +105,7 @@ def create_segment_dtw_animation(dtw_result, log_a, log_b, md_a, md_b,
         parallel (bool, optional): Whether to use parallel processing. Defaults to True.
         debug (bool, optional): Enable debug output. Defaults to False.
         age_consideration (bool, optional): Include age information in visualization. Defaults to False.
-        ages_a, ages_b (dict, optional): Age data dictionaries with 'depths', 'ages', 'pos_uncertainties', 'neg_uncertainties'
+        datum_ages_a, datum_ages_b (dict, optional): Age data dictionaries with 'depths', 'ages', 'pos_uncertainties', 'neg_uncertainties'
         restricted_age_correlation (bool, optional): Use restricted age correlation mode. Defaults to True.
         all_constraint_depths_a, all_constraint_depths_b (array, optional): Constraint depth arrays
         all_constraint_ages_a, all_constraint_ages_b (array, optional): Constraint age arrays
@@ -121,7 +121,7 @@ def create_segment_dtw_animation(dtw_result, log_a, log_b, md_a, md_b,
         ...     log_a, log_b, md_a, md_b, dtw_results, valid_pairs,
         ...     segments_a, segments_b, depths_a, depths_b,
         ...     max_frames=50, age_consideration=True,
-        ...     ages_a=age_data_a, ages_b=age_data_b
+        ...     datum_ages_a=age_data_a, datum_ages_b=age_data_b
         ... )
         >>> print(f"Animation saved to: {output_path}")
     """
@@ -247,8 +247,8 @@ def create_segment_dtw_animation(dtw_result, log_a, log_b, md_a, md_b,
                     visualize_segment_labels=False,
                     # Age-related parameters
                     age_consideration=age_consideration,
-                    ages_a=ages_a,
-                    ages_b=ages_b,
+                    datum_ages_a=datum_ages_a,
+                    datum_ages_b=datum_ages_b,
                     mark_ages=age_consideration, 
                     all_constraint_depths_a=all_constraint_depths_a,
                     all_constraint_depths_b=all_constraint_depths_b,
@@ -265,21 +265,21 @@ def create_segment_dtw_animation(dtw_result, log_a, log_b, md_a, md_b,
                        f"A: {segment_a_len} points, B: {segment_b_len} points"
                 
                 # Add age information if enabled
-                if age_consideration and ages_a and ages_b:
+                if age_consideration and datum_ages_a and datum_ages_b:
                     # Get boundary depths
                     a_boundary_depth = md_a[depth_boundaries_a[segments_a[a_idx][1]]]
                     b_boundary_depth = md_b[depth_boundaries_b[segments_b[b_idx][1]]]
                     
-                    # Find index of nearest depth in ages_a and ages_b
-                    a_age_idx = np.argmin(np.abs(np.array(ages_a['depths']) - a_boundary_depth))
-                    b_age_idx = np.argmin(np.abs(np.array(ages_b['depths']) - b_boundary_depth))
+                    # Find index of nearest depth in datum_ages_a and datum_ages_b
+                    a_age_idx = np.argmin(np.abs(np.array(datum_ages_a['depths']) - a_boundary_depth))
+                    b_age_idx = np.argmin(np.abs(np.array(datum_ages_b['depths']) - b_boundary_depth))
                     
-                    age_a = ages_a['ages'][a_age_idx]
-                    age_b = ages_b['ages'][b_age_idx]
-                    age_a_pos_err = ages_a['pos_uncertainties'][a_age_idx]
-                    age_a_neg_err = ages_a['neg_uncertainties'][a_age_idx]
-                    age_b_pos_err = ages_b['pos_uncertainties'][b_age_idx]
-                    age_b_neg_err = ages_b['neg_uncertainties'][b_age_idx]
+                    age_a = datum_ages_a['ages'][a_age_idx]
+                    age_b = datum_ages_b['ages'][b_age_idx]
+                    age_a_pos_err = datum_ages_a['pos_uncertainties'][a_age_idx]
+                    age_a_neg_err = datum_ages_a['neg_uncertainties'][a_age_idx]
+                    age_b_pos_err = datum_ages_b['pos_uncertainties'][b_age_idx]
+                    age_b_neg_err = datum_ages_b['neg_uncertainties'][b_age_idx]
                     
                     # Add correlation mode information
                     if restricted_age_correlation:
@@ -399,7 +399,7 @@ def visualize_dtw_results_from_csv(dtw_result, log_a, log_b, md_a, md_b,
                                   visualize_pairs=False,
                                   visualize_segment_labels=False,
                                   mark_depths=True, mark_ages=True,
-                                  ages_a=None, ages_b=None,
+                                  datum_ages_a=None, datum_ages_b=None,
                                   core_a_age_data=None, core_b_age_data=None,
                                   core_a_name=None,
                                   core_b_name=None,
@@ -431,7 +431,7 @@ def visualize_dtw_results_from_csv(dtw_result, log_a, log_b, md_a, md_b,
         visualize_segment_labels (bool, optional): Whether to show segment labels. Defaults to False.
         mark_depths (bool, optional): Whether to mark depth boundaries. Defaults to True.
         mark_ages (bool, optional): Whether to mark age constraints. Defaults to True.
-        ages_a, ages_b (dict, optional): Age data dictionaries for picked depths
+        datum_ages_a, datum_ages_b (dict, optional): Age data dictionaries for picked depths
         core_a_age_data, core_b_age_data (dict, optional): Complete age constraint data from load_core_age_constraints(). 
             Expected keys: 'in_sequence_ages', 'in_sequence_depths', 'in_sequence_pos_errors', 'in_sequence_neg_errors', 'core'
         core_a_name, core_b_name (str, optional): Core names for constraint visualization
@@ -449,8 +449,8 @@ def visualize_dtw_results_from_csv(dtw_result, log_a, log_b, md_a, md_b,
         ...     log_a, log_b, md_a, md_b,
         ...     max_frames=100,
         ...     mark_ages=True,
-        ...     ages_a=age_data_a,
-        ...     ages_b=age_data_b
+        ...     datum_ages_a=age_data_a,
+        ...     datum_ages_b=age_data_b
         ... )
     """
     # Extract variables from unified dictionary
@@ -588,8 +588,8 @@ def visualize_dtw_results_from_csv(dtw_result, log_a, log_b, md_a, md_b,
                 matrix_save_path=os.path.join(matrix_frames_dir, f"CombinedDTW_matrix_mappings_{frame_num}.png"),
                 mark_depths=mark_depths,
                 mark_ages=mark_ages,
-                ages_a=ages_a,
-                ages_b=ages_b,
+                datum_ages_a=datum_ages_a,
+                datum_ages_b=datum_ages_b,
                 core_a_age_data=core_a_age_data,
                 core_b_age_data=core_b_age_data,
                 core_a_name=core_a_name,

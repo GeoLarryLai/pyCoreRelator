@@ -29,7 +29,7 @@ This document provides detailed documentation for all functions in the pyCoreRel
 - `color_interval_size` (float, default=10): Color interval size for visualizations
 - `keep_frames` (bool, default=True): Keep individual animation frames
 - `age_consideration` (bool, default=False): Whether to apply age-based filtering
-- `ages_a, ages_b` (dict, optional): Age constraint dictionaries with interpolated ages for picked depths
+- `datum_ages_a, datum_ages_b` (dict, optional): Age constraint dictionaries with interpolated ages for picked depths
 - `restricted_age_correlation` (bool, default=True): Whether to use strict age correlation filtering
 - `core_a_age_data, core_b_age_data` (dict, optional): Complete age constraint data from `load_core_age_constraints()`. Expected keys: 'in_sequence_ages', 'in_sequence_depths', 'in_sequence_pos_errors', 'in_sequence_neg_errors', 'core'. Required when `age_consideration=True`
 - `dtw_distance_threshold` (float, default=None): Maximum allowed DTW distance for segment acceptance
@@ -60,8 +60,8 @@ dtw_result = run_comprehensive_dtw_analysis(
     picked_datum_a=picked_depths_a,
     picked_datum_b=picked_depths_b,
     age_consideration=True,
-    ages_a=estimated_datum_ages_a,
-    ages_b=estimated_datum_ages_b,
+    datum_ages_a=estimated_datum_ages_a,
+    datum_ages_b=estimated_datum_ages_b,
     core_a_age_data=age_data_a,  # Simplified parameter
     core_b_age_data=age_data_b,  # Simplified parameter
     core_a_name='M9907-25PC',
@@ -245,7 +245,7 @@ result = calculate_interpolated_ages(
 )
 ```
 
-#### `check_age_constraint_compatibility(a_lower_bound, a_upper_bound, b_lower_bound, b_upper_bound, constraint_ages_a, constraint_ages_b, constraint_pos_errors_a, constraint_pos_errors_b, constraint_neg_errors_a, constraint_neg_errors_b, ages_a=None, ages_b=None)`
+#### `check_age_constraint_compatibility(a_lower_bound, a_upper_bound, b_lower_bound, b_upper_bound, constraint_ages_a, constraint_ages_b, constraint_pos_errors_a, constraint_pos_errors_b, constraint_neg_errors_a, constraint_neg_errors_b, datum_ages_a=None, datum_ages_b=None)`
 
 Checks compatibility between two segment pairs based on their age ranges and constraint overlaps.
 
@@ -255,7 +255,7 @@ Checks compatibility between two segment pairs based on their age ranges and con
 - `constraint_ages_a, constraint_ages_b` (list): Age constraint values for each core
 - `constraint_pos_errors_a, constraint_pos_errors_b` (list): Positive age uncertainties
 - `constraint_neg_errors_a, constraint_neg_errors_b` (list): Negative age uncertainties
-- `ages_a, ages_b` (dict, optional): Complete age model dictionaries for picked depths
+- `datum_ages_a, datum_ages_b` (dict, optional): Complete age model dictionaries for picked depths
 
 **Returns:**
 - `tuple`: (is_compatible, age_overlap_percentage) indicating whether segments are age-compatible and their overlap percentage
@@ -531,29 +531,55 @@ Generate all possible subsets of constraints (2^n combinations) for age constrai
 **Returns:**
 - `list`: List of all possible constraint subsets
 
-#### `run_multi_parameter_analysis(log_a, log_b, md_a, md_b, all_depths_a_cat1, all_depths_b_cat1, pickeddepth_ages_a, pickeddepth_ages_b, age_data_a, age_data_b, uncertainty_method, parameter_combinations, target_quality_indices, test_age_constraint_removal, core_a_name, core_b_name, output_csv_filenames, synthetic_csv_filenames=None, pca_for_dependent_dtw=False, n_jobs=-1, max_search_per_layer=None)`
+#### `run_multi_parameter_analysis(log_a, log_b, md_a, md_b, picked_datum_a, picked_datum_b, datum_ages_a, datum_ages_b, core_a_age_data, core_b_age_data, uncertainty_method, core_a_name, core_b_name, output_csv_directory, parameter_combinations, target_quality_indices=['corr_coef', 'norm_dtw'], log_columns=None, test_age_constraint_removal=True, synthetic_csv_filenames=None, pca_for_dependent_dtw=False, n_jobs=-1, max_search_per_layer=None)`
 
 Run comprehensive multi-parameter analysis for core correlation with optional age constraint removal testing.
 
 **Parameters:**
 - `log_a, log_b` (array-like): Log data for cores A and B
 - `md_a, md_b` (array-like): Measured depth arrays for cores A and B
-- `all_depths_a_cat1, all_depths_b_cat1` (array-like): Picked depths of category 1 for cores A and B
-- `pickeddepth_ages_a, pickeddepth_ages_b` (dict): Age interpolation results for picked depths
-- `age_data_a, age_data_b` (dict): Age constraint data for cores A and B
+- `picked_datum_a, picked_datum_b` (array-like): Picked depths of category 1 for cores A and B
+- `datum_ages_a, datum_ages_b` (dict): Age interpolation results for picked depths
+- `core_a_age_data, core_b_age_data` (dict): Age constraint data for cores A and B
 - `uncertainty_method` (str): Method for uncertainty calculation
-- `parameter_combinations` (list): List of parameter combinations to test
-- `target_quality_indices` (list): Quality indices to analyze (e.g., ['corr_coef', 'norm_dtw', 'perc_diag'])
-- `test_age_constraint_removal` (bool): Whether to test age constraint removal scenarios
 - `core_a_name, core_b_name` (str): Names of cores A and B
-- `output_csv_filenames` (dict): Dictionary mapping quality_index to output CSV filename
+- `output_csv_directory` (str): Directory path where output CSV files will be saved. Files will be named '{quality_index}_fit_params.csv'
+- `parameter_combinations` (list): List of parameter combinations to test
+- `target_quality_indices` (list, default=['corr_coef', 'norm_dtw']): Quality indices to analyze (e.g., ['corr_coef', 'norm_dtw', 'perc_diag'])
+- `log_columns` (list, optional): List of log column names (e.g., ['hiresMS', 'CT', 'Lumin']). If provided, creates a subdirectory named with joined column names
+- `test_age_constraint_removal` (bool, default=True): Whether to test age constraint removal scenarios
 - `synthetic_csv_filenames` (dict, optional): Dictionary mapping quality_index to synthetic CSV filename for consistent bin sizing
 - `pca_for_dependent_dtw` (bool, default=False): Whether to use PCA for dependent DTW
 - `n_jobs` (int, default=-1): Number of parallel jobs to run. -1 means using all available cores
 - `max_search_per_layer` (int, optional): Maximum number of scenarios to process per constraint removal layer
 
 **Returns:**
-- None (Results are saved to CSV files specified in output_csv_filenames)
+- None (Results are saved to CSV files in output_csv_directory)
+
+**Example:**
+```python
+run_multi_parameter_analysis(
+    log_a=log_a, log_b=log_b, md_a=md_a, md_b=md_b,
+    picked_datum_a=picked_depths_a,
+    picked_datum_b=picked_depths_b,
+    datum_ages_a=pickeddepth_ages_a,
+    datum_ages_b=pickeddepth_ages_b,
+    age_data_a=age_data_a,
+    age_data_b=age_data_b,
+    uncertainty_method='MonteCarlo',
+    core_a_name='M9907-25PC',
+    core_b_name='M9907-23PC',
+    output_csv_directory='example_data/analytical_outputs/M9907-25PC_M9907-23PC',
+    parameter_combinations=[
+        {'age_consideration': True, 'restricted_age_correlation': True, 'shortest_path_search': True},
+        {'age_consideration': False, 'restricted_age_correlation': False, 'shortest_path_search': True}
+    ],
+    log_columns=['hiresMS', 'CT', 'Lumin']  # Creates subdirectory 'hiresMS_CT_Lumin'
+)
+# Output files will be saved to:
+# example_data/analytical_outputs/M9907-25PC_M9907-23PC/hiresMS_CT_Lumin/corr_coef_fit_params.csv
+# example_data/analytical_outputs/M9907-25PC_M9907-23PC/hiresMS_CT_Lumin/norm_dtw_fit_params.csv
+```
 
 ### Synthetic Stratigraphy Plotting (`syn_strat_plot.py`)
 
@@ -1206,7 +1232,7 @@ Maps category identifiers to specific colors for visualization.
 
 ### Data Loader (`data_loader.py`)
 
-#### `load_core_log_data(log_paths, core_name, log_columns=None, depth_column='SB_DEPTH_cm', normalize=True, column_alternatives=None, core_img_1=None, core_img_2=None, figsize=(20, 4), picked_datum=None, categories=None, show_bed_number=False, cluster_data=None, core_img_1_cmap_range=None, core_img_2_cmap_range=None, show_fig=True)`
+#### `load_core_log_data(log_paths, core_name, log_columns=None, depth_column='SB_DEPTH_cm', normalize=True, core_img_1=None, core_img_2=None, figsize=(20, 4), picked_datum=None, categories=None, show_bed_number=False, cluster_data=None, core_img_1_cmap_range=None, core_img_2_cmap_range=None, show_fig=True)`
 
 **ENHANCED** - Load core log data from CSV files, optionally load picked depths from CSV, and create visualization with optional core images.
 
@@ -1216,7 +1242,6 @@ Maps category identifiers to specific colors for visualization.
 - `log_columns` (list, optional): List of log column names to load from the CSV files. If None, uses all keys from log_paths
 - `depth_column` (str, default='SB_DEPTH_cm'): Name of the depth column in the CSV files
 - `normalize` (bool, default=True): Whether to normalize each log to the range [0, 1]
-- `column_alternatives` (dict, optional): Alternative column names to try if primary names not found
 - `core_img_1` (str or array_like, optional): First core image (file path or array). If None, no image displayed
 - `core_img_2` (str or array_like, optional): Second core image (file path or array). If None, no image displayed
 - `figsize` (tuple, default=(20, 4)): Figure size (width, height)
@@ -1248,20 +1273,18 @@ Maps category identifiers to specific colors for visualization.
 ... )
 ```
 
-#### `load_log_data(log_paths, img_paths=None, log_columns=None, depth_column='SB_DEPTH_cm', normalize=True, column_alternatives=None)`
+#### `load_log_data(log_paths, log_columns=None, depth_column='SB_DEPTH_cm', normalize=True)`
 
-**ENHANCED** - Loads and preprocesses well log data and core images from multiple file sources with automatic normalization and resampling. Now supports loading images from both file paths and directories.
+Loads and preprocesses well log data from multiple CSV files with automatic normalization and resampling to common depth scale.
 
 **Parameters:**
 - `log_paths` (dict): Dictionary mapping log names to file paths
-- `img_paths` (dict, optional): Dictionary mapping image types ('rgb', 'ct') to file paths or directories. If a directory is provided, loads the first valid image file found. Supports .jpg, .jpeg, .png, .tiff, .tif, .bmp formats
-- `log_columns` (list): List of log column names to load from files
+- `log_columns` (list, optional): List of log column names to load from files. If None, uses all keys from log_paths
 - `depth_column` (str, default='SB_DEPTH_cm'): Name of depth column in data files
 - `normalize` (bool, default=True): Whether to normalize log data to [0,1] range
-- `column_alternatives` (dict, optional): Alternative column names to try if primary names not found
 
 **Returns:**
-- `tuple`: (log, md, available_columns, rgb_img, ct_img) containing loaded data and images
+- `tuple`: (log, md) containing log data array and measured depth array
 
 #### `load_core_age_constraints(core_name, age_base_path, data_columns=None, mute_mode=False)`
 
@@ -1352,7 +1375,7 @@ Display segment correlations overlaid on log plots with optional age constraint 
 - `log_a, log_b` (array-like): Log data arrays
 - `md_a, md_b` (array-like): Measured depth arrays
 - `segment_pairs_to_combine` (list): List of segment pairs to combine and visualize
-- `ages_a, ages_b` (dict, optional): Age data dictionaries for picked depths
+- `datum_ages_a, datum_ages_b` (dict, optional): Age data dictionaries for picked depths
 - `core_a_age_data, core_b_age_data` (dict, optional): Complete age constraint data from `load_core_age_constraints()`. Expected keys: 'in_sequence_ages', 'in_sequence_depths', 'in_sequence_pos_errors', 'in_sequence_neg_errors', 'core'
 - `mark_ages` (bool, optional): Whether to mark age constraints in visualization
 - `correlation_save_path, matrix_save_path` (str, optional): Paths to save output figures
@@ -1375,8 +1398,8 @@ combined_wp, combined_quality = visualize_combined_segments(
     correlation_save_path='outputs/correlation.png',
     matrix_save_path='outputs/matrix.png',
     mark_ages=True,
-    ages_a=estimated_datum_ages_a,
-    ages_b=estimated_datum_ages_b,
+    datum_ages_a=estimated_datum_ages_a,
+    datum_ages_b=estimated_datum_ages_b,
     core_a_age_data=age_data_a,
     core_b_age_data=age_data_b
 )
@@ -1404,36 +1427,43 @@ Visualize and statistically analyze the distributions of the correlation quality
 **Returns:**
 - `fit_params` (dict): Dictionary containing distribution statistics including histogram data, PDF parameters, bin information, and percentile data when target_mapping_id is specified
 
-#### `calculate_quality_comparison_t_statistics(real_data, syn_data, quality_indices)`
+#### `calculate_quality_comparison_t_statistics(target_quality_indices, output_csv_directory, input_syntheticPDF_directory, core_a_name, core_b_name, log_columns=None, mute_mode=False)`
 
-Calculate t-statistics for quality metric comparisons.
+Calculate t-statistics for quality metric comparisons between real core correlation data and synthetic null hypothesis.
 
 **Parameters:**
-- `real_data` (dict): Real correlation quality data
-- `syn_data` (dict): Synthetic correlation quality data
-- `quality_indices` (list): List of quality metrics to compare
+- `target_quality_indices` (list): List of quality metrics to compare (e.g., ['corr_coef', 'norm_dtw'])
+- `output_csv_directory` (str): Directory path where output CSV files are located
+- `input_syntheticPDF_directory` (str): Directory path where synthetic/null hypothesis CSV files are located
+- `core_a_name` (str): Core A identifier
+- `core_b_name` (str): Core B identifier
+- `log_columns` (list, optional): List of log column names (e.g., ['hiresMS', 'CT', 'Lumin']). If provided, creates subdirectory structure
+- `mute_mode` (bool, default=False): If True, suppress console output
 
 **Returns:**
-- `dict`: T-statistics and p-values for each quality metric
+- None: Updates CSV files in-place with statistical columns (t_statistic, cohens_d, effect_size_category)
 
-#### `plot_quality_comparison_t_statistics(target_quality_indices, master_csv_filenames, synthetic_csv_filenames, CORE_A, CORE_B, mute_mode=False, save_fig=True, output_figure_filenames=None, save_gif=False, output_gif_filenames=None, max_frames=50, plot_real_data_histogram=False, plot_age_removal_step_pdf=True, show_best_datum_match=True, sequential_mappings_csv=None)`
+#### `plot_quality_comparison_t_statistics(target_quality_indices, output_csv_directory, input_syntheticPDF_directory, core_a_name, core_b_name, log_columns=None, mute_mode=False, save_fig=False, output_figure_directory=None, fig_format=['png'], dpi=150, save_gif=False, output_gif_directory=None, max_frames=50, plot_real_data_histogram=False, plot_age_removal_step_pdf=False, show_best_datum_match=True, sequential_mappings_csv=None)`
 
 Plot quality index distributions comparing real data vs synthetic null hypothesis with t-statistics analysis.
 
 **Parameters:**
 - `target_quality_indices` (list): Quality metrics to plot (e.g., ['corr_coef', 'norm_dtw', 'perc_diag'])
-- `master_csv_filenames` (dict): Dictionary mapping quality indices to master CSV file paths (should contain t-statistics columns)
-- `synthetic_csv_filenames` (dict): Dictionary mapping quality indices to synthetic CSV file paths
-- `CORE_A` (str): Name of core A for plot titles
-- `CORE_B` (str): Name of core B for plot titles
+- `output_csv_directory` (str): Directory path where output CSV files are located (should contain t-statistics columns)
+- `input_syntheticPDF_directory` (str): Directory path where synthetic/null hypothesis CSV files are located
+- `core_a_name` (str): Name of core A for plot titles
+- `core_b_name` (str): Name of core B for plot titles
+- `log_columns` (list, optional): List of log column names (e.g., ['hiresMS', 'CT', 'Lumin']). If provided, creates subdirectory structure
 - `mute_mode` (bool, default=False): If True, suppress detailed output messages and show only essential progress information
-- `save_fig` (bool, default=True): If True, save static figures to files
-- `output_figure_filenames` (dict, optional): Dictionary mapping quality indices to output figure file paths (only used when save_fig=True)
+- `save_fig` (bool, default=False): If True, save static figures to files
+- `output_figure_directory` (str, optional): Directory path where output figures will be saved (filenames auto-generated, only used when save_fig=True)
+- `fig_format` (list, default=['png']): List of file formats for saved figures. Accepted formats: 'png', 'jpg', 'svg', 'pdf', 'tiff'. Only used when save_fig=True. Can specify multiple formats like ['png', 'tiff']
+- `dpi` (int, default=150): Resolution for saved figures in dots per inch. Only used when save_fig=True
 - `save_gif` (bool, default=False): If True, create animated GIF showing progressive addition of age constraints. When save_gif=True and save_fig=False, static figures will not be displayed (only GIFs are shown at the end). When save_gif=False (default), static figures will be displayed normally regardless of save_fig value
-- `output_gif_filenames` (dict, optional): Dictionary mapping quality indices to GIF file paths (only used when save_gif=True)
+- `output_gif_directory` (str, optional): Directory path where GIF files will be saved (filenames auto-generated, only used when save_gif=True)
 - `max_frames` (int, default=50): Maximum number of frames for GIF animations
 - `plot_real_data_histogram` (bool, default=False): If True, plot histograms for real data (no age and all age constraint cases)
-- `plot_age_removal_step_pdf` (bool, default=True): If True, plot all PDF curves including dashed lines for partially removed constraints
+- `plot_age_removal_step_pdf` (bool, default=False): If True, plot all PDF curves including dashed lines for partially removed constraints
 - `show_best_datum_match` (bool, default=True): If True, plot vertical line showing best datum match value from sequential_mappings_csv
 - `sequential_mappings_csv` (str or dict, optional): Path to CSV file(s) containing sequential mappings with 'Ranking_datums' column. Can be a single CSV path (str) or dictionary mapping quality indices to CSV paths
 
@@ -1502,7 +1532,7 @@ Generate animated correlation sequences from results with optional age constrain
 - `visualize_segment_labels` (bool, default=False): Whether to show segment labels
 - `mark_depths` (bool, default=True): Whether to mark depth boundaries
 - `mark_ages` (bool, default=True): Whether to mark age constraints in visualization
-- `ages_a, ages_b` (dict, optional): Age data dictionaries for picked depths
+- `datum_ages_a, datum_ages_b` (dict, optional): Age data dictionaries for picked depths
 - `core_a_age_data, core_b_age_data` (dict, optional): Complete age constraint data from `load_core_age_constraints()`. Expected keys: 'in_sequence_ages', 'in_sequence_depths', 'in_sequence_pos_errors', 'in_sequence_neg_errors', 'core'
 - `core_a_name, core_b_name` (str, optional): Core names for labels
 - `core_a_interpreted_beds, core_b_interpreted_beds` (dict, optional): Interpreted bed names for cores
@@ -1521,8 +1551,8 @@ visualize_dtw_results_from_csv(
     correlation_gif_output_filename=f'outputs/correlation_{CORE_A}_{CORE_B}.gif',
     matrix_gif_output_filename=f'outputs/matrix_{CORE_A}_{CORE_B}.gif',
     mark_ages=True,
-    ages_a=estimated_datum_ages_a,
-    ages_b=estimated_datum_ages_b,
+    datum_ages_a=estimated_datum_ages_a,
+    datum_ages_b=estimated_datum_ages_b,
     core_a_age_data=age_data_a,
     core_b_age_data=age_data_b
 )

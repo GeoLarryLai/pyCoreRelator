@@ -73,30 +73,23 @@ def load_segment_pool(core_names, log_data_csv, log_data_type, picked_datum,
         
         try:
             # Load data for segment pool
-            log_data, md_data, available_columns, _, _ = load_log_data(
+            log_data, md_data = load_log_data(
                 log_data_csv[core_name],
-                {},  # No images needed
-                log_data_type,
+                log_columns=log_data_type,
                 depth_column=depth_column,
-                normalize=True,
-                column_alternatives=alternative_column_names or {}
+                normalize=True
             )
             
-            # Check if all required log columns are available
-            missing_columns = []
-            for col in log_data_type:
-                if col not in available_columns:
-                    missing_columns.append(col)
-            
-            if missing_columns:
-                print(f"  Skipping {core_name}: Missing required columns {missing_columns}")
+            # Check if data was successfully loaded
+            if len(md_data) == 0:
+                print(f"  Skipping {core_name}: Failed to load log data")
                 continue
             
             # Store core data
             seg_pool_metadata[core_name] = {
                 'log_data': log_data,
                 'md_data': md_data,
-                'available_columns': available_columns
+                'available_columns': log_data_type
             }
             
             # Load turbidite boundaries for this core
@@ -359,9 +352,9 @@ def generate_constraint_subsets(n_constraints):
 def _process_single_parameter_combination(
     idx, params, 
     log_a, log_b, md_a, md_b,
-    all_depths_a_cat1, all_depths_b_cat1,
-    pickeddepth_ages_a, pickeddepth_ages_b,
-    age_data_a, age_data_b,
+    picked_datum_a, picked_datum_b,
+    datum_ages_a, datum_ages_b,
+    core_a_age_data, core_b_age_data,
     target_quality_indices,
     output_csv_filenames,
     synthetic_csv_filenames,
@@ -422,45 +415,45 @@ def _process_single_parameter_combination(
     try:
         # Validate input age data when age consideration is enabled
         if age_consideration:
-            # Check pickeddepth_ages_a and pickeddepth_ages_b
-            if pickeddepth_ages_a is None or pickeddepth_ages_b is None:
-                return False, combo_id, "pickeddepth_ages_a or pickeddepth_ages_b is None when age_consideration=True"
+            # Check datum_ages_a and datum_ages_b
+            if datum_ages_a is None or datum_ages_b is None:
+                return False, combo_id, "datum_ages_a or datum_ages_b is None when age_consideration=True"
             
-            # Check required keys in pickeddepth_ages
+            # Check required keys in datum_ages
             required_age_keys = ['depths', 'ages', 'pos_uncertainties', 'neg_uncertainties']
             for key in required_age_keys:
-                if key not in pickeddepth_ages_a or not pickeddepth_ages_a[key]:
-                    return False, combo_id, f"Missing or empty key '{key}' in pickeddepth_ages_a"
-                if key not in pickeddepth_ages_b or not pickeddepth_ages_b[key]:
-                    return False, combo_id, f"Missing or empty key '{key}' in pickeddepth_ages_b"
+                if key not in datum_ages_a or not datum_ages_a[key]:
+                    return False, combo_id, f"Missing or empty key '{key}' in datum_ages_a"
+                if key not in datum_ages_b or not datum_ages_b[key]:
+                    return False, combo_id, f"Missing or empty key '{key}' in datum_ages_b"
             
             # Check age_data constraints
             required_constraint_keys = ['in_sequence_ages', 'in_sequence_depths', 'in_sequence_pos_errors', 'in_sequence_neg_errors']
             for key in required_constraint_keys:
-                if key not in age_data_a:
-                    return False, combo_id, f"Missing key '{key}' in age_data_a"
-                if key not in age_data_b:
-                    return False, combo_id, f"Missing key '{key}' in age_data_b"
+                if key not in core_a_age_data:
+                    return False, combo_id, f"Missing key '{key}' in core_a_age_data"
+                if key not in core_b_age_data:
+                    return False, combo_id, f"Missing key '{key}' in core_b_age_data"
                     
                 # Check for all NaN values in constraint data
                 try:
-                    if age_data_a[key] and len(age_data_a[key]) > 0:
-                        valid_values_a = [val for val in age_data_a[key] if not (np.isnan(val) if isinstance(val, (int, float)) else False)]
+                    if core_a_age_data[key] and len(core_a_age_data[key]) > 0:
+                        valid_values_a = [val for val in core_a_age_data[key] if not (np.isnan(val) if isinstance(val, (int, float)) else False)]
                         if len(valid_values_a) == 0:
-                            return False, combo_id, f"All values are NaN in age_data_a['{key}']"
+                            return False, combo_id, f"All values are NaN in core_a_age_data['{key}']"
                     
-                    if age_data_b[key] and len(age_data_b[key]) > 0:
-                        valid_values_b = [val for val in age_data_b[key] if not (np.isnan(val) if isinstance(val, (int, float)) else False)]
+                    if core_b_age_data[key] and len(core_b_age_data[key]) > 0:
+                        valid_values_b = [val for val in core_b_age_data[key] if not (np.isnan(val) if isinstance(val, (int, float)) else False)]
                         if len(valid_values_b) == 0:
-                            return False, combo_id, f"All values are NaN in age_data_b['{key}']"
+                            return False, combo_id, f"All values are NaN in core_b_age_data['{key}']"
                 except Exception as e:
                     return False, combo_id, f"Error validating age_data['{key}']: {str(e)}"
         
         # Run comprehensive DTW analysis with original constraints
         dtw_result = run_comprehensive_dtw_analysis(
             log_a, log_b, md_a, md_b,
-            picked_datum_a=all_depths_a_cat1,
-            picked_datum_b=all_depths_b_cat1,
+            picked_datum_a=picked_datum_a,
+            picked_datum_b=picked_datum_b,
             independent_dtw=False,
             pca_for_dependent_dtw=pca_for_dependent_dtw,
             top_bottom=True,
@@ -468,11 +461,11 @@ def _process_single_parameter_combination(
             exclude_deadend=True,
             mute_mode=True,
             age_consideration=age_consideration,
-            ages_a=pickeddepth_ages_a if age_consideration else None,
-            ages_b=pickeddepth_ages_b if age_consideration else None,
+            datum_ages_a=datum_ages_a if age_consideration else None,
+            datum_ages_b=datum_ages_b if age_consideration else None,
             restricted_age_correlation=restricted_age_correlation if age_consideration else False,
-            core_a_age_data=age_data_a if age_consideration else None,
-            core_b_age_data=age_data_b if age_consideration else None
+            core_a_age_data=core_a_age_data if age_consideration else None,
+            core_b_age_data=core_b_age_data if age_consideration else None
         )
         
         # Check if DTW analysis returned None
@@ -547,8 +540,8 @@ def _process_single_parameter_combination(
                 fit_params_copy['shortest_path_search'] = shortest_path_search
                 
                 # Add constraint tracking columns
-                fit_params_copy['core_a_constraints_count'] = len(age_data_a['in_sequence_ages']) if age_consideration else 0
-                fit_params_copy['core_b_constraints_count'] = len(age_data_b['in_sequence_ages']) if age_consideration else 0
+                fit_params_copy['core_a_constraints_count'] = len(core_a_age_data['in_sequence_ages']) if age_consideration else 0
+                fit_params_copy['core_b_constraints_count'] = len(core_b_age_data['in_sequence_ages']) if age_consideration else 0
                 fit_params_copy['constraint_scenario_description'] = 'all_original_constraints_remained' if age_consideration else 'no_age_constraints_used'
                 
                 results[quality_index] = fit_params_copy
@@ -572,9 +565,9 @@ def _process_single_parameter_combination(
 def _process_single_constraint_scenario(
     param_idx, params, constraint_subset, in_sequence_indices,
     log_a, log_b, md_a, md_b,
-    all_depths_a_cat1, all_depths_b_cat1,
-    pickeddepth_ages_a, pickeddepth_ages_b,
-    age_data_a, age_data_b,
+    picked_datum_a, picked_datum_b,
+    datum_ages_a, datum_ages_b,
+    core_a_age_data, core_b_age_data,
     uncertainty_method,
     target_quality_indices,
     synthetic_csv_filenames,
@@ -625,24 +618,24 @@ def _process_single_constraint_scenario(
         if len(original_indices) == 0:
             return False, f"{combo_id}_no_constraints", "No constraints in subset"
         
-        # Create modified age_data_b using original indices
+        # Create modified core_b_age_data using original indices
         # Convert pandas Series to lists and ensure proper data types
         age_data_b_current = {
-            'depths': [float(age_data_b['depths'].iloc[i]) if hasattr(age_data_b['depths'], 'iloc') else float(age_data_b['depths'][i]) for i in original_indices],
-            'ages': [float(age_data_b['ages'][i]) for i in original_indices],
-            'pos_errors': [float(age_data_b['pos_errors'][i]) for i in original_indices],
-            'neg_errors': [float(age_data_b['neg_errors'][i]) for i in original_indices],
-            'in_sequence_flags': [age_data_b['in_sequence_flags'][i] for i in original_indices],
-            'in_sequence_depths': [float(age_data_b['depths'].iloc[i]) if hasattr(age_data_b['depths'], 'iloc') else float(age_data_b['depths'][i]) for i in original_indices],
-            'in_sequence_ages': [float(age_data_b['ages'][i]) for i in original_indices],
-            'in_sequence_pos_errors': [float(age_data_b['pos_errors'][i]) for i in original_indices],
-            'in_sequence_neg_errors': [float(age_data_b['neg_errors'][i]) for i in original_indices],
-            'core': [age_data_b['core'][i] for i in original_indices]
+            'depths': [float(core_b_age_data['depths'].iloc[i]) if hasattr(core_b_age_data['depths'], 'iloc') else float(core_b_age_data['depths'][i]) for i in original_indices],
+            'ages': [float(core_b_age_data['ages'][i]) for i in original_indices],
+            'pos_errors': [float(core_b_age_data['pos_errors'][i]) for i in original_indices],
+            'neg_errors': [float(core_b_age_data['neg_errors'][i]) for i in original_indices],
+            'in_sequence_flags': [core_b_age_data['in_sequence_flags'][i] for i in original_indices],
+            'in_sequence_depths': [float(core_b_age_data['depths'].iloc[i]) if hasattr(core_b_age_data['depths'], 'iloc') else float(core_b_age_data['depths'][i]) for i in original_indices],
+            'in_sequence_ages': [float(core_b_age_data['ages'][i]) for i in original_indices],
+            'in_sequence_pos_errors': [float(core_b_age_data['pos_errors'][i]) for i in original_indices],
+            'in_sequence_neg_errors': [float(core_b_age_data['neg_errors'][i]) for i in original_indices],
+            'core': [core_b_age_data['core'][i] for i in original_indices]
         }
         
         # Recalculate interpolated ages for core B with reduced constraints
-        pickeddepth_ages_b_current = calculate_interpolated_ages(
-            picked_datum=all_depths_b_cat1,
+        datum_ages_b_current = calculate_interpolated_ages(
+            picked_datum=picked_datum_b,
             age_constraints_depths=np.array(age_data_b_current['depths']),
             age_constraints_ages=np.array(age_data_b_current['ages']),
             age_constraints_pos_errors=np.array(age_data_b_current['pos_errors']),
@@ -663,24 +656,24 @@ def _process_single_constraint_scenario(
         )
         
         # Validate the interpolated ages result
-        if pickeddepth_ages_b_current is None:
+        if datum_ages_b_current is None:
             return False, f"{combo_id}_invalid_ages", "calculate_interpolated_ages returned None"
         
         # Check if interpolated ages contain valid values
         required_keys = ['depths', 'ages', 'pos_uncertainties', 'neg_uncertainties']
         for key in required_keys:
-            if key not in pickeddepth_ages_b_current or not pickeddepth_ages_b_current[key]:
+            if key not in datum_ages_b_current or not datum_ages_b_current[key]:
                 return False, f"{combo_id}_missing_age_key", f"Missing or empty key '{key}' in interpolated ages"
             
             # Check for all NaN values
-            if all(np.isnan(val) for val in pickeddepth_ages_b_current[key]):
+            if all(np.isnan(val) for val in datum_ages_b_current[key]):
                 return False, f"{combo_id}_all_nan_ages", f"All values are NaN in interpolated ages key '{key}'"
         
         # Run DTW analysis with reduced constraints
         dtw_result = run_comprehensive_dtw_analysis(
             log_a, log_b, md_a, md_b,
-            picked_datum_a=all_depths_a_cat1,
-            picked_datum_b=all_depths_b_cat1,
+            picked_datum_a=picked_datum_a,
+            picked_datum_b=picked_datum_b,
             independent_dtw=False,
             pca_for_dependent_dtw=pca_for_dependent_dtw,
             top_bottom=True,
@@ -688,10 +681,10 @@ def _process_single_constraint_scenario(
             exclude_deadend=True,
             mute_mode=True,
             age_consideration=age_consideration,
-            ages_a=pickeddepth_ages_a,  # Use original ages for core A
-            ages_b=pickeddepth_ages_b_current,  # Use modified ages for core B
+            datum_ages_a=datum_ages_a,  # Use original ages for core A
+            datum_ages_b=datum_ages_b_current,  # Use modified ages for core B
             restricted_age_correlation=restricted_age_correlation,
-            core_a_age_data=age_data_a,  # Original age constraint data for core A
+            core_a_age_data=core_a_age_data,  # Original age constraint data for core A
             core_b_age_data=age_data_b_current  # Modified age constraint data for core B
         )
         
@@ -770,7 +763,7 @@ def _process_single_constraint_scenario(
                 fit_params_copy['shortest_path_search'] = shortest_path_search
                 
                 # Add constraint tracking with correct counts
-                fit_params_copy['core_a_constraints_count'] = len(age_data_a['in_sequence_ages'])  # Original count for core A
+                fit_params_copy['core_a_constraints_count'] = len(core_a_age_data['in_sequence_ages'])  # Original count for core A
                 fit_params_copy['core_b_constraints_count'] = len(constraint_subset)  # Modified count for core B
                 fit_params_copy['constraint_scenario_description'] = f'constraints_{remaining_indices_1based}_remained'
                 
@@ -781,7 +774,7 @@ def _process_single_constraint_scenario(
             os.remove(f'{temp_mapping_file}')
         
         del dtw_result
-        del age_data_b_current, pickeddepth_ages_b_current
+        del age_data_b_current, datum_ages_b_current
         gc.collect()
         
         scenario_id = f"{combo_id}_subset_{len(constraint_subset)}"
@@ -793,8 +786,8 @@ def _process_single_constraint_scenario(
         # Clean up variables in case of error
         if 'age_data_b_current' in locals():
             del age_data_b_current
-        if 'pickeddepth_ages_b_current' in locals():
-            del pickeddepth_ages_b_current
+        if 'datum_ages_b_current' in locals():
+            del datum_ages_b_current
         gc.collect()
         return False, f"{combo_id}_subset_error", str(e)
 
@@ -802,9 +795,9 @@ def _process_single_constraint_scenario(
 def run_multi_parameter_analysis(
     # Core data inputs
     log_a, log_b, md_a, md_b,
-    all_depths_a_cat1, all_depths_b_cat1,
-    pickeddepth_ages_a, pickeddepth_ages_b,
-    age_data_a, age_data_b,
+    picked_datum_a, picked_datum_b,
+    datum_ages_a, datum_ages_b,
+    core_a_age_data, core_b_age_data,
     uncertainty_method,
     
     # Core identifiers
@@ -812,11 +805,12 @@ def run_multi_parameter_analysis(
     core_b_name,
     
     # Output configuration
-    output_csv_filenames,  # Dict with quality_index as key and filename as value
+    output_csv_directory,  # Directory path for output CSV files
     
     # Analysis parameters
     parameter_combinations,
-    target_quality_indices,
+    target_quality_indices=['corr_coef', 'norm_dtw'],
+    log_columns=None,  # List of log column names (e.g., ['hiresMS', 'CT', 'Lumin'])
     test_age_constraint_removal = True,
 
     # Optional parameters
@@ -838,24 +832,27 @@ def run_multi_parameter_analysis(
         Log data for cores A and B
     md_a, md_b : array-like
         Measured depth arrays for cores A and B
-    all_depths_a_cat1, all_depths_b_cat1 : array-like
+    picked_datum_a, picked_datum_b : array-like
         Picked depths of category 1 for cores A and B
-    pickeddepth_ages_a, pickeddepth_ages_b : dict
+    datum_ages_a, datum_ages_b : dict
         Age interpolation results for picked depths
-    age_data_a, age_data_b : dict
+    core_a_age_data, core_b_age_data : dict
         Age constraint data for cores A and B
     uncertainty_method : str
         Method for uncertainty calculation
-    parameter_combinations : list of dict
-        List of parameter combinations to test
-    target_quality_indices : list
-        Quality indices to analyze (e.g., ['corr_coef', 'norm_dtw', 'perc_diag'])
-    test_age_constraint_removal : bool (default=True)
-        Whether to test age constraint removal scenarios
     core_a_name, core_b_name : str
         Names of cores A and B
-    output_csv_filenames : dict
-        Dictionary mapping quality_index to output CSV filename
+    output_csv_directory : str
+        Directory path where output CSV files will be saved
+    parameter_combinations : list of dict
+        List of parameter combinations to test
+    target_quality_indices : list, default=['corr_coef', 'norm_dtw']
+        Quality indices to analyze (e.g., ['corr_coef', 'norm_dtw', 'perc_diag'])
+    log_columns : list or None, default=None
+        List of log column names (e.g., ['hiresMS', 'CT', 'Lumin']).
+        If provided, will be used in the output directory structure.
+    test_age_constraint_removal : bool (default=True)
+        Whether to test age constraint removal scenarios
     synthetic_csv_filenames : dict or None, default=None
         Dictionary mapping quality_index to synthetic CSV filename for consistent bin sizing
     pca_for_dependent_dtw : bool
@@ -871,14 +868,28 @@ def run_multi_parameter_analysis(
     Returns:
     --------
     None
-        Results are saved to CSV files specified in output_csv_filenames
+        Results are saved to CSV files in output_csv_directory
     """
     
+    # Generate output CSV filenames based on directory and log_columns
+    if log_columns is not None and len(log_columns) > 0:
+        # If log_columns provided, use subdirectory structure
+        log_cols_str = "_".join(log_columns)
+        full_output_dir = os.path.join(output_csv_directory, log_cols_str)
+    else:
+        # If no log_columns, use the directory as is
+        full_output_dir = output_csv_directory
+    
+    # Create output CSV filenames dictionary
+    output_csv_filenames = {}
+    for quality_index in target_quality_indices:
+        output_csv_filenames[quality_index] = os.path.join(
+            full_output_dir, 
+            f'{quality_index}_fit_params.csv'
+        )
+    
     # Create directories for output files if needed
-    for csv_filename in output_csv_filenames.values():
-        output_dir = os.path.dirname(csv_filename)
-        if output_dir:
-            os.makedirs(output_dir, exist_ok=True)
+    os.makedirs(full_output_dir, exist_ok=True)
     
     # VALIDATE AGE DATA BEFORE PROCESSING
     print("Validating age data for age-based analysis...")
@@ -920,10 +931,10 @@ def run_multi_parameter_analysis(
         return True, f"{core_name}: pickeddepth_ages validation passed"
     
     # Validate age data for both cores
-    age_data_a_valid, age_data_a_msg = validate_age_data(age_data_a, core_a_name)
-    age_data_b_valid, age_data_b_msg = validate_age_data(age_data_b, core_b_name)
-    pickeddepth_ages_a_valid, pickeddepth_ages_a_msg = validate_pickeddepth_ages(pickeddepth_ages_a, core_a_name)
-    pickeddepth_ages_b_valid, pickeddepth_ages_b_msg = validate_pickeddepth_ages(pickeddepth_ages_b, core_b_name)
+    age_data_a_valid, age_data_a_msg = validate_age_data(core_a_age_data, core_a_name)
+    age_data_b_valid, age_data_b_msg = validate_age_data(core_b_age_data, core_b_name)
+    pickeddepth_ages_a_valid, pickeddepth_ages_a_msg = validate_pickeddepth_ages(datum_ages_a, core_a_name)
+    pickeddepth_ages_b_valid, pickeddepth_ages_b_msg = validate_pickeddepth_ages(datum_ages_b, core_b_name)
     
     # Determine if age-based analysis can be performed
     age_analysis_possible = (age_data_a_valid and age_data_b_valid and 
@@ -990,7 +1001,7 @@ def run_multi_parameter_analysis(
     total_additional_scenarios = 0
 
     if test_age_constraint_removal:
-        n_constraints_b = len(age_data_b['in_sequence_ages'])
+        n_constraints_b = len(core_b_age_data['in_sequence_ages'])
         age_enabled_params = [p for p in parameter_combinations if p['age_consideration']]
         constraint_scenarios_per_param = (2 ** n_constraints_b) - 1  # Exclude empty set
         total_additional_scenarios = len(age_enabled_params) * (constraint_scenarios_per_param - 1)  # Exclude original scenario
@@ -1032,9 +1043,9 @@ def run_multi_parameter_analysis(
     phase1_args = [
         (idx, params, 
          log_a, log_b, md_a, md_b,
-         all_depths_a_cat1, all_depths_b_cat1,
-         pickeddepth_ages_a, pickeddepth_ages_b,
-         age_data_a, age_data_b,
+         picked_datum_a, picked_datum_b,
+         datum_ages_a, datum_ages_b,
+         core_a_age_data, core_b_age_data,
          target_quality_indices,
          output_csv_filenames,
          synthetic_csv_filenames,
@@ -1085,7 +1096,7 @@ def run_multi_parameter_analysis(
         print("\n=== PHASE 2: Running age constraint removal scenarios ===")
         
         # Calculate additional scenarios
-        n_constraints_b = len(age_data_b['in_sequence_ages'])
+        n_constraints_b = len(core_b_age_data['in_sequence_ages'])
         age_enabled_params = [p for p in parameter_combinations if p['age_consideration']]
         
         # Check if there are any valid age constraints and age-enabled parameters
@@ -1100,7 +1111,7 @@ def run_multi_parameter_analysis(
             
             # Get indices of only in-sequence constraints from the original data
             in_sequence_indices = []
-            for i, flag in enumerate(age_data_b['in_sequence_flags']):
+            for i, flag in enumerate(core_b_age_data['in_sequence_flags']):
                 # Handle various flag formats (string, boolean, numeric)
                 is_in_sequence = False
                 if isinstance(flag, str):
@@ -1155,9 +1166,9 @@ def run_multi_parameter_analysis(
                     phase2_args.append((
                         param_idx, params, constraint_subset, in_sequence_indices,
                         log_a, log_b, md_a, md_b,
-                        all_depths_a_cat1, all_depths_b_cat1,
-                        pickeddepth_ages_a, pickeddepth_ages_b,
-                        age_data_a, age_data_b,
+                        picked_datum_a, picked_datum_b,
+                        datum_ages_a, datum_ages_b,
+                        core_a_age_data, core_b_age_data,
                         uncertainty_method,
                         target_quality_indices,
                         synthetic_csv_filenames,

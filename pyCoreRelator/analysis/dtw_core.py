@@ -796,7 +796,7 @@ def run_comprehensive_dtw_analysis(log_a, log_b, md_a, md_b, picked_datum_a=None
                               creategif=False, 
                               gif_output_filename='SegmentPair_DTW_animation.gif', max_frames=100, 
                               debug=False, color_interval_size=10,
-                              keep_frames=True, age_consideration=False, ages_a=None, ages_b=None,
+                              keep_frames=True, age_consideration=False, datum_ages_a=None, datum_ages_b=None,
                               restricted_age_correlation=True, 
                               core_a_age_data=None, core_b_age_data=None,
                               dtw_distance_threshold=None,
@@ -856,9 +856,9 @@ def run_comprehensive_dtw_analysis(log_a, log_b, md_a, md_b, picked_datum_a=None
         If True, keep individual animation frames
     age_consideration : bool, default=False
         If True, apply age constraint analysis
-    ages_a : dict, optional
+    datum_ages_a : dict, optional
         Age data for log_a with keys: 'depths', 'ages', 'pos_uncertainties', 'neg_uncertainties'
-    ages_b : dict, optional
+    datum_ages_b : dict, optional
         Age data for log_b with keys: 'depths', 'ages', 'pos_uncertainties', 'neg_uncertainties'
     restricted_age_correlation : bool, default=True
         If True, use strict age overlap requirements
@@ -943,19 +943,19 @@ def run_comprehensive_dtw_analysis(log_a, log_b, md_a, md_b, picked_datum_a=None
         if not mute_mode:
             print(f"\nAge consideration enabled - {'restricted' if restricted_age_correlation else 'flexible'} age correlation")
         
-        if ages_a is None or ages_b is None:
-            raise ValueError("Both ages_a and ages_b must be provided when age_consideration is True")
+        if datum_ages_a is None or datum_ages_b is None:
+            raise ValueError("Both datum_ages_a and datum_ages_b must be provided when age_consideration is True")
         
         # Check if age data dictionaries have the required keys and non-empty values
         required_keys = ['depths', 'ages', 'pos_uncertainties', 'neg_uncertainties']
         for key in required_keys:
-            if key not in ages_a or not ages_a[key] or key not in ages_b or not ages_b[key]:
-                raise ValueError(f"Missing or empty required key '{key}' in ages_a or ages_b")
+            if key not in datum_ages_a or not datum_ages_a[key] or key not in datum_ages_b or not datum_ages_b[key]:
+                raise ValueError(f"Missing or empty required key '{key}' in datum_ages_a or datum_ages_b")
         
         # Check if depths match picked_datum
-        if (picked_datum_a is not None and len(dated_picked_depths_a) != len(ages_a['depths'])) or \
-           (picked_datum_b is not None and len(dated_picked_depths_b) != len(ages_b['depths'])):
-            raise ValueError("The number of depths in ages_a/ages_b must match the number of dated picked depths")
+        if (picked_datum_a is not None and len(dated_picked_depths_a) != len(datum_ages_a['depths'])) or \
+           (picked_datum_b is not None and len(dated_picked_depths_b) != len(datum_ages_b['depths'])):
+            raise ValueError("The number of depths in datum_ages_a/datum_ages_b must match the number of dated picked depths")
         
         # Extract age constraint data from core_a_age_data and core_b_age_data
         if core_a_age_data is None or core_b_age_data is None:
@@ -1063,26 +1063,26 @@ def run_comprehensive_dtw_analysis(log_a, log_b, md_a, md_b, picked_datum_a=None
             b_end_depth = md_b[depth_boundaries_b[segments_b[b_idx][1]]]
             
             # Find age indices
-            a_start_age_idx = np.argmin(np.abs(np.array(ages_a['depths']) - a_start_depth))
-            a_end_age_idx = np.argmin(np.abs(np.array(ages_a['depths']) - a_end_depth))
-            b_start_age_idx = np.argmin(np.abs(np.array(ages_b['depths']) - b_start_depth))
-            b_end_age_idx = np.argmin(np.abs(np.array(ages_b['depths']) - b_end_depth))
+            a_start_age_idx = np.argmin(np.abs(np.array(datum_ages_a['depths']) - a_start_depth))
+            a_end_age_idx = np.argmin(np.abs(np.array(datum_ages_a['depths']) - a_end_depth))
+            b_start_age_idx = np.argmin(np.abs(np.array(datum_ages_b['depths']) - b_start_depth))
+            b_end_age_idx = np.argmin(np.abs(np.array(datum_ages_b['depths']) - b_end_depth))
             
             # Get age bounds with uncertainties
-            a_start_age = ages_a['ages'][a_start_age_idx]
-            a_end_age = ages_a['ages'][a_end_age_idx]
-            b_start_age = ages_b['ages'][b_start_age_idx]
-            b_end_age = ages_b['ages'][b_end_age_idx]
+            a_start_age = datum_ages_a['ages'][a_start_age_idx]
+            a_end_age = datum_ages_a['ages'][a_end_age_idx]
+            b_start_age = datum_ages_b['ages'][b_start_age_idx]
+            b_end_age = datum_ages_b['ages'][b_end_age_idx]
             
-            a_start_pos_error = ages_a['pos_uncertainties'][a_start_age_idx]
-            a_start_neg_error = ages_a['neg_uncertainties'][a_start_age_idx]
-            a_end_pos_error = ages_a['pos_uncertainties'][a_end_age_idx]
-            a_end_neg_error = ages_a['neg_uncertainties'][a_end_age_idx]
+            a_start_pos_error = datum_ages_a['pos_uncertainties'][a_start_age_idx]
+            a_start_neg_error = datum_ages_a['neg_uncertainties'][a_start_age_idx]
+            a_end_pos_error = datum_ages_a['pos_uncertainties'][a_end_age_idx]
+            a_end_neg_error = datum_ages_a['neg_uncertainties'][a_end_age_idx]
             
-            b_start_pos_error = ages_b['pos_uncertainties'][b_start_age_idx]
-            b_start_neg_error = ages_b['neg_uncertainties'][b_start_age_idx]
-            b_end_pos_error = ages_b['pos_uncertainties'][b_end_age_idx]
-            b_end_neg_error = ages_b['neg_uncertainties'][b_end_age_idx]
+            b_start_pos_error = datum_ages_b['pos_uncertainties'][b_start_age_idx]
+            b_start_neg_error = datum_ages_b['neg_uncertainties'][b_start_age_idx]
+            b_end_pos_error = datum_ages_b['pos_uncertainties'][b_end_age_idx]
+            b_end_neg_error = datum_ages_b['neg_uncertainties'][b_end_age_idx]
             
             # Calculate age bounds
             a_lower_bound = min(a_start_age - a_start_neg_error, a_end_age - a_end_neg_error)
@@ -1265,7 +1265,7 @@ def run_comprehensive_dtw_analysis(log_a, log_b, md_a, md_b, picked_datum_a=None
                     constraint_ages_a, constraint_ages_b,
                     constraint_pos_errors_a, constraint_pos_errors_b,
                     constraint_neg_errors_a, constraint_neg_errors_b,
-                    ages_a=ages_a, ages_b=ages_b
+                    datum_ages_a=datum_ages_a, datum_ages_b=datum_ages_b
                 )
                 
                 # Accept pairs that meet both criteriaf
@@ -1325,7 +1325,7 @@ def run_comprehensive_dtw_analysis(log_a, log_b, md_a, md_b, picked_datum_a=None
                         constraint_ages_a, constraint_ages_b,
                         constraint_pos_errors_a, constraint_pos_errors_b,
                         constraint_neg_errors_a, constraint_neg_errors_b,
-                        ages_a=ages_a, ages_b=ages_b
+                        datum_ages_a=datum_ages_a, datum_ages_b=datum_ages_b
                     )
                     
                     # Accept pairs that meet both criteria
@@ -1361,7 +1361,7 @@ def run_comprehensive_dtw_analysis(log_a, log_b, md_a, md_b, picked_datum_a=None
                     constraint_ages_a, constraint_ages_b,
                     constraint_pos_errors_a, constraint_pos_errors_b,
                     constraint_neg_errors_a, constraint_neg_errors_b,
-                    ages_a=ages_a, ages_b=ages_b
+                    datum_ages_a=datum_ages_a, datum_ages_b=datum_ages_b
                 )
                 
                 if compatible:
@@ -1615,8 +1615,8 @@ def run_comprehensive_dtw_analysis(log_a, log_b, md_a, md_b, picked_datum_a=None
             keep_frames=keep_frames,
             output_filename=gif_output_filename,
             age_consideration=age_consideration,
-            ages_a=ages_a,
-            ages_b=ages_b,
+            datum_ages_a=datum_ages_a,
+            datum_ages_b=datum_ages_b,
             restricted_age_correlation=restricted_age_correlation,
             all_constraint_depths_a=all_constraint_depths_a,
             all_constraint_depths_b=all_constraint_depths_b,

@@ -46,7 +46,7 @@ def plot_segment_pair_correlation(log_a, log_b, md_a, md_b,
                                   wp=None, a_start=None, a_end=None, b_start=None, b_end=None,
                                   step=5, picked_datum_a=None, picked_datum_b=None, 
                                   quality_indicators=None, combined_quality=None,
-                                  age_consideration=False, ages_a=None, ages_b=None,
+                                  age_consideration=False, datum_ages_a=None, datum_ages_b=None,
                                   all_constraint_depths_a=None, all_constraint_depths_b=None,
                                   all_constraint_ages_a=None, all_constraint_ages_b=None,
                                   all_constraint_pos_errors_a=None, all_constraint_pos_errors_b=None,
@@ -92,7 +92,7 @@ def plot_segment_pair_correlation(log_a, log_b, md_a, md_b,
         Combined quality indicators for multiple pairs
     age_consideration : bool, default=False
         Whether age data should be displayed
-    ages_a, ages_b : dict, optional
+    datum_ages_a, datum_ages_b : dict, optional
         Dictionaries containing age data for picked depths
     all_constraint_depths_a, all_constraint_depths_b : array-like, optional
         Depths of age constraints
@@ -657,19 +657,19 @@ def plot_segment_pair_correlation(log_a, log_b, md_a, md_b,
     if mark_depths:
         if multi_segment_mode:
             if picked_datum_a is not None:
-                add_picked_depths(picked_datum_a, md_a, ages_a if mark_ages else None, is_core_a=True)
+                add_picked_depths(picked_datum_a, md_a, datum_ages_a if mark_ages else None, is_core_a=True)
             elif depth_boundaries_a is not None:
                 converted_depths_a = [md_a[idx] for idx in depth_boundaries_a]
-                add_picked_depths(converted_depths_a, md_a, ages_a if mark_ages else None, is_core_a=True)
+                add_picked_depths(converted_depths_a, md_a, datum_ages_a if mark_ages else None, is_core_a=True)
             
             if picked_datum_b is not None:
-                add_picked_depths(picked_datum_b, md_b, ages_b if mark_ages else None, is_core_a=False)
+                add_picked_depths(picked_datum_b, md_b, datum_ages_b if mark_ages else None, is_core_a=False)
             elif depth_boundaries_b is not None:
                 converted_depths_b = [md_b[idx] for idx in depth_boundaries_b]
-                add_picked_depths(converted_depths_b, md_b, ages_b if mark_ages else None, is_core_a=False)
+                add_picked_depths(converted_depths_b, md_b, datum_ages_b if mark_ages else None, is_core_a=False)
         else:
-            add_picked_depths(picked_datum_a, md_a, ages_a if mark_ages else None, is_core_a=True)
-            add_picked_depths(picked_datum_b, md_b, ages_b if mark_ages else None, is_core_a=False)
+            add_picked_depths(picked_datum_a, md_a, datum_ages_a if mark_ages else None, is_core_a=True)
+            add_picked_depths(picked_datum_b, md_b, datum_ages_b if mark_ages else None, is_core_a=False)
     
     # Setup axes and labels
     ax.set_xticks([])
@@ -1059,7 +1059,7 @@ def visualize_combined_segments(dtw_result, log_a, log_b, md_a, md_b, segment_pa
                               visualize_pairs=True,
                               visualize_segment_labels=True,
                               mark_depths=True, mark_ages=False,
-                              ages_a=None, ages_b=None,
+                              datum_ages_a=None, datum_ages_b=None,
                               core_a_age_data=None, core_b_age_data=None,
                               core_a_name=None,
                               core_b_name=None,
@@ -1292,8 +1292,8 @@ def visualize_combined_segments(dtw_result, log_a, log_b, md_a, md_b, segment_pa
         mark_ages=mark_ages,
         # Age-related parameters
         age_consideration=mark_ages,  # Set age_consideration to match mark_ages
-        ages_a=ages_a,
-        ages_b=ages_b,
+        datum_ages_a=datum_ages_a,
+        datum_ages_b=datum_ages_b,
         all_constraint_depths_a=all_constraint_depths_a,
         all_constraint_depths_b=all_constraint_depths_b,
         all_constraint_ages_a=all_constraint_ages_a,
@@ -1981,7 +1981,8 @@ def _create_histogram_and_pdf_like_plot_correlation_distribution(quality_values,
 def plot_quality_distributions(quality_data, target_quality_indices, output_figure_filenames, 
                                CORE_A, CORE_B, debug=True, return_plot_info=False,
                                plot_real_data_histogram=True, plot_age_removal_step_pdf=True,
-                               synthetic_csv_filenames=None, best_datum_values=None, dpi=None):
+                               synthetic_csv_filenames=None, best_datum_values=None, 
+                               fig_format=['png'], dpi=None):
     """
     Plot quality index distributions comparing real data vs synthetic null hypothesis.
     
@@ -2869,19 +2870,29 @@ def plot_quality_distributions(quality_data, target_quality_indices, output_figu
         
         # Save figure if output filename is provided
         if output_figure_filenames and quality_index in output_figure_filenames:
-            output_filename = output_figure_filenames[quality_index]
+            output_filename_base = output_figure_filenames[quality_index]
             # Create directory if needed
-            output_dir = os.path.dirname(output_filename)
+            output_dir = os.path.dirname(output_filename_base)
             if output_dir:
                 os.makedirs(output_dir, exist_ok=True)
             
             save_dpi = dpi if dpi is not None else 150
-            plt.savefig(output_filename, dpi=save_dpi, bbox_inches='tight')
             
-            if debug:  # debug=True means mute_mode=True, show essential info only
-                print(f"✓ Distribution plot saved as: {output_filename}")
-            else:  # debug=False means mute_mode=False, show detailed info
-                print(f"✓ Distribution plot saved as: {output_filename}")
+            # Save in all requested formats
+            for fmt in fig_format:
+                if fmt in ['png', 'jpeg', 'svg', 'pdf', 'tiff']:
+                    output_filename = f"{output_filename_base}.{fmt}"
+                    if fmt == 'jpeg':
+                        plt.savefig(output_filename, dpi=save_dpi, bbox_inches='tight', format='jpg')
+                    else:
+                        plt.savefig(output_filename, dpi=save_dpi, bbox_inches='tight')
+                    
+                    if debug:  # debug=True means mute_mode=True, show essential info only
+                        print(f"✓ Distribution plot saved as: {output_filename}")
+                    else:  # debug=False means mute_mode=False, show detailed info
+                        print(f"✓ Distribution plot saved as: {output_filename}")
+            
+            if not debug:  # debug=False means mute_mode=False, show detailed info
                 print(f"✓ Analysis complete for {quality_index}!")
         else:
             if debug:  # debug=True means mute_mode=True, show essential info only
@@ -2906,7 +2917,8 @@ def plot_quality_distributions(quality_data, target_quality_indices, output_figu
 
 
 def plot_t_statistics_vs_constraints(quality_data, target_quality_indices, output_figure_filenames,
-                                     CORE_A, CORE_B, debug=True, n_jobs=-1, batch_size=None, return_plot_info=False, dpi=None):
+                                     CORE_A, CORE_B, debug=True, n_jobs=-1, batch_size=None, return_plot_info=False, 
+                                     fig_format=['png'], dpi=None):
     """
     Plot t-statistics vs number of age constraints for each quality index.
     OPTIMIZED with parallel processing and dynamic sizing.
@@ -3340,21 +3352,29 @@ def plot_t_statistics_vs_constraints(quality_data, target_quality_indices, outpu
         # Save figure
         if output_figure_filenames and quality_index in output_figure_filenames:
             base_filename = output_figure_filenames[quality_index]
-            # Extract the file extension and insert '_tstat' before it
-            file_parts = os.path.splitext(base_filename)
-            t_stat_filename = file_parts[0] + '_tstat' + file_parts[1]
+            # base_filename is now without extension
+            t_stat_filename_base = base_filename + '_tstat'
             
             # Create directory if needed
-            output_dir = os.path.dirname(t_stat_filename)
+            output_dir = os.path.dirname(t_stat_filename_base)
             if output_dir:
                 os.makedirs(output_dir, exist_ok=True)
             
             save_dpi = dpi if dpi is not None else 150
-            plt.savefig(t_stat_filename, dpi=save_dpi, bbox_inches='tight')
-            if debug:  # debug=True means mute_mode=True, show essential info only
-                print(f"✓ t-statistics plot saved as: {t_stat_filename}")
-            else:  # debug=False means mute_mode=False, show detailed info
-                print(f"✓ t-statistics plot saved as: {t_stat_filename}")
+            
+            # Save in all requested formats
+            for fmt in fig_format:
+                if fmt in ['png', 'jpeg', 'svg', 'pdf', 'tiff']:
+                    t_stat_filename = f"{t_stat_filename_base}.{fmt}"
+                    if fmt == 'jpeg':
+                        plt.savefig(t_stat_filename, dpi=save_dpi, bbox_inches='tight', format='jpg')
+                    else:
+                        plt.savefig(t_stat_filename, dpi=save_dpi, bbox_inches='tight')
+                    
+                    if debug:  # debug=True means mute_mode=True, show essential info only
+                        print(f"✓ t-statistics plot saved as: {t_stat_filename}")
+                    else:  # debug=False means mute_mode=False, show detailed info
+                        print(f"✓ t-statistics plot saved as: {t_stat_filename}")
         else:
             if debug:  # debug=True means mute_mode=True, show essential info only
                 print(f"✓ t-statistics plot completed for {quality_index}")
@@ -3371,8 +3391,12 @@ def plot_t_statistics_vs_constraints(quality_data, target_quality_indices, outpu
     else:
         return None
 
-def calculate_quality_comparison_t_statistics(target_quality_indices, master_csv_filenames, 
-                                               synthetic_csv_filenames, CORE_A, CORE_B, 
+def calculate_quality_comparison_t_statistics(target_quality_indices, 
+                                               output_csv_directory,
+                                               input_syntheticPDF_directory,
+                                               core_a_name, 
+                                               core_b_name,
+                                               log_columns=None,
                                                mute_mode=False):
     """
     Calculate t-statistics, Cohen's d, and effect size categories by comparing real core 
@@ -3382,22 +3406,25 @@ def calculate_quality_comparison_t_statistics(target_quality_indices, master_csv
     Parameters:
     -----------
     target_quality_indices : list
-        List of quality indices to process (e.g., ['norm_dtw', 'pearson_r'])
-    master_csv_filenames : dict
-        Dictionary mapping quality indices to their master CSV file paths
-    synthetic_csv_filenames : dict
-        Dictionary mapping quality indices to their synthetic/null hypothesis CSV file paths
-    CORE_A : str
+        List of quality indices to process (e.g., ['norm_dtw', 'corr_coef'])
+    output_csv_directory : str
+        Directory path where output CSV files are located and will be updated
+    input_syntheticPDF_directory : str
+        Directory path where synthetic/null hypothesis CSV files are located
+    core_a_name : str
         Name identifier for the first core
-    CORE_B : str
+    core_b_name : str
         Name identifier for the second core
+    log_columns : list, optional
+        List of log column names (e.g., ['hiresMS', 'CT', 'Lumin']). If provided, 
+        creates subdirectory structure for file organization
     mute_mode : bool, optional
         If True, suppresses print statements (default: False)
     
     Returns:
     --------
     None
-        Function saves enhanced CSV files with statistical columns using provided filenames
+        Function saves enhanced CSV files with statistical columns to output_csv_directory
         
     Notes:
     ------
@@ -3406,8 +3433,42 @@ def calculate_quality_comparison_t_statistics(target_quality_indices, master_csv
     - cohens_d: Effect size measure
     - effect_size_category: Categorical interpretation of Cohen's d values
     
-    Enhanced CSV files are saved using the provided filenames directly.
+    CSV filenames are automatically generated based on:
+    - Output: {output_csv_directory}/{log_columns_str}/{quality_index}_fit_params.csv
+    - Input: {input_syntheticPDF_directory}/synthetic_PDFs_{log_columns_str}_{quality_index}.csv
+    
+    Enhanced CSV files are saved using the automatically generated filenames.
     """
+    
+    # Construct filenames from directories and parameters
+    master_csv_filenames = {}
+    synthetic_csv_filenames = {}
+    log_cols_str = "_".join(log_columns) if log_columns else ""
+    
+    for quality_index in target_quality_indices:
+        # Create master CSV path
+        if log_cols_str:
+            master_csv_filenames[quality_index] = os.path.join(
+                output_csv_directory, log_cols_str, f"{quality_index}_fit_params.csv"
+            )
+        else:
+            master_csv_filenames[quality_index] = os.path.join(
+                output_csv_directory, f"{quality_index}_fit_params.csv"
+            )
+        
+        # Create synthetic CSV path
+        if log_cols_str:
+            synthetic_csv_filenames[quality_index] = os.path.join(
+                input_syntheticPDF_directory, f"synthetic_PDFs_{log_cols_str}_{quality_index}.csv"
+            )
+        else:
+            synthetic_csv_filenames[quality_index] = os.path.join(
+                input_syntheticPDF_directory, f"synthetic_PDFs_{quality_index}.csv"
+            )
+    
+    # Keep original variable names for backward compatibility with rest of function
+    CORE_A = core_a_name
+    CORE_B = core_b_name
     
     # Define which categories to load - same filters as load_and_prepare_quality_data
     load_filters = {
@@ -3567,12 +3628,24 @@ def calculate_quality_comparison_t_statistics(target_quality_indices, master_csv
             print(f"✓ Data appending to CSV is done: {output_filename}")
 
 
-def plot_quality_comparison_t_statistics(target_quality_indices, master_csv_filenames, 
-                                        synthetic_csv_filenames, CORE_A, CORE_B, 
-                                        mute_mode=False, save_fig=False, output_figure_filenames=None,
-                                        save_gif=False, output_gif_filenames=None, max_frames=50,
-                                        plot_real_data_histogram=False, plot_age_removal_step_pdf=False,
-                                        show_best_datum_match=True, sequential_mappings_csv=None):
+def plot_quality_comparison_t_statistics(target_quality_indices, 
+                                        output_csv_directory,
+                                        input_syntheticPDF_directory,
+                                        core_a_name, 
+                                        core_b_name,
+                                        log_columns=None,
+                                        mute_mode=False, 
+                                        save_fig=False, 
+                                        output_figure_directory=None,
+                                        fig_format=['png'],
+                                        dpi=150,
+                                        save_gif=False, 
+                                        output_gif_directory=None, 
+                                        max_frames=50,
+                                        plot_real_data_histogram=False, 
+                                        plot_age_removal_step_pdf=False,
+                                        show_best_datum_match=True, 
+                                        sequential_mappings_csv=None):
     """
     Plot quality index distributions comparing real data vs synthetic null hypothesis
     AND t-statistics vs age constraints using pre-calculated statistics from CSV files.
@@ -3585,29 +3658,37 @@ def plot_quality_comparison_t_statistics(target_quality_indices, master_csv_file
     -----------
     target_quality_indices : list
         List of quality indices to process (e.g., ['corr_coef', 'norm_dtw', 'perc_diag'])
-    master_csv_filenames : dict
-        Dictionary mapping quality_index to master CSV filename paths (should contain t-statistics columns)
-    synthetic_csv_filenames : dict  
-        Dictionary mapping quality_index to synthetic CSV filename paths
-    CORE_A : str
+    output_csv_directory : str
+        Directory path where output CSV files are located (should contain t-statistics columns)
+    input_syntheticPDF_directory : str
+        Directory path where synthetic/null hypothesis CSV files are located
+    core_a_name : str
         Name of core A
-    CORE_B : str
+    core_b_name : str
         Name of core B
+    log_columns : list, optional
+        List of log column names (e.g., ['hiresMS', 'CT', 'Lumin']). If provided, 
+        creates subdirectory structure for file organization
     mute_mode : bool, default False
         If True, suppress detailed output messages and show only essential progress information.
         If False, show detailed output messages.
     save_fig : bool, default False
         If True, save static figures to files
-    output_figure_filenames : dict, optional
-        Dictionary mapping quality_index to output figure filename paths. Only used when save_fig=True.
+    output_figure_directory : str, optional
+        Directory path where output figures will be saved. Only used when save_fig=True.
+        Filenames are automatically generated as {quality_index}_compare2null.{format}
+    fig_format : list, default ['png']
+        List of file formats for saved figures. Accepted formats: 'png', 'jpg', 'svg', 'pdf', 'tiff'.
+        Only used when save_fig=True. Can specify multiple formats like ['png', 'tiff'].
+    dpi : int, default 150
+        Resolution for saved figures in dots per inch. Only used when save_fig=True.
     save_gif : bool, default False
         If True, create animated gif showing progressive addition of age constraints.
         When save_gif=True and save_fig=False, static figures will not be displayed (only GIFs are shown at the end).
         When save_gif=False, static figures will be displayed normally regardless of save_fig value
-    output_gif_filenames : dict, optional
-        Dictionary mapping quality_index to gif filename paths. Only used when save_gif=True.
-        Expected format: {'quality_index': 'distribution_filename.gif'} for distribution gifs
-        For t-statistics gifs, will automatically create filenames with '_tstat' suffix.
+    output_gif_directory : str, optional
+        Directory path where GIF files will be saved. Only used when save_gif=True.
+        Filenames are automatically generated as {quality_index}_compare2null.gif
     max_frames : int, default 50
         Maximum number of frames for GIF animations. When there are more data points than
         available frames, the function automatically groups multiple data points per frame
@@ -3633,6 +3714,64 @@ def plot_quality_comparison_t_statistics(target_quality_indices, master_csv_file
     None
         Creates static plots and/or animated gifs based on parameters
     """
+    
+    # Normalize format names (handle jpg/jpeg)
+    fig_format = [fmt.lower() for fmt in fig_format]
+    fig_format = ['jpeg' if fmt == 'jpg' else fmt for fmt in fig_format]
+    
+    # Construct filenames from directories and parameters
+    master_csv_filenames = {}
+    synthetic_csv_filenames = {}
+    output_figure_filenames = {} if save_fig and output_figure_directory else None
+    output_gif_filenames = {} if save_gif and output_gif_directory else None
+    log_cols_str = "_".join(log_columns) if log_columns else ""
+    
+    for quality_index in target_quality_indices:
+        # Create master CSV path
+        if log_cols_str:
+            master_csv_filenames[quality_index] = os.path.join(
+                output_csv_directory, log_cols_str, f"{quality_index}_fit_params.csv"
+            )
+        else:
+            master_csv_filenames[quality_index] = os.path.join(
+                output_csv_directory, f"{quality_index}_fit_params.csv"
+            )
+        
+        # Create synthetic CSV path
+        if log_cols_str:
+            synthetic_csv_filenames[quality_index] = os.path.join(
+                input_syntheticPDF_directory, f"synthetic_PDFs_{log_cols_str}_{quality_index}.csv"
+            )
+        else:
+            synthetic_csv_filenames[quality_index] = os.path.join(
+                input_syntheticPDF_directory, f"synthetic_PDFs_{quality_index}.csv"
+            )
+        
+        # Create output figure base paths if requested (without extension)
+        if save_fig and output_figure_directory:
+            if log_cols_str:
+                output_figure_filenames[quality_index] = os.path.join(
+                    output_figure_directory, log_cols_str, f"{quality_index}_compare2null"
+                )
+            else:
+                output_figure_filenames[quality_index] = os.path.join(
+                    output_figure_directory, f"{quality_index}_compare2null"
+                )
+        
+        # Create output GIF paths if requested
+        if save_gif and output_gif_directory:
+            if log_cols_str:
+                output_gif_filenames[quality_index] = os.path.join(
+                    output_gif_directory, log_cols_str, f"{quality_index}_compare2null.gif"
+                )
+            else:
+                output_gif_filenames[quality_index] = os.path.join(
+                    output_gif_directory, f"{quality_index}_compare2null.gif"
+                )
+    
+    # Keep original variable names for backward compatibility with rest of function
+    CORE_A = core_a_name
+    CORE_B = core_b_name
     
     # Check for required statistical analysis files
     for quality_index in target_quality_indices:
@@ -3814,14 +3953,16 @@ def plot_quality_comparison_t_statistics(target_quality_indices, master_csv_file
                 CORE_A, CORE_B, debug=debug_param, return_plot_info=True,
                 plot_real_data_histogram=plot_real_data_histogram, plot_age_removal_step_pdf=plot_age_removal_step_pdf,
                 synthetic_csv_filenames=synthetic_csv_filenames,
-                best_datum_values=best_datum_values
+                best_datum_values=best_datum_values,
+                fig_format=fig_format, dpi=dpi
             )
             
             # Only create t-statistics plots if valid age constraints exist
             if has_valid_age_constraints:
                 tstat_plot_info = plot_t_statistics_vs_constraints(
                     quality_data, [quality_index], output_figure_filenames if save_fig else {},
-                    CORE_A, CORE_B, debug=debug_param, return_plot_info=True
+                    CORE_A, CORE_B, debug=debug_param, return_plot_info=True,
+                    fig_format=fig_format, dpi=dpi
                 )
             
             # Create gifs using the plot info
@@ -3845,14 +3986,16 @@ def plot_quality_comparison_t_statistics(target_quality_indices, master_csv_file
                 CORE_A, CORE_B, debug=debug_param, return_plot_info=False,
                 plot_real_data_histogram=plot_real_data_histogram, plot_age_removal_step_pdf=plot_age_removal_step_pdf,
                 synthetic_csv_filenames=synthetic_csv_filenames,
-                best_datum_values=best_datum_values
+                best_datum_values=best_datum_values,
+                fig_format=fig_format, dpi=dpi
             )
             
             # Only create t-statistics plots if valid age constraints exist
             if has_valid_age_constraints:
                 plot_t_statistics_vs_constraints(
                     quality_data, [quality_index], output_figure_filenames if save_fig else {},
-                    CORE_A, CORE_B, debug=debug_param, return_plot_info=False
+                    CORE_A, CORE_B, debug=debug_param, return_plot_info=False,
+                    fig_format=fig_format, dpi=dpi
                 )
     
     # Display all created GIFs at the end when save_gif=True
