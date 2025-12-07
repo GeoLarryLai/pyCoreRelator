@@ -31,9 +31,11 @@ conda install pycorerelator
 
 ## Citation
 
-If you use **pyCoreRelator** in your work, please cite:
+If you use the current pre-release of **pyCoreRelator** in your work, please cite:
 
 Lai, L.S.-H. (2025) pyCoreRelator. *Zenodo*, https://doi.org/10.5281/zenodo.17847259
+
+> [!NOTE] A manuscript describing the methodology and applications of **pyCoreRelator** is currently in preparation for submission to a peer-reviewed journal.
 
 For questions, feedback, or collaboration opportunities, please contact Larry Lai (larry.lai@beg.utexas.edu, larrysyuhenglai@gmail.com) or visit the [Quantitative Clastics Laboratory](https://qcl.beg.utexas.edu) at the Bureau of Economic Geology, The University of Texas at Austin.
 
