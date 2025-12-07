@@ -63,25 +63,25 @@ The package computes comprehensive quality indicators for each correlation with 
 
 The package includes several Jupyter notebooks demonstrating real-world applications:
 
-### 1. `pyCoreRelator_1_RGBimg2log.ipynb`  [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/larrysyuhenglai/pyCoreRelator/blob/main/pyCoreRelator_1_RGBimg2log.ipynb)
+### 1. `pyCoreRelator_1_RGBimg2log.ipynb`  [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/GeoLarryLai/pyCoreRelator/blob/main/pyCoreRelator_1_RGBimg2log.ipynb)
 Processing, stitching, and converting RGB core images into RGB color logs
 
-### 2. `pyCoreRelator_2_CTimg2log.ipynb`  [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/larrysyuhenglai/pyCoreRelator/blob/main/pyCoreRelator_2_CTimg2log.ipynb)
+### 2. `pyCoreRelator_2_CTimg2log.ipynb`  [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/GeoLarryLai/pyCoreRelator/blob/main/pyCoreRelator_2_CTimg2log.ipynb)
 Processing, stitching, and converting CT scan images into CT intensity (brightness) logs
 
-### 3. `pyCoreRelator_3_data_gap_fill.ipynb`  [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/larrysyuhenglai/pyCoreRelator/blob/main/pyCoreRelator_3_data_gap_fill.ipynb)
+### 3. `pyCoreRelator_3_data_gap_fill.ipynb`  [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/GeoLarryLai/pyCoreRelator/blob/main/pyCoreRelator_3_data_gap_fill.ipynb)
 Machine learning-based data processing and gap filling for core log data
 
-### 4. `pyCoreRelator_4_datum_picker.ipynb`  [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/larrysyuhenglai/pyCoreRelator/blob/main/pyCoreRelator_4_datum_picker.ipynb)
+### 4. `pyCoreRelator_4_datum_picker.ipynb`  [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/GeoLarryLai/pyCoreRelator/blob/main/pyCoreRelator_4_datum_picker.ipynb)
 Interactive stratigraphic boundary picking with real-time visualization and category-based classification
 
-### 5. `pyCoreRelator_5_core_pair_analysis.ipynb`  [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/larrysyuhenglai/pyCoreRelator/blob/main/pyCoreRelator_5_core_pair_analysis.ipynb)
+### 5. `pyCoreRelator_5_core_pair_analysis.ipynb`  [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/GeoLarryLai/pyCoreRelator/blob/main/pyCoreRelator_5_core_pair_analysis.ipynb)
 Comprehensive workflow with core correlation showing full analysis pipeline
 
-### 6. `pyCoreRelator_6_synthetic_strat.ipynb`  [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/larrysyuhenglai/pyCoreRelator/blob/main/pyCoreRelator_6_synthetic_strat.ipynb)
+### 6. `pyCoreRelator_6_synthetic_strat.ipynb`  [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/GeoLarryLai/pyCoreRelator/blob/main/pyCoreRelator_6_synthetic_strat.ipynb)
 Synthetic data generation examples
 
-### 7. `pyCoreRelator_7_compare2syn.ipynb`  [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/larrysyuhenglai/pyCoreRelator/blob/main/pyCoreRelator_7_compare2syn.ipynb)
+### 7. `pyCoreRelator_7_compare2syn.ipynb`  [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/GeoLarryLai/pyCoreRelator/blob/main/pyCoreRelator_7_compare2syn.ipynb)
 Comparison against synthetic cores with multi-parameter analysis
 
 ## Package Structure
