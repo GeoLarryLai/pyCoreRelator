@@ -34,10 +34,6 @@ Lai, L.S.-H. (2025) pyCoreRelator. *Zenodo*, https://doi.org/10.5281/zenodo.1784
 
 For questions, feedback, or collaboration opportunities, please contact Larry Lai (larry.lai@beg.utexas.edu, larrysyuhenglai@gmail.com) or visit the [Quantitative Clastics Laboratory](https://qcl.beg.utexas.edu) at the Bureau of Economic Geology, The University of Texas at Austin.
 
-## License
-
-**pyCoreRelator** is licensed under the [GNU Affero General Public License 3.0](LICENSE). This means that if you modify and distribute this software, or use it to provide a network service, you must make your modified source code available under the same license. See the LICENSE file for full terms and conditions.
-
 ## Key Features
 
 - **Segment-Based DTW Correlation**: Divide cores into analyzable segments using user-picked or machine-learning based (future feature) depth boundaries, enabling controls on the stratigraphic pinchouts or forced correlation datums
@@ -51,35 +47,46 @@ For questions, feedback, or collaboration opportunities, please contact Larry La
 - **Multi-dimensional Log Support**: Handle multiple log types (MS, CT, RGB, density) simultaneously with dependent or independent multi-dimentiaonl DTW approach
 - **Visualizations**: DTW cost matrix and paths, segment-wise core correlations, animated sequences, and statistical analysis for the correlation solutions
 
-## Dependencies
+## Correlation Quality Metrics
 
-Python 3.9 to 3.13 with the following packages:
+The package computes comprehensive quality indicators for each correlation with enhanced statistical analysis:
 
-**Core Dependencies:**
-- `numpy>=1.20.0` - Numerical computing and array operations
-- `pandas>=1.3.0` - Data manipulation and analysis
-- `scipy>=1.7.0` - Scientific computing and optimization
-- `matplotlib>=3.5.0` - Plotting and visualization
-- `Pillow>=8.3.0` - Image processing
-- `imageio>=2.9.0` - GIF/video animation creation
-- `librosa>=0.9.0` - Audio/signal processing for DTW algorithms
-- `tqdm>=4.60.0` - Progress bars
-- `joblib>=1.1.0` - Parallel processing
-- `IPython>=7.25.0` - Interactive environment support
-- `psutil>=5.8.0` - System utilities and memory monitoring
-- `pydicom>=2.3.0` - Image processing for CT scan DICOM files
-- `opencv-python>=4.5.0` - Computer vision and image processing
+### Available Metrics
+- **Correlation Coefficient**: [Default] Pearson's r between DTW aligned sequences
+- **Normalized DTW Distance**:  [Default] Normalized DTW cost per alignment
+- **DTW Warping Ratio**: DTW distance relative to Euclidean distance
+- **DTW Warping Efficiency**: Efficiency measure combining DTW path length and alignment quality
+- **Diagonality Percentage**: 100% = perfect diagonal alignment in the DTW matrix
+- **Age Overlap Percentage**: Chronostratigraphic compatibility when age constraints applied
 
-**Machine Learning Dependencies:**
-- `scikit-learn>=1.0.0` - Machine learning algorithms and preprocessing
-- `xgboost>=1.6.0` - XGBoost gradient boosting framework
-- `lightgbm>=3.3.0` - LightGBM gradient boosting framework
+## Example Jupyter Notebooks
 
-**Optional Dependencies:**
-- `ipympl>=0.9.0` - Interactive matplotlib widgets for depth picking functions (for Jupyter notebooks)
-- `scikit-image>=0.18.0` - Advanced image processing features
+The package includes several Jupyter notebooks demonstrating real-world applications:
+
+### 1. `pyCoreRelator_1_RGBimg2log.ipynb`  [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/larrysyuhenglai/pyCoreRelator/blob/main/pyCoreRelator_1_RGBimg2log.ipynb)
+Processing, stitching, and converting RGB core images into RGB color logs
+
+### 2. `pyCoreRelator_2_CTimg2log.ipynb`  [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/larrysyuhenglai/pyCoreRelator/blob/main/pyCoreRelator_2_CTimg2log.ipynb)
+Processing, stitching, and converting CT scan images into CT intensity (brightness) logs
+
+### 3. `pyCoreRelator_3_data_gap_fill.ipynb`  [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/larrysyuhenglai/pyCoreRelator/blob/main/pyCoreRelator_3_data_gap_fill.ipynb)
+Machine learning-based data processing and gap filling for core log data
+
+### 4. `pyCoreRelator_4_datum_picker.ipynb`  [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/larrysyuhenglai/pyCoreRelator/blob/main/pyCoreRelator_4_datum_picker.ipynb)
+Interactive stratigraphic boundary picking with real-time visualization and category-based classification
+
+### 5. `pyCoreRelator_5_core_pair_analysis.ipynb`  [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/larrysyuhenglai/pyCoreRelator/blob/main/pyCoreRelator_5_core_pair_analysis.ipynb)
+Comprehensive workflow with core correlation showing full analysis pipeline
+
+### 6. `pyCoreRelator_6_synthetic_strat.ipynb`  [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/larrysyuhenglai/pyCoreRelator/blob/main/pyCoreRelator_6_synthetic_strat.ipynb)
+Synthetic data generation examples
+
+### 7. `pyCoreRelator_7_compare2syn.ipynb`  [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/larrysyuhenglai/pyCoreRelator/blob/main/pyCoreRelator_7_compare2syn.ipynb)
+Comparison against synthetic cores with multi-parameter analysis
 
 ## Package Structure
+
+Detailed function documentation is available in [FUNCTION_DOCUMENTATION.md](FUNCTION_DOCUMENTATION.md).
 
 ```
 pyCoreRelator/
@@ -111,83 +118,35 @@ pyCoreRelator/
     └── helpers.py                     # General utility functions
 ```
 
+## Dependencies
 
+Python 3.9 to 3.13 with the following packages:
 
-## Correlation Quality Assessment
+**Core Dependencies:**
+- `numpy>=1.20.0` - Numerical computing and array operations
+- `pandas>=1.3.0` - Data manipulation and analysis
+- `scipy>=1.7.0` - Scientific computing and optimization
+- `matplotlib>=3.5.0` - Plotting and visualization
+- `Pillow>=8.3.0` - Image processing
+- `imageio>=2.9.0` - GIF/video animation creation
+- `librosa>=0.9.0` - Audio/signal processing for DTW algorithms
+- `tqdm>=4.60.0` - Progress bars
+- `joblib>=1.1.0` - Parallel processing
+- `IPython>=7.25.0` - Interactive environment support
+- `psutil>=5.8.0` - System utilities and memory monitoring
+- `pydicom>=2.3.0` - Image processing for CT scan DICOM files
+- `opencv-python>=4.5.0` - Computer vision and image processing
 
-The package computes comprehensive quality indicators for each correlation with enhanced statistical analysis:
+**Machine Learning Dependencies:**
+- `scikit-learn>=1.0.0` - Machine learning algorithms and preprocessing
+- `xgboost>=1.6.0` - XGBoost gradient boosting framework
+- `lightgbm>=3.3.0` - LightGBM gradient boosting framework
 
-### Available Correlation Quality Metrics
-- **Correlation Coefficient**: [Default] Pearson's r between DTW aligned sequences
-- **Normalized DTW Distance**:  [Default] Normalized DTW cost per alignment
-- **DTW Warping Ratio**: DTW distance relative to Euclidean distance
-- **DTW Warping Efficiency**: Efficiency measure combining DTW path length and alignment quality
-- **Diagonality Percentage**: 100% = perfect diagonal alignment in the DTW matrix
-- **Age Overlap Percentage**: Chronostratigraphic compatibility when age constraints applied
+**Optional Dependencies:**
+- `ipympl>=0.9.0` - Interactive matplotlib widgets for depth picking functions (for Jupyter notebooks)
+- `scikit-image>=0.18.0` - Advanced image processing features
 
-## Example Applications
+## License
 
-The package includes several Jupyter notebooks demonstrating real-world applications:
-
-### Correlation analysis
-- **`pyCoreRelator_5_core_pair_analysis.ipynb`**: Comprehensive workflow with core correlation showing full analysis pipeline
-- **`pyCoreRelator_6_synthetic_strat.ipynb`**: Synthetic data generation examples
-- **`pyCoreRelator_7_compare2syn.ipynb`**: Comparison against synthetic cores with multi-parameter analysis
-
-### Log data processing
-- **`pyCoreRelator_1_CTimg2log.ipynb`**: Processing, stitching, and converting CT scan images into CT intensity (brightness) logs
-- **`pyCoreRelator_2_RGBimg2log.ipynb`**: Processing, stitching, and converting RGB core images into RGB color logs
-- **`pyCoreRelator_3_data_gap_fill.ipynb`**: Machine learning-based data processing and gap filling for core log data
-- **`pyCoreRelator_4_datum_picker.ipynb`**: Interactive stratigraphic boundary picking with real-time visualization and category-based classification
-
-## Core Functions
-
-Detailed function documentation is available in [FUNCTION_DOCUMENTATION.md](FUNCTION_DOCUMENTATION.md).
-
-### Main Analysis Functions
-- **`run_comprehensive_dtw_analysis()`**: Main function for segment-based DTW with age constraints and visualization
-- **`find_complete_core_paths()`**: Advanced complete DTW path discovery with memory optimization
-- **`calculate_interpolated_ages()`**: Interpolate ages for depth boundaries using age models with uncertainty propagation
-- **`diagnose_chain_breaks()`**: Identify and analyze connectivity gaps in correlation chains
-- **`run_multi_parameter_analysis()`**: Comprehensive analysis across parameter combinations with statistical testing
-- **`find_best_mappings()`**: Identify optimal correlation mappings using weighted quality metrics (supports both standard best mappings and boundary correlation filtering modes)
-
-### Data Loading and Visualization
-- **`load_core_log_data()`**: Load log data from CSV files, optionally load picked depths from CSV, and create visualization with optional images
-- **`load_log_data()`**: Load multi-column log data with optional image support and normalization
-- **`load_core_age_constraints()`**: Load age constraint data from CSV files with support for adjacent cores
-
-### Machine Learning Data Imputation Functions
-- **`preprocess_core_data()`**: Clean and preprocess core data with configurable thresholds and scaling
-- **`plot_core_logs()`**: Visualize core logs with configurable parameters and multiple data types
-- **`process_and_fill_logs()`**: Complete ML-based gap filling workflow for all configured log types
-
-### Synthetic Stratigraphy Functions
-- **`load_segment_pool()`**: Create pools of real segments for synthetic core generation
-- **`plot_segment_pool()`**: Visualize all segments from the turbidite database pool
-- **`modify_segment_pool()`**: Remove unwanted segments from the pool data
-- **`create_synthetic_log()`**: Generate synthetic cores from segment pools
-- **`create_synthetic_core_pair()`**: Generate synthetic core pair (computation only)
-- **`create_and_plot_synthetic_core_pair()`**: Create and visualize synthetic core pairs
-- **`plot_synthetic_log()`**: Plot a single synthetic log with turbidite boundaries
-- **`synthetic_correlation_quality()`**: Generate DTW correlation quality analysis for synthetic core pairs with multiple iterations
-- **`plot_synthetic_correlation_quality()`**: Plot synthetic correlation quality distributions from saved CSV files
-
-### Visualization Functions
-- **`visualize_combined_segments()`**: Display segment correlations overlaid on log plots
-- **`visualize_dtw_results_from_csv()`**: Generate animated correlation sequences from results
-- **`plot_dtw_matrix_with_paths()`**: Visualize DTW cost matrices with correlation paths
-- **`plot_correlation_distribution()`**: Visualize and statistically analyze the distributions of the correlation quality metrics
-- **`calculate_quality_comparison_t_statistics()`**: Calculate t-statistics for quality metric comparisons
-- **`plot_quality_comparison_t_statistics()`**: Plot quality metric comparison results with statistical analysis
-
-### Interactive Core Analysis Functions
-- **`pick_stratigraphic_levels()`**: Interactive manual stratigraphic boundary picking with real-time visualization and CSV export
-- **`interpret_bed_names()`**: Interactive Jupyter widget for naming picked stratigraphic beds with visualization and CSV update
-
-### Image Processing Functions
-- **`plot_rgbimg_curves()`**: Create comprehensive RGB analysis visualizations with multiple format support
-- **`rgb_process_and_stitch()`**: Complete workflow for multi-segment RGB processing with optional CSV export
-- **`plot_ctimg_curves()`**: Display CT slices with brightness traces and standard deviation plots
-- **`ct_process_and_stitch()`**: Complete workflow for multi-segment CT processing with optional CSV export
+**pyCoreRelator** is licensed under the [GNU Affero General Public License 3.0](LICENSE). This means that if you modify and distribute this software, or use it to provide a network service, you must make your modified source code available under the same license. See the LICENSE file for full terms and conditions.
 
