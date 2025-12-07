@@ -8,6 +8,12 @@
 
 ## Installation
 
+### Requirements
+
+- Python 3.9 to 3.13 (Python 3.14+ is not yet supported due to dependency constraints with numba/librosa)
+
+### Install from PyPI
+
 Users can install **pyCoreRelator** directly from [PyPI](https://pypi.org/project/pycorerelator/) with `pip` command:
 ```
 pip install pycorerelator
@@ -16,6 +22,8 @@ or from `conda-forge` repository with `conda`:
 ```
 conda install pycorerelator
 ```
+
+**Note:** Python 3.14+ is currently not supported because some core dependencies (particularly `numba`, which is required by `librosa`) have not yet added support for Python 3.14. Please use Python 3.9-3.13 for installation.
 
 ## License
 
@@ -34,9 +42,9 @@ conda install pycorerelator
 - **Multi-dimensional Log Support**: Handle multiple log types (MS, CT, RGB, density) simultaneously with dependent or independent multi-dimentiaonl DTW approach
 - **Visualizations**: DTW cost matrix and paths, segment-wise core correlations, animated sequences, and statistical analysis for the correlation solutions
 
-## Requirements
+## Dependencies
 
-Python 3.9+ with the following packages:
+Python 3.9 to 3.13 with the following packages:
 
 **Core Dependencies:**
 - `numpy>=1.20.0` - Numerical computing and array operations

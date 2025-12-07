@@ -5,7 +5,7 @@ with open("README-pypi.md", "r") as fh:
 
 setup(
     name="pycorerelator",
-    version="0.0.0",
+    version="0.0.1",
     author="Larry Syu-Heng Lai",
     author_email="larrysyuhenglai@gmail.com",
     description="A package for quantitative stratigraphic correlation analysis across geological core and physical log data", 
@@ -17,7 +17,7 @@ setup(
         "Programming Language :: Python :: 3",
         "Operating System :: OS Independent",
     ],
-    python_requires=">=3.9",
+    python_requires=">=3.9,<3.14",
     install_requires=[
         "numpy>=1.20.0",
         "pandas>=1.3.0",
