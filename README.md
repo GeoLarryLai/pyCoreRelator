@@ -7,6 +7,9 @@
 
 **pyCoreRelator** is a Python package designed for quantitative stratigraphic correlation across geological core and physical log data. The package performs segment-based (i.e., unit-based or bed-to-bed) correlation analysis by applying Dynamic Time Warping (DTW) algorithms for automated signal alignment, while honoring fundamental stratigraphic principles (e.g., superposition, age succession, pinchouts). The main tool computes multiple measures for assessing correlation quality, under the assumption that higher signal similarity indicates stronger correlation. These quality metrics can also be used to identify optimal correlation solutions. In addition, the package provides utility functions for preprocessing log data (e.g., cleaning, gap filling) and core image data (e.g., image stitching, clipping, converting color profiles or scans into digital logs) for use in correlation assessment.
 
+> [!WARNING]
+> **pyCoreRelator** is currently under active development and has not yet been peer-reviewed. Please use with caution.
+
 ## Installation
 
 ### Requirements
@@ -28,7 +31,7 @@ conda install pycorerelator
 
 ## Citation
 
-If you use **pyCoreRelator** in your research, please cite:
+If you use **pyCoreRelator** in your work, please cite:
 
 Lai, L.S.-H. (2025) pyCoreRelator. *Zenodo*, https://doi.org/10.5281/zenodo.17847259
 
