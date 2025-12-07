@@ -1,4 +1,5 @@
 # pyCoreRelator
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.17847259.svg)](https://doi.org/10.5281/zenodo.17847259)  [![PyPI version](https://img.shields.io/pypi/v/pycorerelator.svg)](https://pypi.org/project/pycorerelator/) [![Conda Version](https://img.shields.io/conda/vn/conda-forge/pycorerelator.svg)](https://anaconda.org/conda-forge/pycorerelator) [![Conda Downloads](https://img.shields.io/conda/dn/conda-forge/pycorerelator.svg)](https://anaconda.org/conda-forge/pycorerelator) 
 
 <div align="center">
   <img src="pyCoreRelator_logo_ani.gif" alt="pyCoreRelator Logo" width="200"/>
@@ -24,6 +25,14 @@ conda install pycorerelator
 ```
 
 **Note:** Python 3.14+ is currently not supported because some core dependencies (particularly `numba`, which is required by `librosa`) have not yet added support for Python 3.14. Please use Python 3.9-3.13 for installation.
+
+## Citation
+
+If you use **pyCoreRelator** in your research, please cite:
+
+Lai, L.S.-H. (2025) pyCoreRelator. *Zenodo*, https://doi.org/10.5281/zenodo.17847259
+
+For questions, feedback, or collaboration opportunities, please contact Larry Lai (larry.lai@beg.utexas.edu, larrysyuhenglai@gmail.com) or visit the [Quantitative Clastics Laboratory](https://qcl.beg.utexas.edu) at the Bureau of Economic Geology, The University of Texas at Austin.
 
 ## License
 
