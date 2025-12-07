@@ -6,6 +6,17 @@
 
 **pyCoreRelator** is a Python package designed for quantitative stratigraphic correlation across geological core and physical log data. The package performs segment-based (i.e., unit-based or bed-to-bed) correlation analysis by applying Dynamic Time Warping (DTW) algorithms for automated signal alignment, while honoring fundamental stratigraphic principles (e.g., superposition, age succession, pinchouts). The main tool computes multiple measures for assessing correlation quality, under the assumption that higher signal similarity indicates stronger correlation. These quality metrics can also be used to identify optimal correlation solutions. In addition, the package provides utility functions for preprocessing log data (e.g., cleaning, gap filling) and core image data (e.g., image stitching, clipping, converting color profiles or scans into digital logs) for use in correlation assessment.
 
+## Installation
+
+Users can install **pyCoreRelator** directly from [PyPI](https://pypi.org/project/pycorerelator/) with `pip` command:
+```
+pip install pycorerelator
+```
+or from `conda-forge` repository with `conda`:
+```
+conda install pycorerelator
+```
+
 ## License
 
 **pyCoreRelator** is licensed under the [GNU Affero General Public License 3.0](LICENSE). This means that if you modify and distribute this software, or use it to provide a network service, you must make your modified source code available under the same license. See the LICENSE file for full terms and conditions.
@@ -50,11 +61,6 @@ Python 3.9+ with the following packages:
 **Optional Dependencies:**
 - `ipympl>=0.9.0` - Interactive matplotlib widgets for depth picking functions (for Jupyter notebooks)
 - `scikit-image>=0.18.0` - Advanced image processing features
-
-**Installation:**
-```bash
-pip install -r requirements.txt
-```
 
 ## Package Structure
 
