@@ -8,7 +8,7 @@
 
 ## License
 
-**pyCoreRelator** is licensed under the [GNU Affero General Public License 3.0](LICENSE).
+**pyCoreRelator** is licensed under the [GNU Affero General Public License 3.0](LICENSE). This means that if you modify and distribute this software, or use it to provide a network service, you must make your modified source code available under the same license. See the LICENSE file for full terms and conditions.
 
 ## Key Features
 
@@ -33,6 +33,7 @@ Python 3.9+ with the following packages:
 - `scipy>=1.7.0` - Scientific computing and optimization
 - `matplotlib>=3.5.0` - Plotting and visualization
 - `Pillow>=8.3.0` - Image processing
+- `imageio>=2.9.0` - GIF/video animation creation
 - `librosa>=0.9.0` - Audio/signal processing for DTW algorithms
 - `tqdm>=4.60.0` - Progress bars
 - `joblib>=1.1.0` - Parallel processing
@@ -93,11 +94,11 @@ pyCoreRelator/
 
 The package computes comprehensive quality indicators for each correlation with enhanced statistical analysis:
 
-### Core Quality Metrics
-- **Normalized DTW Distance**: Normalized DTW cost per alignment
+### Available Correlation Quality Metrics
+- **Correlation Coefficient**: [Default] Pearson's r between DTW aligned sequences
+- **Normalized DTW Distance**:  [Default] Normalized DTW cost per alignment
 - **DTW Warping Ratio**: DTW distance relative to Euclidean distance
 - **DTW Warping Efficiency**: Efficiency measure combining DTW path length and alignment quality
-- **Correlation Coefficient**: Pearson's r between DTW aligned sequences
 - **Diagonality Percentage**: 100% = perfect diagonal alignment in the DTW matrix
 - **Age Overlap Percentage**: Chronostratigraphic compatibility when age constraints applied
 

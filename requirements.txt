@@ -6,6 +6,7 @@ scipy>=1.7.0
 # Visualization and plotting
 matplotlib>=3.5.0
 Pillow>=8.3.0
+imageio>=2.9.0          # For GIF/video animation creation
 
 # Audio/signal processing for DTW algorithms
 librosa>=0.9.0
@@ -20,34 +21,38 @@ IPython>=7.25.0
 # System utilities and memory management
 psutil>=5.8.0
 
-# Image processing for log analysis
-pydicom>=2.3.0
-opencv-python>=4.5.0
+# Image processing for CT log analysis
+pydicom>=2.3.0          # For DICOM medical imaging format
+opencv-python>=4.5.0    # For computer vision and image processing
 
-# Machine Learning dependencies (for ml_log_data_imputation module)
+# Machine Learning dependencies (for gap filling and data imputation)
 scikit-learn>=1.0.0     # For ML-based data imputation and preprocessing
 xgboost>=1.6.0          # For XGBoost ML models
 lightgbm>=3.3.0         # For LightGBM ML models
 
-# Dependencies for Jupyter Notebooks (optional):
-# Uncomment the following line if using interactive matplotlib widgets for depth picking
+# Optional dependencies for interactive Jupyter notebooks:
+# Uncomment the following line if using interactive matplotlib widgets for datum picking
 # ipympl>=0.9.0
 
-# Optional packages for advanced features:
-# scikit-image>=0.18.0    # For advanced core image processing
-
 # Built-in modules (no installation required):
-# sqlite3 - for database operations
+# sqlite3 - for database operations in path finding
 # tempfile - for temporary file management
 # gc - for garbage collection and memory management
 # os - for file system operations
-# random - for random sampling and pruning
-# collections - for deque and defaultdict
+# random - for random sampling and synthetic data generation
+# collections - for deque and defaultdict in path algorithms
 # itertools - for combinations and advanced iteration
 # threading - for concurrent operations
 # json - for data serialization
 # csv - for CSV file operations
-# hashlib - for hash calculations
+# hashlib - for hash calculations in path finding
 # sys - for system operations
 # math - for mathematical operations
-# warnings - for warning management 
+# warnings - for warning management
+# heapq - for priority queue in path finding algorithms
+# string - for random string generation
+# shutil - for file operations
+# time - for timing operations
+# typing - for type hints
+# multiprocessing - for parallel processing (concurrent.futures)
+# signal processing - scipy.signal, scipy.ndimage 

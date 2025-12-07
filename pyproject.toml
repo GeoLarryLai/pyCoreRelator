@@ -1,0 +1,50 @@
+[build-system]
+requires = ["setuptools>=45", "wheel", "setuptools_scm[toml]>=6.2"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pycorerelator"
+dynamic = ["version"]
+description = "A package for quantitative stratigraphic correlation across geological core and physical log data"
+readme = "README-pypi.md"
+authors = [{name = "Larry Syu-Heng Lai", email = "larrysyuhenglai@gmail.com"}]
+license = {file = "LICENSE"}
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: GNU Affero General Public License v3",
+    "Operating System :: OS Independent",
+]
+requires-python = ">=3.9"
+dependencies = [
+    "numpy>=1.20.0",
+    "pandas>=1.3.0",
+    "scipy>=1.7.0",
+    "matplotlib>=3.5.0",
+    "Pillow>=8.3.0",
+    "imageio>=2.9.0",
+    "librosa>=0.9.0",
+    "tqdm>=4.60.0",
+    "joblib>=1.1.0",
+    "IPython>=7.25.0",
+    "psutil>=5.8.0",
+    "pydicom>=2.3.0",
+    "opencv-python>=4.5.0",
+    "scikit-learn>=1.0.0",
+    "xgboost>=1.6.0",
+    "lightgbm>=3.3.0"
+]
+
+[project.optional-dependencies]
+interactive = [
+    "ipympl>=0.9.0"
+]
+advanced = [
+    "scikit-image>=0.18.0"
+]
+
+[project.urls]
+repository = "https://github.com/GeoLarryLai/pyCoreRelator.git"
+
+[tool.setuptools]
+packages = {find = {where = ["."], exclude = ["example_data", "example_data.*", "outputs", "outputs.*", "old codes", "old codes.*", "dtw_graphics", "dtw_graphics.*", "mapinfo", "mapinfo.*", "pickeddepth", "pickeddepth.*", "pickeddepth_ages", "pickeddepth_ages.*", "SegmentPair_DTW_frames", "SegmentPair_DTW_frames.*", "TestCores", "TestCores.*", "__pycache__", "__pycache__.*"]}}
+
