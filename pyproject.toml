@@ -4,14 +4,13 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pycorerelator"
-dynamic = ["version"]
+version = "0.0.0"
 description = "A package for quantitative stratigraphic correlation across geological core and physical log data"
 readme = "README-pypi.md"
 authors = [{name = "Larry Syu-Heng Lai", email = "larrysyuhenglai@gmail.com"}]
-license = {file = "LICENSE"}
+license = "AGPL-3.0-or-later"
 classifiers = [
     "Programming Language :: Python :: 3",
-    "License :: OSI Approved :: GNU Affero General Public License v3",
     "Operating System :: OS Independent",
 ]
 requires-python = ">=3.9"
@@ -43,7 +42,8 @@ advanced = [
 ]
 
 [project.urls]
-repository = "https://github.com/GeoLarryLai/pyCoreRelator.git"
+Homepage = "https://github.com/GeoLarryLai/pyCoreRelator"
+Repository = "https://github.com/GeoLarryLai/pyCoreRelator.git"
 
 [tool.setuptools]
 packages = {find = {where = ["."], exclude = ["example_data", "example_data.*", "outputs", "outputs.*", "old codes", "old codes.*", "dtw_graphics", "dtw_graphics.*", "mapinfo", "mapinfo.*", "pickeddepth", "pickeddepth.*", "pickeddepth_ages", "pickeddepth_ages.*", "SegmentPair_DTW_frames", "SegmentPair_DTW_frames.*", "TestCores", "TestCores.*", "__pycache__", "__pycache__.*"]}}

@@ -1,6 +1,6 @@
 from setuptools import setup, find_packages
 
-with open("README-pypi.md", "r", encoding="utf-8") as fh:
+with open("README-pypi.md", "r") as fh:
     long_description = fh.read()
 
 setup(
@@ -15,7 +15,6 @@ setup(
     packages=find_packages(exclude=['example_data', 'example_data.*', 'outputs', 'outputs.*', 'old codes', 'old codes.*', 'dtw_graphics', 'dtw_graphics.*', 'mapinfo', 'mapinfo.*', 'pickeddepth', 'pickeddepth.*', 'pickeddepth_ages', 'pickeddepth_ages.*', 'SegmentPair_DTW_frames', 'SegmentPair_DTW_frames.*', 'TestCores', 'TestCores.*', '__pycache__', '__pycache__.*']),
     classifiers=[
         "Programming Language :: Python :: 3",
-        "License :: OSI Approved :: GNU Affero General Public License v3",
         "Operating System :: OS Independent",
     ],
     python_requires=">=3.9",
@@ -41,6 +40,4 @@ setup(
         "interactive": ["ipympl>=0.9.0"],
         "advanced": ["scikit-image>=0.18.0"]
     },
-    license="GNU Affero General Public License v3",
 )
-
