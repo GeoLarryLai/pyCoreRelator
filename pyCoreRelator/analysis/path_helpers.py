@@ -116,8 +116,47 @@ def filter_shortest_paths(paths_data, shortest_path_level, debug=False, mute_mod
     return filtered_paths
 
 
-def compute_path_metrics_lazy(compressed_path, log_a, log_b, dtw_results, dtw_distance_matrix_full, pca_for_dependent_dtw=False):
-    """Compute quality metrics lazily only when needed for final output."""
+def compute_path_metrics_lazy(compressed_path, log_a, log_b, dtw_results, dtw_distance_matrix_full, pca_for_dependent_dtw=False,
+                               segments_a=None, segments_b=None, depth_boundaries_a=None, depth_boundaries_b=None,
+                               metrics_to_compute=None):
+    """Compute quality metrics lazily only when needed for final output.
+    
+    Parameters
+    ----------
+    compressed_path : str
+        Compressed path string
+    log_a, log_b : array-like
+        Log data arrays
+    dtw_results : dict
+        DTW correlation results
+    dtw_distance_matrix_full : ndarray
+        Full DTW distance matrix
+    pca_for_dependent_dtw : bool
+        Whether to use PCA for dependent DTW
+    segments_a, segments_b : list, optional
+        Segment definitions for computing sectional metrics
+    depth_boundaries_a, depth_boundaries_b : list, optional
+        Depth boundaries for computing sectional metrics
+    metrics_to_compute : list or str, optional
+        List of metrics to compute. 
+        If None, computes default metrics: ['norm_dtw', 'corr_coef', 'norm_dtw_sect', 'corr_coef_sect'].
+        If 'ALL', computes all available metrics.
+        Available options:
+        - 'norm_dtw': Normalized DTW distance (lower is better)
+        - 'corr_coef': Correlation coefficient (higher is better)
+        - 'norm_dtw_sect': Sectional normalized DTW (excludes pinch-outs)
+        - 'corr_coef_sect': Sectional correlation coefficient (excludes pinch-outs)
+        - 'dtw_ratio': DTW warping ratio (lower is better)
+        - 'perc_diag': Path diagonality percentage (higher is better)
+        - 'dtw_warp_eff': DTW warping efficiency
+        - 'perc_age_overlap': Age overlap percentage (higher is better)
+        Invalid metrics in the list are silently skipped.
+    
+    Returns
+    -------
+    tuple
+        (combined_wp, metrics) where metrics includes norm_dtw_sect and corr_coef_sect
+    """
     
     path_segment_pairs = decompress_path(compressed_path)
     
@@ -125,6 +164,8 @@ def compute_path_metrics_lazy(compressed_path, log_a, log_b, dtw_results, dtw_di
     all_quality_indicators = []
     age_overlap_values = []
     all_wps = []
+    segment_wps_ordered = []  # Keep warping paths in segment order for sectional calc
+    valid_segment_pairs = []  # Track which segment pairs have valid paths
     
     for a_idx, b_idx in path_segment_pairs:
         if (a_idx, b_idx) in dtw_results:
@@ -132,8 +173,10 @@ def compute_path_metrics_lazy(compressed_path, log_a, log_b, dtw_results, dtw_di
             
             if not paths or len(paths) == 0:
                 continue
-                
+            
             all_wps.append(paths[0])
+            segment_wps_ordered.append(paths[0])
+            valid_segment_pairs.append((a_idx, b_idx))
             
             if quality_indicators and len(quality_indicators) > 0:
                 qi = quality_indicators[0]
@@ -150,9 +193,19 @@ def compute_path_metrics_lazy(compressed_path, log_a, log_b, dtw_results, dtw_di
     else:
         combined_wp = np.array([])
     
-    # Compute combined metrics
+    # Compute combined metrics (including sectional metrics if segment info provided)
     from .path_combining import compute_combined_path_metrics
-    metrics = compute_combined_path_metrics(combined_wp, log_a, log_b, all_quality_indicators, dtw_distance_matrix_full, age_overlap_values, pca_for_dependent_dtw=pca_for_dependent_dtw)
+    metrics = compute_combined_path_metrics(
+        combined_wp, log_a, log_b, all_quality_indicators, dtw_distance_matrix_full, 
+        age_overlap_values, pca_for_dependent_dtw=pca_for_dependent_dtw,
+        segment_wps=segment_wps_ordered,
+        path_segment_pairs=valid_segment_pairs,
+        segments_a=segments_a,
+        segments_b=segments_b,
+        depth_boundaries_a=depth_boundaries_a,
+        depth_boundaries_b=depth_boundaries_b,
+        metrics_to_compute=metrics_to_compute
+    )
     
     return combined_wp, metrics
 

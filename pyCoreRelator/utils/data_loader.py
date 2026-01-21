@@ -103,23 +103,34 @@ def load_log_data(log_paths, log_columns=None, depth_column='SB_DEPTH_cm', norma
             # Add to datasets
             datasets.append(data)
             
+        except FileNotFoundError:
+            print(f"Warning: File not found - {log_path}. Skipping {log_column}.")
+            continue
         except Exception as e:
-            print(f"Error loading {log_path}: {e}")
+            print(f"Warning: Error loading {log_path}: {e}. Skipping {log_column}.")
+            continue
     
     # If no datasets were loaded, return empty arrays
     if not datasets:
-        print(f"No log datasets were loaded")
+        print(f"Warning: No log datasets were loaded. All log files were missing or had errors.")
         return np.array([]), np.array([])
     
     # Resample all datasets to a common depth scale
     resampled_data = resample_datasets(datasets)
     
+    # Get actually loaded columns (some may have been skipped)
+    loaded_columns = [col for col in log_columns if col in resampled_data]
+    
+    if not loaded_columns:
+        print(f"Warning: No valid log data available after resampling.")
+        return np.array([]), np.array([])
+    
     # Stack the selected columns
-    log = np.column_stack([resampled_data[col] for col in log_columns])
+    log = np.column_stack([resampled_data[col] for col in loaded_columns])
     md = resampled_data['depth']
     
     # If only one log column was loaded, return as 1D array for backward compatibility
-    if len(log_columns) == 1:
+    if len(loaded_columns) == 1:
         log = log.flatten()
     
     return log, md
@@ -906,32 +917,47 @@ def load_core_log_data(log_paths, core_name, log_columns=None, depth_column='SB_
     
     # Check if data was successfully loaded
     if len(md) == 0:
-        print("Warning: No data was loaded. Returning empty arrays.")
-        return np.array([]), np.array([]), [], []
+        raise ValueError(f"Error: No log data was loaded for {core_name}. Cannot proceed without any log data.")
     
     # Load picked depths from CSV if provided
     picked_depths = []
     picked_categories = []
     interpreted_bed = []
     
-    if picked_datum is not None and os.path.exists(picked_datum):
-        df = pd.read_csv(picked_datum)
-        
-        # Filter by categories if specified
-        if categories is not None:
-            if isinstance(categories, (list, tuple, set)):
-                df = df[df['category'].isin(categories)]
-            else:
-                df = df[df['category'] == categories]
-        
-        print(f"Loaded {len(df)} picked depths from {core_name}"
-              + (f" (categories: {categories})" if categories is not None else ""))
-        
-        picked_depths = df['picked_depths_cm'].tolist() if 'picked_depths_cm' in df else []
-        picked_categories = df['category'].tolist() if 'category' in df else []
-        interpreted_bed = df['interpreted_bed'].fillna('').tolist() if 'interpreted_bed' in df else [''] * len(df)
-    elif picked_datum is not None:
-        print(f"Warning: {picked_datum} not found.")
+    if picked_datum is not None:
+        if not os.path.exists(picked_datum):
+            print(f"Warning: Picked datum file not found - {picked_datum}. Proceeding without picked depths.")
+        else:
+            try:
+                df = pd.read_csv(picked_datum)
+                
+                # Check if dataframe is empty
+                if df.empty:
+                    print(f"Warning: Picked datum file is empty - {picked_datum}. Proceeding without picked depths.")
+                else:
+                    # Filter by categories if specified
+                    if categories is not None:
+                        if isinstance(categories, (list, tuple, set)):
+                            df = df[df['category'].isin(categories)]
+                        else:
+                            df = df[df['category'] == categories]
+                    
+                    # Check if filtered dataframe is empty
+                    if df.empty:
+                        print(f"Warning: No picked depths found for categories {categories} in {picked_datum}. Proceeding without picked depths.")
+                    else:
+                        print(f"Loaded {len(df)} picked depths from {core_name}"
+                              + (f" (categories: {categories})" if categories is not None else ""))
+                        
+                        picked_depths = df['picked_depths_cm'].tolist() if 'picked_depths_cm' in df else []
+                        picked_categories = df['category'].tolist() if 'category' in df else []
+                        interpreted_bed = df['interpreted_bed'].fillna('').tolist() if 'interpreted_bed' in df else [''] * len(df)
+                        
+                        # Warn if no valid depths were extracted
+                        if not picked_depths:
+                            print(f"Warning: Column 'picked_depths_cm' not found or empty in {picked_datum}. Proceeding without picked depths.")
+            except Exception as e:
+                print(f"Warning: Error loading picked datum file {picked_datum}: {e}. Proceeding without picked depths.")
     
     # Load images from file paths if strings are provided
     if isinstance(core_img_1, str):

@@ -26,7 +26,6 @@ import string
 import numpy as np
 import pandas as pd
 from tqdm import tqdm
-from joblib import Parallel, delayed
 from itertools import combinations
 import matplotlib.pyplot as plt
 import warnings
@@ -150,7 +149,7 @@ def load_segment_pool(core_names, log_data_csv, log_data_type, picked_datum,
             except Exception as e:
                 print(f"Warning: Could not load turbidite boundaries for {core_name}: {e}")
             
-            print(f"  Loaded: {len(log_data)} points, columns: {available_columns}")
+            print(f"  Loaded: {len(log_data)} points, columns: {log_data_type}")
             
         except Exception as e:
             print(f"Error loading {core_name}: {e}")
@@ -359,9 +358,10 @@ def _process_single_parameter_combination(
     output_csv_filenames,
     synthetic_csv_filenames,
     pca_for_dependent_dtw,
-    test_age_constraint_removal
+    test_age_constraint_removal,
+    output_metric_only=True
 ):
-    """Process a single parameter combination (exact copy of original loop body)"""
+    """Process a single parameter combination with parallel computation inside."""
     
     # Import here to avoid circular imports in workers
     from .dtw_core import run_comprehensive_dtw_analysis
@@ -371,8 +371,9 @@ def _process_single_parameter_combination(
     # Generate a random suffix for temporary files in this iteration
     random_suffix = ''.join(random.choices('ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789', k=8))
 
-    # Initialize temp_mapping_file here to ensure it's always defined
-    temp_mapping_file = f'temp_mappings_{random_suffix}.pkl'
+    # Initialize temp_mapping_file in Downloads folder to avoid cloud sync overhead
+    temp_dir = os.path.expanduser('~/Downloads')
+    temp_mapping_file = os.path.join(temp_dir, f'temp_mappings_{random_suffix}.pkl')
 
     # Extract parameters
     age_consideration = params['age_consideration']
@@ -391,6 +392,9 @@ def _process_single_parameter_combination(
     search_label = 'optimal' if shortest_path_search else 'random'
     combo_id = f"{age_label}_{search_label}"
     
+    # Cache for synthetic CSV DataFrames to avoid redundant reads
+    synthetic_df_cache = {}
+    
     # Check if this scenario exists in synthetic CSV files (if provided)
     if synthetic_csv_filenames:
         scenario_exists = False
@@ -400,6 +404,8 @@ def _process_single_parameter_combination(
                 if os.path.exists(synthetic_csv_file):
                     try:
                         synthetic_df = pd.read_csv(synthetic_csv_file)
+                        # Cache the DataFrame for later use
+                        synthetic_df_cache[quality_index] = synthetic_df
                         # Check if this combination_id exists in the synthetic CSV
                         if 'combination_id' in synthetic_df.columns:
                             if combo_id in synthetic_df['combination_id'].values:
@@ -465,7 +471,8 @@ def _process_single_parameter_combination(
             datum_ages_b=datum_ages_b if age_consideration else None,
             restricted_age_correlation=restricted_age_correlation if age_consideration else False,
             core_a_age_data=core_a_age_data if age_consideration else None,
-            core_b_age_data=core_b_age_data if age_consideration else None
+            core_b_age_data=core_b_age_data if age_consideration else None,
+            n_jobs=-1  # Use all available cores
         )
         
         # Check if DTW analysis returned None
@@ -486,39 +493,39 @@ def _process_single_parameter_combination(
             _ = find_complete_core_paths(
                 dtw_result, log_a, log_b,
                 output_csv=temp_mapping_file,
-                start_from_top_only=True, batch_size=1000, n_jobs=1,  # Use n_jobs=1 to avoid nested parallelism
+                start_from_top_only=True, batch_size=1000, n_jobs=-1,  # Use all available cores
                 shortest_path_search=True, shortest_path_level=2,
-                max_search_path=100000, mute_mode=True, pca_for_dependent_dtw=pca_for_dependent_dtw
+                max_search_path=100000, mute_mode=True, pca_for_dependent_dtw=pca_for_dependent_dtw,
+                output_metric_only=output_metric_only
             )
         else:
             _ = find_complete_core_paths(
                 dtw_result, log_a, log_b,
                 output_csv=temp_mapping_file,
-                start_from_top_only=True, batch_size=1000, n_jobs=1,  # Use n_jobs=1 to avoid nested parallelism
+                start_from_top_only=True, batch_size=1000, n_jobs=-1,  # Use all available cores
                 shortest_path_search=False, shortest_path_level=2,
-                max_search_path=100000, mute_mode=True, pca_for_dependent_dtw=pca_for_dependent_dtw
+                max_search_path=100000, mute_mode=True, pca_for_dependent_dtw=pca_for_dependent_dtw,
+                output_metric_only=output_metric_only
             )
         
         # Process quality indices and collect results
         results = {}
         for quality_index in target_quality_indices:
             
-            # Extract bin size information from synthetic CSV if available
+            # Extract bin size information from cached synthetic CSV if available
             targeted_binsize = None
-            if synthetic_csv_filenames and quality_index in synthetic_csv_filenames:
-                synthetic_csv_file = synthetic_csv_filenames[quality_index]
-                if os.path.exists(synthetic_csv_file):
-                    try:
-                        synthetic_df = pd.read_csv(synthetic_csv_file)
-                        if not synthetic_df.empty and 'bins' in synthetic_df.columns:
-                            # Parse the first row's bins to get the bin structure
-                            bins_str = synthetic_df.iloc[0]['bins']
-                            if pd.notna(bins_str):
-                                synthetic_bins = np.fromstring(bins_str.strip('[]'), sep=' ')
-                                bin_width_synthetic = np.mean(np.diff(synthetic_bins))
-                                targeted_binsize = (synthetic_bins, bin_width_synthetic)
-                    except Exception:
-                        pass  # Use default binning if extraction fails
+            if quality_index in synthetic_df_cache:
+                try:
+                    synthetic_df = synthetic_df_cache[quality_index]
+                    if not synthetic_df.empty and 'bins' in synthetic_df.columns:
+                        # Parse the first row's bins to get the bin structure
+                        bins_str = synthetic_df.iloc[0]['bins']
+                        if pd.notna(bins_str):
+                            synthetic_bins = np.fromstring(bins_str.strip('[]'), sep=' ')
+                            bin_width_synthetic = np.mean(np.diff(synthetic_bins))
+                            targeted_binsize = (synthetic_bins, bin_width_synthetic)
+                except Exception:
+                    pass  # Use default binning if extraction fails
             
             fit_params = plot_correlation_distribution(
                 mapping_csv=f'{temp_mapping_file}',
@@ -570,8 +577,9 @@ def _process_single_constraint_scenario(
     core_a_age_data, core_b_age_data,
     uncertainty_method,
     target_quality_indices,
-    synthetic_csv_filenames,
-    pca_for_dependent_dtw
+    cached_binsizes,
+    pca_for_dependent_dtw,
+    output_metric_only=True
 ):
     """Process a single constraint scenario (exact copy of original loop body)"""
     
@@ -589,8 +597,9 @@ def _process_single_constraint_scenario(
     chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'
     random_suffix = ''.join(np.random.choice(list(chars), size=8))
     
-    # Initialize temp_mapping_file here to ensure it's always defined
-    temp_mapping_file = f'temp_mappings_{random_suffix}.pkl'
+    # Initialize temp_mapping_file in Downloads folder to avoid cloud sync overhead
+    temp_dir = os.path.expanduser('~/Downloads')
+    temp_mapping_file = os.path.join(temp_dir, f'temp_mappings_{random_suffix}.pkl')
     
     # Reset and reload parameters correctly for each iteration
     age_consideration = params['age_consideration']
@@ -685,7 +694,8 @@ def _process_single_constraint_scenario(
             datum_ages_b=datum_ages_b_current,  # Use modified ages for core B
             restricted_age_correlation=restricted_age_correlation,
             core_a_age_data=core_a_age_data,  # Original age constraint data for core A
-            core_b_age_data=age_data_b_current  # Modified age constraint data for core B
+            core_b_age_data=age_data_b_current,  # Modified age constraint data for core B
+            n_jobs=-1  # Use all available cores
         )
         
         # Check if DTW analysis returned None
@@ -706,39 +716,27 @@ def _process_single_constraint_scenario(
             _ = find_complete_core_paths(
                 dtw_result, log_a, log_b,
                 output_csv=temp_mapping_file,
-                start_from_top_only=True, batch_size=1000, n_jobs=1,  # Use n_jobs=1 to avoid nested parallelism
+                start_from_top_only=True, batch_size=1000, n_jobs=-1,  # Use all available cores
                 shortest_path_search=True, shortest_path_level=2,
-                max_search_path=100000, mute_mode=True, pca_for_dependent_dtw=pca_for_dependent_dtw
+                max_search_path=100000, mute_mode=True, pca_for_dependent_dtw=pca_for_dependent_dtw,
+                output_metric_only=output_metric_only
             )
         else:
             _ = find_complete_core_paths(
                 dtw_result, log_a, log_b,
                 output_csv=temp_mapping_file,
-                start_from_top_only=True, batch_size=1000, n_jobs=1,  # Use n_jobs=1 to avoid nested parallelism
+                start_from_top_only=True, batch_size=1000, n_jobs=-1,  # Use all available cores
                 shortest_path_search=False, shortest_path_level=2,
-                max_search_path=100000, mute_mode=True, pca_for_dependent_dtw=pca_for_dependent_dtw
+                max_search_path=100000, mute_mode=True, pca_for_dependent_dtw=pca_for_dependent_dtw,
+                output_metric_only=output_metric_only
             )
         
         # Process quality indices
         results = {}
         for quality_index in target_quality_indices:
             
-            # Extract bin size information from synthetic CSV if available
-            targeted_binsize = None
-            if synthetic_csv_filenames and quality_index in synthetic_csv_filenames:
-                synthetic_csv_file = synthetic_csv_filenames[quality_index]
-                if os.path.exists(synthetic_csv_file):
-                    try:
-                        synthetic_df = pd.read_csv(synthetic_csv_file)
-                        if not synthetic_df.empty and 'bins' in synthetic_df.columns:
-                            # Parse the first row's bins to get the bin structure
-                            bins_str = synthetic_df.iloc[0]['bins']
-                            if pd.notna(bins_str):
-                                synthetic_bins = np.fromstring(bins_str.strip('[]'), sep=' ')
-                                bin_width_synthetic = np.mean(np.diff(synthetic_bins))
-                                targeted_binsize = (synthetic_bins, bin_width_synthetic)
-                    except Exception:
-                        pass  # Use default binning if extraction fails
+            # Use pre-cached bin size information if available
+            targeted_binsize = cached_binsizes.get(quality_index, None)
             
             fit_params = plot_correlation_distribution(
                 mapping_csv=f'{temp_mapping_file}',
@@ -816,8 +814,8 @@ def run_multi_parameter_analysis(
     # Optional parameters
     synthetic_csv_filenames=None,  # Dict with quality_index as key and synthetic CSV filename as value
     pca_for_dependent_dtw=False,
-    n_jobs=-1,  # Number of cores used in parallel processing (-1 uses all available cores)
-    max_search_per_layer=None  # Max scenarios per constraint removal layer
+    max_search_per_layer=None,  # Max scenarios per constraint removal layer
+    output_metric_only=True  # Only output quality metrics, skip full path info for faster processing
 ):
     """
     Run comprehensive multi-parameter analysis for core correlation.
@@ -857,13 +855,15 @@ def run_multi_parameter_analysis(
         Dictionary mapping quality_index to synthetic CSV filename for consistent bin sizing
     pca_for_dependent_dtw : bool
         Whether to use PCA for dependent DTW
-    n_jobs : int, default=-1
-        Number of parallel jobs to run. -1 means using all available cores.
-        Set to 1 for sequential processing (useful for debugging).
     max_search_per_layer : int or None, default=None
         Maximum number of scenarios to process per constraint removal layer.
         If None, processes all scenarios. A layer represents combinations with
         the same number of remaining age constraints.
+    output_metric_only : bool, default=True
+        If True, only output quality metrics in path finding results, skip storing
+        full path information (path sequences and warping paths). This significantly
+        reduces memory usage and speeds up processing. Set to False only if you need
+        the detailed path information for downstream analysis.
     
     Returns:
     --------
@@ -993,7 +993,7 @@ def run_multi_parameter_analysis(
     
     # Loop through all quality indices
     print(f"Running {len(parameter_combinations)} parameter combinations for {len(target_quality_indices)} quality indices...")
-    print(f"Using {n_jobs if n_jobs > 0 else 'all available'} CPU cores for parallel processing")
+    print(f"Processing scenarios sequentially with parallel computation inside each scenario")
 
     # Reset variables at the beginning
     n_constraints_b = 0
@@ -1039,7 +1039,10 @@ def run_multi_parameter_analysis(
     if not age_analysis_possible:
         print("Note: Only processing parameter combinations with age_consideration=False due to invalid age data")
 
-    # Prepare data for parallel processing
+    # Parallelism strategy: sequential scenarios with full parallelism inside each
+    n_combinations = len(parameter_combinations)
+
+    # Prepare data for processing
     phase1_args = [
         (idx, params, 
          log_a, log_b, md_a, md_b,
@@ -1050,15 +1053,20 @@ def run_multi_parameter_analysis(
          output_csv_filenames,
          synthetic_csv_filenames,
          pca_for_dependent_dtw,
-         test_age_constraint_removal) 
+         test_age_constraint_removal,
+         output_metric_only) 
         for idx, params in enumerate(parameter_combinations)
     ]
     
-    # Run Phase 1 in parallel
-    phase1_results = Parallel(n_jobs=n_jobs, verbose=0)(
-        delayed(_process_single_parameter_combination)(*args) 
-        for args in tqdm(phase1_args, desc="Parameter combinations" if not test_age_constraint_removal else "Original parameter combinations")
-    )
+    # Run Phase 1 sequentially with progress bar showing elapsed time
+    desc_phase1 = "Phase 1: Parameter combinations" if test_age_constraint_removal else "Processing parameter combinations"
+    phase1_results = []
+    with tqdm(total=n_combinations, desc=desc_phase1, unit="combo", 
+              bar_format='{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}]') as pbar:
+        for args in phase1_args:
+            result = _process_single_parameter_combination(*args)
+            phase1_results.append(result)
+            pbar.update(1)
     
     # Process Phase 1 results and write to CSV
     # Track which quality indices have had their header written
@@ -1159,6 +1167,24 @@ def run_multi_parameter_analysis(
                 
                 constraint_subsets = limited_constraint_subsets
             
+            # Pre-cache synthetic CSV bin information to avoid redundant reads in parallel workers
+            cached_binsizes = {}
+            if synthetic_csv_filenames:
+                for quality_index in target_quality_indices:
+                    if quality_index in synthetic_csv_filenames:
+                        synthetic_csv_file = synthetic_csv_filenames[quality_index]
+                        if os.path.exists(synthetic_csv_file):
+                            try:
+                                synthetic_df = pd.read_csv(synthetic_csv_file)
+                                if not synthetic_df.empty and 'bins' in synthetic_df.columns:
+                                    bins_str = synthetic_df.iloc[0]['bins']
+                                    if pd.notna(bins_str):
+                                        synthetic_bins = np.fromstring(bins_str.strip('[]'), sep=' ')
+                                        bin_width_synthetic = np.mean(np.diff(synthetic_bins))
+                                        cached_binsizes[quality_index] = (synthetic_bins, bin_width_synthetic)
+                            except Exception:
+                                pass
+            
             # Prepare data for Phase 2 parallel processing
             phase2_args = []
             for param_idx, params in enumerate(age_enabled_params):
@@ -1171,15 +1197,21 @@ def run_multi_parameter_analysis(
                         core_a_age_data, core_b_age_data,
                         uncertainty_method,
                         target_quality_indices,
-                        synthetic_csv_filenames,
-                        pca_for_dependent_dtw
+                        cached_binsizes,
+                        pca_for_dependent_dtw,
+                        output_metric_only
                     ))
             
-            # Run Phase 2 in parallel
-            phase2_results = Parallel(n_jobs=n_jobs, verbose=0)(
-                delayed(_process_single_constraint_scenario)(*args) 
-                for args in tqdm(phase2_args, desc="Age constraint removal scenarios")
-            )
+            # Run Phase 2 sequentially with progress bar showing elapsed time
+            print(f"Processing {len(phase2_args)} scenarios sequentially (parallel inside each scenario)")
+            
+            phase2_results = []
+            with tqdm(total=len(phase2_args), desc="Phase 2: Age constraint removal", unit="scenario",
+                      bar_format='{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}]') as pbar:
+                for args in phase2_args:
+                    result = _process_single_constraint_scenario(*args)
+                    phase2_results.append(result)
+                    pbar.update(1)
             
             # Process Phase 2 results and append to CSV
             for success, scenario_id, results in phase2_results:
@@ -1843,7 +1875,11 @@ def synthetic_correlation_quality(
     pca_for_dependent_dtw=False, 
     output_csv_dir=None,
     max_search_path=10000,
-    mute_mode=True
+    mute_mode=True,
+    append_mode=False,
+    combination_id=None,
+    max_paths_for_metrics=None,
+    n_jobs=-1
 ):
     """
     Run DTW correlation quality measurement analysis for synthetic core pairs over multiple iterations.
@@ -1879,15 +1915,24 @@ def synthetic_correlation_quality(
         Maximum allowable search path for the DTW algorithm.
     mute_mode : bool, default True
         If True, suppresses detailed informational output.
+    append_mode : bool, default False
+        If True, appends results to existing CSV files instead of overwriting.
+        Useful when running multiple combinations of core lengths.
+    combination_id : int or None, default None
+        Optional identifier for the current combination of core lengths.
+        If provided, will be saved in the output CSV.
+    max_paths_for_metrics : int or None, default None
+        Maximum paths to compute metrics for. If total paths exceed this, a random
+        sample is used. Useful for distribution fitting where full enumeration is
+        unnecessary. If None, uses max_search_path value (no additional sampling).
+    n_jobs : int, default -1
+        Number of parallel jobs for metric computation. -1 uses all available cores.
 
     Returns
     -------
     dict
         Mapping from each quality index to its corresponding output CSV filename.
     """
-    
-    # Import here to avoid circular imports
-    from ..utils.plotting import plot_correlation_distribution
     
     # Create output directory if specified
     if output_csv_dir:
@@ -1944,8 +1989,12 @@ def synthetic_correlation_quality(
             mute_mode=mute_mode
         )
         
-        # Find complete core paths
-        _ = find_complete_core_paths(
+        # Find complete core paths with optimizations:
+        # - metrics_to_compute: Only compute the quality indices we need
+        # - max_paths_for_metrics: Sample paths if too many (for distribution fitting)
+        # - return_dataframe: Get results in memory (no file I/O)
+        # - n_jobs: Parallel metric computation
+        path_result = find_complete_core_paths(
             dtw_result,
             syn_log_a, 
             syn_log_b,
@@ -1955,37 +2004,65 @@ def synthetic_correlation_quality(
             shortest_path_level=2,
             max_search_path=max_search_path,
             mute_mode=mute_mode,
-            pca_for_dependent_dtw=pca_for_dependent_dtw
+            pca_for_dependent_dtw=pca_for_dependent_dtw,
+            metrics_to_compute=quality_indices,
+            max_paths_for_metrics=max_paths_for_metrics,
+            return_dataframe=True,
+            n_jobs=n_jobs
         )
+        
+        # Get metrics DataFrame directly from result (Solution 2: no file I/O)
+        metrics_df = path_result.get('metrics_dataframe')
         
         # Iterate through each quality index to extract fit_params
         for targeted_quality_index in quality_indices:
             
             output_csv_filename = output_files[targeted_quality_index]
 
-            # Plot correlation distribution to get fit_params only
-            fit_params = plot_correlation_distribution(
-                mapping_csv=temp_csv,
-                quality_index=targeted_quality_index,
-                save_png=False,
-                pdf_method='normal',
-                kde_bandwidth=0.05,
-                mute_mode=mute_mode
-            )
+            # Compute distribution params directly from DataFrame (no file read)
+            if metrics_df is not None and targeted_quality_index in metrics_df.columns:
+                quality_values = metrics_df[targeted_quality_index].dropna().values
+                
+                if len(quality_values) > 0:
+                    # Compute normal distribution fit params directly
+                    mean_val = float(np.mean(quality_values))
+                    std_val = float(np.std(quality_values))
+                    fit_params = {
+                        'mean': mean_val,
+                        'std': std_val,
+                        'count': len(quality_values),
+                        'min': float(np.min(quality_values)),
+                        'max': float(np.max(quality_values))
+                    }
+                else:
+                    fit_params = None
+            else:
+                fit_params = None
             
             # Store fit_params with iteration number and incrementally save to CSV
             if fit_params is not None:
                 fit_params_copy = fit_params.copy()
                 fit_params_copy['iteration'] = iteration
+                fit_params_copy['core_a_length'] = core_a_length
+                fit_params_copy['core_b_length'] = core_b_length
+                if combination_id is not None:
+                    fit_params_copy['combination_id'] = combination_id
                 
                 # Incrementally save to CSV
                 df_single = pd.DataFrame([fit_params_copy])
-                if iteration == 0:
-                    # Write header for first iteration
-                    df_single.to_csv(output_csv_filename, mode='w', index=False, header=True)
+                
+                # Determine write mode based on append_mode and iteration
+                if append_mode:
+                    # In append mode, check if file exists to decide on header
+                    file_exists = os.path.exists(output_csv_filename)
+                    df_single.to_csv(output_csv_filename, mode='a', index=False, header=not file_exists)
                 else:
-                    # Append subsequent iterations without header
-                    df_single.to_csv(output_csv_filename, mode='a', index=False, header=False)
+                    if iteration == 0:
+                        # Write header for first iteration
+                        df_single.to_csv(output_csv_filename, mode='w', index=False, header=True)
+                    else:
+                        # Append subsequent iterations without header
+                        df_single.to_csv(output_csv_filename, mode='a', index=False, header=False)
                 
                 del df_single, fit_params_copy
             
@@ -1994,11 +2071,12 @@ def synthetic_correlation_quality(
         # Clear memory after each iteration
         del syn_log_a, syn_md_a, inds_a, syn_picked_a
         del syn_log_b, syn_md_b, inds_b, syn_picked_b
-        del dtw_result
+        del dtw_result, path_result, metrics_df
         
         gc.collect()
 
-    # Remove temporary CSV file after all iterations are complete
+    # Remove temporary CSV file if it exists (for backward compatibility)
+    # Note: With return_dataframe=True, no temp file is created
     if os.path.exists(temp_csv):
         os.remove(temp_csv)
 

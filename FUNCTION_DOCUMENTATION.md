@@ -37,6 +37,7 @@ This document provides detailed documentation for all functions in the pyCoreRel
 - `mute_mode` (bool, default=False): Whether to suppress print output for batch processing
 - `pca_for_dependent_dtw` (bool, default=False): Use PCA for dependent multidimensional DTW (if False, uses conventional multidimensional DTW)
 - `dpi` (int, default=None): Resolution for saved figures and GIF frames in dots per inch. If None, uses default (150)
+- `n_jobs` (int, default=-1): Number of parallel jobs for DTW computation across segment pairs. -1 means using all available cores. Set to 1 for sequential processing
 
 **Returns:**
 - `dict`: Dictionary containing all DTW analysis results with the following keys:
@@ -285,20 +286,30 @@ Finds complete correlation paths spanning entire cores by connecting valid segme
 **Parameters:**
 - `dtw_result` (dict): Dictionary containing DTW analysis results from `run_comprehensive_dtw_analysis()`. Expected keys: 'dtw_correlation', 'valid_dtw_pairs', 'segments_a', 'segments_b', 'depth_boundaries_a', 'depth_boundaries_b', 'dtw_distance_matrix_full'
 - `log_a, log_b` (array-like): Log data for path quality assessment
-- `output_csv` (str, default="complete_core_paths.csv"): Output file for complete paths
+- `output_csv` (str, default="complete_core_paths.csv"): Output file for complete paths. Ignored if `return_dataframe=True`
 - `debug` (bool, default=False): Whether to print detailed progress information
 - `start_from_top_only` (bool, default=True): Whether to only consider paths starting from top segments
 - `batch_size` (int, default=1000): Processing batch size for memory management
 - `n_jobs` (int, default=-1): Number of parallel jobs (-1 uses all CPU cores)
 - `shortest_path_search` (bool, default=True): Whether to prioritize shorter paths
 - `shortest_path_level` (int, default=2): Number of shortest unique lengths to keep (higher = more segments)
-- `max_search_path` (int, default=5000): Maximum number of paths to explore per segment pair to prevent memory overflow
+- `max_search_path` (int, default=100000): Maximum number of paths to explore per segment pair to prevent memory overflow
 - `output_metric_only` (bool, default=False): If True, only output quality metrics without full path details
 - `mute_mode` (bool, default=False): Suppress all print output
 - `pca_for_dependent_dtw` (bool, default=False): Use PCA for dependent DTW quality calculations
+- `metrics_to_compute` (list or str, optional): List of metrics to compute. If None, computes default metrics: ['norm_dtw', 'corr_coef', 'norm_dtw_sect', 'corr_coef_sect']. If 'ALL', computes all available metrics. Available options: 'norm_dtw' (normalized DTW distance), 'corr_coef' (correlation coefficient), 'norm_dtw_sect' (sectional normalized DTW), 'corr_coef_sect' (sectional correlation coefficient), 'dtw_ratio' (DTW warping ratio), 'perc_diag' (path diagonality %), 'dtw_warp_eff' (warping efficiency), 'perc_age_overlap' (age overlap %). Invalid metrics are silently skipped
+- `max_paths_for_metrics` (int, optional): Maximum paths to compute metrics for. If total paths exceed this, a random sample is used. If None, uses `max_search_path` value
+- `return_dataframe` (bool, default=False): If True, return metrics as DataFrame instead of writing to file, eliminating file I/O overhead
 
 **Returns:**
-- `str`: Path to output CSV file containing complete correlation paths with quality metrics
+- `dict`: Comprehensive results including:
+  - `total_complete_paths_theoretical`: Theoretical path count
+  - `total_complete_paths_found`: Actually enumerated paths
+  - `viable_segments`: Set of viable segments
+  - `output_csv`: Path to generated CSV file (or None if `return_dataframe=True`)
+  - `duplicates_removed`: Number of duplicates removed
+  - `search_limit_reached`: Whether search limit was hit
+  - `metrics_dataframe`: DataFrame with metrics (only if `return_dataframe=True`)
 
 #### `diagnose_chain_breaks(dtw_result)`
 
@@ -486,7 +497,7 @@ Plot a single synthetic log with turbidite boundaries.
 **Returns:**
 - `tuple`: (fig, ax) matplotlib figure and axis objects
 
-#### `synthetic_correlation_quality(segment_logs, segment_depths, log_data_type, quality_indices=['corr_coef', 'norm_dtw'], number_of_iterations=20, core_a_length=600, core_b_length=600, repetition=False, pca_for_dependent_dtw=False, output_csv_dir=None, mute_mode=True)`
+#### `synthetic_correlation_quality(segment_logs, segment_depths, log_data_type, quality_indices=['corr_coef', 'norm_dtw'], number_of_iterations=20, core_a_length=600, core_b_length=600, repetition=False, pca_for_dependent_dtw=False, output_csv_dir=None, max_search_path=100000, mute_mode=True, append_mode=False, combination_id=None, max_paths_for_metrics=None, n_jobs=-1)`
 
 Generate DTW correlation quality analysis for synthetic core pairs with multiple iterations. This function saves distribution parameters for each correlation quality metric across all iterations.
 
@@ -501,7 +512,12 @@ Generate DTW correlation quality analysis for synthetic core pairs with multiple
 - `repetition` (bool, default=False): Allow reselecting turbidite segments
 - `pca_for_dependent_dtw` (bool, default=False): Use PCA for dependent DTW analysis
 - `output_csv_dir` (str, optional): Directory path for output CSV files. If None, saves files in current directory
+- `max_search_path` (int, default=100000): Maximum allowable search path for the path finding algorithm
 - `mute_mode` (bool, default=True): Suppress detailed output messages
+- `append_mode` (bool, default=False): If True, appends results to existing CSV files instead of overwriting
+- `combination_id` (int, optional): Optional identifier for the current combination of core lengths
+- `max_paths_for_metrics` (int, optional): Maximum paths to compute metrics for. If total paths exceed this, a random sample is used. If None, uses `max_search_path` value (no additional sampling)
+- `n_jobs` (int, default=-1): Number of parallel jobs for metric computation. -1 uses all available cores
 
 **Returns:**
 - `dict`: Mapping quality indices to their output CSV filenames
@@ -531,7 +547,7 @@ Generate all possible subsets of constraints (2^n combinations) for age constrai
 **Returns:**
 - `list`: List of all possible constraint subsets
 
-#### `run_multi_parameter_analysis(log_a, log_b, md_a, md_b, picked_datum_a, picked_datum_b, datum_ages_a, datum_ages_b, core_a_age_data, core_b_age_data, uncertainty_method, core_a_name, core_b_name, output_csv_directory, parameter_combinations, target_quality_indices=['corr_coef', 'norm_dtw'], log_columns=None, test_age_constraint_removal=True, synthetic_csv_filenames=None, pca_for_dependent_dtw=False, n_jobs=-1, max_search_per_layer=None)`
+#### `run_multi_parameter_analysis(log_a, log_b, md_a, md_b, picked_datum_a, picked_datum_b, datum_ages_a, datum_ages_b, core_a_age_data, core_b_age_data, uncertainty_method, core_a_name, core_b_name, output_csv_directory, parameter_combinations, target_quality_indices=['corr_coef', 'norm_dtw'], log_columns=None, test_age_constraint_removal=True, synthetic_csv_filenames=None, pca_for_dependent_dtw=False, max_search_per_layer=None, output_metric_only=True)`
 
 Run comprehensive multi-parameter analysis for core correlation with optional age constraint removal testing.
 
@@ -550,8 +566,8 @@ Run comprehensive multi-parameter analysis for core correlation with optional ag
 - `test_age_constraint_removal` (bool, default=True): Whether to test age constraint removal scenarios
 - `synthetic_csv_filenames` (dict, optional): Dictionary mapping quality_index to synthetic CSV filename for consistent bin sizing
 - `pca_for_dependent_dtw` (bool, default=False): Whether to use PCA for dependent DTW
-- `n_jobs` (int, default=-1): Number of parallel jobs to run. -1 means using all available cores
 - `max_search_per_layer` (int, optional): Maximum number of scenarios to process per constraint removal layer
+- `output_metric_only` (bool, default=True): If True, only output quality metrics in path finding results, skip storing full path information. This significantly reduces memory usage and speeds up processing
 
 **Returns:**
 - None (Results are saved to CSV files in output_csv_directory)

@@ -534,12 +534,20 @@ def find_best_mappings(input_mapping_csv,
                 metric_outputs.append(f"dtw_path_length={row['dtw_path_length']:.1f}")
             if 'length' in row and weights.get('length', 0) != 0:
                 metric_outputs.append(f"dtw_path_length={row['length']:.1f}")
+            # Print corr_coef and corr_coef_sect on same line
             if 'corr_coef' in row and weights.get('corr_coef', 0) != 0:
-                metric_outputs.append(f"correlation coefficient r={row['corr_coef']:.3f}")
+                corr_line = f"r={row['corr_coef']:.3f}"
+                if 'corr_coef_sect' in row and weights.get('corr_coef_sect', 0) != 0:
+                    corr_line += f"; r_sect={row['corr_coef_sect']:.3f}"
+                metric_outputs.append(corr_line)
             if 'perc_diag' in row and weights.get('perc_diag', 0) != 0:
                 metric_outputs.append(f"perc_diag={row['perc_diag']:.1f}%")
+            # Print norm_dtw and norm_dtw_sect on same line
             if 'norm_dtw' in row and weights.get('norm_dtw', 0) != 0:
-                metric_outputs.append(f"norm_dtw={row['norm_dtw']:.3f}")
+                dtw_line = f"norm_dtw={row['norm_dtw']:.3f}"
+                if 'norm_dtw_sect' in row and weights.get('norm_dtw_sect', 0) != 0:
+                    dtw_line += f"; norm_dtw_sect={row['norm_dtw_sect']:.3f}"
+                metric_outputs.append(dtw_line)
             if 'dtw_ratio' in row and weights.get('dtw_ratio', 0) != 0:
                 metric_outputs.append(f"dtw_ratio={row['dtw_ratio']:.3f}")
             if 'dtw_warp_eff' in row and weights.get('dtw_warp_eff', 0) != 0:
@@ -576,13 +584,16 @@ def find_best_mappings(input_mapping_csv,
         return top_mapping_ids, top_mapping_pairs
     
     # Default metrics configuration with fixed higher_is_better values
+    # Uses norm_dtw, corr_coef, norm_dtw_sect, and corr_coef_sect evenly weighted
     default_weights = {
         'perc_diag': 0.0,
         'norm_dtw': 1.0,
         'dtw_ratio': 0.0,
         'corr_coef': 1.0,
         'dtw_warp_eff': 0.0,
-        'perc_age_overlap': 0.0
+        'perc_age_overlap': 0.0,
+        'norm_dtw_sect': 1.0,
+        'corr_coef_sect': 1.0
     }
     
     # Fixed higher_is_better configuration (cannot be changed)
@@ -593,6 +604,8 @@ def find_best_mappings(input_mapping_csv,
         'corr_coef': True,
         'dtw_warp_eff': True,
         'perc_age_overlap': True,
+        'norm_dtw_sect': False,
+        'corr_coef_sect': True,
     }
     
     # Use provided weights or default weights
@@ -604,11 +617,11 @@ def find_best_mappings(input_mapping_csv,
     else:
         dtw_results_df = input_mapping_csv
     
-    # Always add ranking columns after loading CSV
-    if 'Ranking' not in dtw_results_df.columns:
-        dtw_results_df['Ranking'] = ''
-    if 'Ranking_datums' not in dtw_results_df.columns:
-        dtw_results_df['Ranking_datums'] = ''
+    # Always reset ranking columns after loading CSV (overwrite any existing values)
+    dtw_results_df['Ranking'] = ''
+    dtw_results_df['Ranking_datums'] = ''
+    dtw_results_df['matched_datums'] = ''
+    dtw_results_df['combined_score'] = ''
    
     # Check if we should use boundary correlation mode
     use_boundary_mode = all(param is not None for param in [
@@ -878,14 +891,18 @@ def find_best_mappings(input_mapping_csv,
     # Calculate combined scores for standard mode
     standard_df_for_ranking = _calculate_combined_scores(standard_shortest.copy(), weights, higher_is_better_config)
     
-    # Always calculate and append standard mode ranking to 'Ranking' column
+    # Always calculate and append standard mode ranking to 'Ranking' column for ALL rows
     standard_ranked_df = standard_df_for_ranking.sort_values(by='combined_score', ascending=False)
-    top_n_standard = standard_ranked_df.head(top_n)
-    for i, (idx, row) in enumerate(top_n_standard.iterrows(), 1):
+    # Rank ALL rows, not just top_n
+    for i, (idx, row) in enumerate(standard_ranked_df.iterrows(), 1):
         if 'mapping_id' in row:
             mapping_id = int(row['mapping_id'])
-            # Update the original dtw_results_df with standard ranking
+            # Update the original dtw_results_df with standard ranking and combined_score
             dtw_results_df.loc[dtw_results_df['mapping_id'] == mapping_id, 'Ranking'] = i
+            dtw_results_df.loc[dtw_results_df['mapping_id'] == mapping_id, 'combined_score'] = row['combined_score']
+    
+    # Get top_n for display purposes
+    top_n_standard = standard_ranked_df.head(top_n)
     
     # Step 2: Check if we should proceed with boundary mode
     if not use_boundary_mode or not matching_boundary_names:
@@ -893,6 +910,13 @@ def find_best_mappings(input_mapping_csv,
         print(f"=== Top {top_n} Overall Best Mappings ===")
         if use_boundary_mode and not matching_boundary_names:
             print("No matching datums found. Using standard best mappings mode.")
+        
+        # Merge ranking columns from dtw_results_df back into standard_ranked_df
+        ranking_cols = ['Ranking', 'Ranking_datums', 'matched_datums', 'combined_score']
+        for col in ranking_cols:
+            if col in dtw_results_df.columns and 'mapping_id' in standard_ranked_df.columns:
+                id_to_value = dtw_results_df.set_index('mapping_id')[col].to_dict()
+                standard_ranked_df[col] = standard_ranked_df['mapping_id'].map(id_to_value)
         
         top_mapping_ids, top_mapping_pairs = _print_results(top_n_standard, weights, "Overall Best Mappings")
         
@@ -929,21 +953,33 @@ def find_best_mappings(input_mapping_csv,
         if 'combined_score' not in target_mappings_df.columns:
             target_mappings_df = _calculate_combined_scores(target_mappings_df, weights, higher_is_better_config)
         
-        # Rank the target mappings (those with matched datums) for 'Ranking_datums' column
+        # Rank ALL target mappings (those with matched datums) for 'Ranking_datums' column
         target_ranked = target_mappings_df.sort_values(by='combined_score', ascending=False)
         for i, (idx, row) in enumerate(target_ranked.iterrows(), 1):
             if 'mapping_id' in row:
                 mapping_id = int(row['mapping_id'])
-                # Update the original dtw_results_df with datums ranking
+                # Update the original dtw_results_df with datums ranking and matched_datums
                 dtw_results_df.loc[dtw_results_df['mapping_id'] == mapping_id, 'Ranking_datums'] = i
+                if 'matched_datums' in row and row['matched_datums']:
+                    dtw_results_df.loc[dtw_results_df['mapping_id'] == mapping_id, 'matched_datums'] = row['matched_datums']
     elif use_boundary_mode and matching_pairs and "Best Partial Mappings" in mode_title:
-        # Rank partial mappings (those with some matched segment pairs) for 'Ranking_datums' column
+        # Rank ALL partial mappings (those with some matched segment pairs) for 'Ranking_datums' column
         partial_ranked = top_mappings_df.sort_values(by='combined_score', ascending=False)
         for i, (idx, row) in enumerate(partial_ranked.iterrows(), 1):
             if 'mapping_id' in row:
                 mapping_id = int(row['mapping_id'])
-                # Update the original dtw_results_df with datums ranking
+                # Update the original dtw_results_df with datums ranking and matched_datums
                 dtw_results_df.loc[dtw_results_df['mapping_id'] == mapping_id, 'Ranking_datums'] = i
+                if 'matched_datums' in row and row['matched_datums']:
+                    dtw_results_df.loc[dtw_results_df['mapping_id'] == mapping_id, 'matched_datums'] = row['matched_datums']
+    
+    # Merge ranking columns from dtw_results_df back into top_mappings_df
+    ranking_cols = ['Ranking', 'Ranking_datums', 'matched_datums', 'combined_score']
+    for col in ranking_cols:
+        if col in dtw_results_df.columns and 'mapping_id' in top_mappings_df.columns:
+            # Create a mapping from mapping_id to the column value
+            id_to_value = dtw_results_df.set_index('mapping_id')[col].to_dict()
+            top_mappings_df[col] = top_mappings_df['mapping_id'].map(id_to_value)
     
     # Print detailed results and return boundary mode results
     top_mapping_ids, top_mapping_pairs = _print_results(top_mappings_df.head(top_n), weights, mode_title)

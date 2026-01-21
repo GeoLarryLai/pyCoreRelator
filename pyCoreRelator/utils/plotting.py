@@ -711,11 +711,11 @@ def plot_segment_pair_correlation(log_a, log_b, md_a, md_b,
         if qi:
             quality_text = (
                 "DTW Quality Indicators: \n"
-                f"Normalized DTW Distance: {qi.get('norm_dtw', 0):.3f} (lower is better)\n "
+                f"Normalized DTW Cost: {qi.get('norm_dtw', 0):.3f} (lower is better)\n "
                 f"DTW Warping Ratio: {qi.get('dtw_ratio', 0):.3f} (lower is better)\n"
                 f"Diagonality: {qi.get('perc_diag', 0):.1f}% (higher is better)\n"
                 f"DTW Warping Efficiency: {qi.get('dtw_warp_eff', 0):.1f}% (higher is better)\n"
-                f"Post-warping Corr Coeff (Pearson's r): {qi.get('corr_coef', 0):.3f} (higher is better)\n"
+                f"Pearson's r: {qi.get('corr_coef', 0):.3f} (higher is better)\n"
                 f"Age Overlap: {qi.get('perc_age_overlap', 0):.1f}% (higher is better)"
             )
             plt.figtext(0.97, 0.97, quality_text, 
@@ -1014,11 +1014,11 @@ def plot_multilog_segment_pair_correlation(log_a, log_b, md_a, md_b,
         
         quality_text = (
             "DTW Quality Indicators: \n"
-            f"Normalized DTW Distance: {quality_indicators.get('norm_dtw', 0):.3f} (lower is better)\n "
+            f"Normalized DTW Cost: {quality_indicators.get('norm_dtw', 0):.3f} (lower is better)\n "
             f"DTW Warping Ratio: {quality_indicators.get('dtw_ratio', 0):.3f} (lower is better)\n"
             f"Warping Deviation: variance {quality_indicators.get('variance_deviation', 0):.2f} (lower is better)\n"
             f"Diagonality: {quality_indicators.get('perc_diag', 0):.1f}% (higher is better)\n"
-            f"Post-warping Corr Coeff (Pearson's r): {quality_indicators.get('corr_coef', 0):.3f} (higher is better)\n"
+            f"Pearson's r: {quality_indicators.get('corr_coef', 0):.3f} (higher is better)\n"
             f"Matching Function: {quality_indicators.get('match_min', 0):.3f}; mean {quality_indicators.get('match_mean', 0):.3f} (lower is better)\n"
             f"Age Overlap: {quality_indicators.get('perc_age_overlap', 0):.1f}% (higher is better)"
         )
@@ -1367,11 +1367,13 @@ def plot_correlation_distribution(mapping_csv, target_mapping_id=None, quality_i
     
     # Define quality index display names and descriptions
     quality_index_mapping = {
-        'norm_dtw': 'Normalized DTW Distance (lower is better)',
+        'norm_dtw': 'Normalized DTW Cost (lower is better)',
+        'norm_dtw_sect': 'Normalized DTW Cost (Correlated Section) (lower is better)',
         'dtw_ratio': 'DTW Warping Ratio (lower is better)', 
         'variance_deviation': 'Warping Deviation variance (lower is better)',
         'perc_diag': 'Diagonality % (higher is better)',
-        'corr_coef': 'Post-warping Corr Coeff (Pearson\'s r) (higher is better)',
+        'corr_coef': 'Pearson\'s r (higher is better)',
+        'corr_coef_sect': 'Pearson\'s r (Correlated Section) (higher is better)',
         'match_min': 'Matching Function min (lower is better)',
         'match_mean': 'Matching Function mean (lower is better)',
         'perc_age_overlap': 'Age Overlap % (higher is better)'
@@ -1418,9 +1420,10 @@ def plot_correlation_distribution(mapping_csv, target_mapping_id=None, quality_i
     # Determine bin_width and calculate number of bins
     if bin_width is None:
         # Set default bin widths based on quality index
-        if quality_index == 'corr_coef':
+        # Sectional metrics use the same bin widths as their non-sectional counterparts
+        if quality_index in ['corr_coef', 'corr_coef_sect']:
             bin_width = 0.025
-        elif quality_index == 'norm_dtw':
+        elif quality_index in ['norm_dtw', 'norm_dtw_sect']:
             bin_width = 0.0025
         else:
             # Automatically determine bin width for other quality indices
@@ -1620,7 +1623,8 @@ def plot_correlation_distribution(mapping_csv, target_mapping_id=None, quality_i
                       label=f'Mapping {target_mapping_id}: {target_value:.3f}\n({percentile:.3f}th percentile)')
         
         # Set x-axis based on quality index
-        if quality_index == 'corr_coef':
+        # Sectional metrics use the same x-axis range as their non-sectional counterparts
+        if quality_index in ['corr_coef', 'corr_coef_sect']:
             ax.set_xlim(0, 1.0)
         
         # Add labels and title
@@ -1759,7 +1763,8 @@ def calculate_improvement_scores_parallel(constraint_data, quality_index):
             t_change = next_t - curr_t
             
             # Determine improvement/deterioration based on quality index
-            if quality_index == 'norm_dtw':
+            # Sectional metrics use the same improvement logic as their non-sectional counterparts
+            if quality_index in ['norm_dtw', 'norm_dtw_sect']:
                 improvement_score = -t_change  # Negative change is improvement
             else:
                 improvement_score = t_change   # Positive change is improvement
@@ -1860,9 +1865,10 @@ def _create_histogram_and_pdf_like_plot_correlation_distribution(quality_values,
     bin_width = None
     if bin_width is None:
         # Set default bin widths based on quality index
-        if quality_index == 'corr_coef':
+        # Sectional metrics use the same bin width as their non-sectional counterparts
+        if quality_index in ['corr_coef', 'corr_coef_sect']:
             bin_width = 0.025
-        elif quality_index == 'norm_dtw':
+        elif quality_index in ['norm_dtw', 'norm_dtw_sect']:
             bin_width = 0.0025
         else:
             # Automatically determine bin width for other quality indices
@@ -2174,14 +2180,17 @@ def plot_quality_distributions(quality_data, target_quality_indices, output_figu
                 'fitted_std': fitted_std,
                 'combined_data': synthetic_quality_values if synthetic_quality_values is not None else np.linspace(fitted_mean - 3*fitted_std, fitted_mean + 3*fitted_std, 100),
                 'n_bins': no_bins if synthetic_quality_values is not None else 30,
+                'synthetic_bins': synthetic_bins,  # Actual bin edges for consistent histogram plotting
                 'max_core_a_constraints': max_core_a_constraints,
                 'max_core_b_constraints': max_core_b_constraints,
                 'unique_combinations': unique_combinations,
                 'min_core_b': df_all_params['core_b_constraints_count'].min(),
                 'max_core_b': df_all_params['core_b_constraints_count'].max(),
                 'plot_limits': {  # Initial plot_limits - will be updated after plotting real data
-                    'x_min': 0 if quality_index == 'norm_dtw' else x_fitted.min(),
-                    'x_max': x_fitted.max(),
+                    # Sectional metrics use the same x-axis range as their non-sectional counterparts
+                    # corr_coef and corr_coef_sect range from 0 to 1, norm_dtw and norm_dtw_sect start from 0
+                    'x_min': 0 if quality_index in ['norm_dtw', 'norm_dtw_sect', 'corr_coef', 'corr_coef_sect'] else x_fitted.min(),
+                    'x_max': 1.0 if quality_index in ['corr_coef', 'corr_coef_sect'] else x_fitted.max(),
                     'y_min': 0,
                     'y_max': y_fitted.max() * 1.1  # Add some headroom
                 },
@@ -2195,8 +2204,8 @@ def plot_quality_distributions(quality_data, target_quality_indices, output_figu
 
         # Plot synthetic histogram and PDF EXACTLY like plot_correlation_distribution
         if synthetic_quality_values is not None and len(synthetic_quality_values) > 0:
-            # Use ax.hist with weights to convert counts to percentages (EXACT same as plot_correlation_distribution)
-            ax.hist(synthetic_quality_values, bins=no_bins, alpha=0.3, color='gray', 
+            # Use ax.hist with the actual bin edges to ensure consistent binning
+            ax.hist(synthetic_quality_values, bins=synthetic_bins, alpha=0.3, color='gray', 
                     density=False,
                     weights=np.ones(len(synthetic_quality_values)) * 100 / len(synthetic_quality_values),
                     label='Synthetic data histogram')
@@ -2352,21 +2361,9 @@ def plot_quality_distributions(quality_data, target_quality_indices, output_figu
                     if plot_real_data_histogram and (core_b_constraints == 0 or (core_a_constraints == max_core_a_constraints and core_b_constraints == max_core_b_constraints)):
                         # Use the same approach as plot_correlation_distribution: reconstruct raw data from CSV and use ax.hist()
                         if row_quality_values is not None and len(row_quality_values) > 0:
-                            # Use ax.hist() exactly like plot_correlation_distribution does
-                            # Extract the bin edges from CSV for this specific row to determine appropriate binning
-                            if 'bins' in row and pd.notna(row['bins']):
-                                try:
-                                    csv_bins = np.fromstring(row['bins'].strip('[]'), sep=' ')
-                                    # Use the same number of bins as in the original CSV data
-                                    n_bins_real = len(csv_bins) - 1
-                                except:
-                                    # Fallback to reasonable number of bins if CSV bins can't be parsed
-                                    n_bins_real = 30
-                            else:
-                                n_bins_real = 30
-                            
-                            # Plot histogram EXACTLY like plot_correlation_distribution
-                            ax.hist(row_quality_values, bins=n_bins_real, alpha=0.3, color=color, 
+                            # Use the SAME bin edges as synthetic data for consistent comparison
+                            # This ensures histogram is comparable to the PDF curve (same bin_width scaling)
+                            ax.hist(row_quality_values, bins=synthetic_bins, alpha=0.3, color=color, 
                                    edgecolor='none', density=False, zorder=zorder-1,
                                    weights=np.ones(len(row_quality_values)) * 100 / len(row_quality_values))
 
@@ -2560,22 +2557,27 @@ def plot_quality_distributions(quality_data, target_quality_indices, output_figu
         def get_quality_display_name(quality_index):
             if quality_index == 'corr_coef':
                 return "Pearson's r"
+            elif quality_index == 'corr_coef_sect':
+                return "Pearson's r (Correlated Section)"
             elif quality_index == 'norm_dtw':
-                return "Normalized DTW Distance"
+                return "Normalized DTW Cost"
+            elif quality_index == 'norm_dtw_sect':
+                return "Normalized DTW Cost (Correlated Section)"
             else:
                 return quality_index
         
         display_name = get_quality_display_name(quality_index)
         
         # Set x-axis range for norm_dtw to start from 0
-        if quality_index == 'norm_dtw':
+        # Sectional metrics use the same x-axis range as their non-sectional counterparts
+        if quality_index in ['norm_dtw', 'norm_dtw_sect']:
             current_xlim = ax.get_xlim()
             ax.set_xlim(0, current_xlim[1])
         
         # Formatting
         ax.set_xlabel(f"{display_name}")
         ax.set_ylabel('Percentage (%)')
-        ax.set_title(f'{display_name} Distribution Comparison\n{CORE_A} vs {CORE_B}')
+        ax.set_title(f'{display_name}\n{CORE_A} vs {CORE_B}')
 
         # Create grouped legend based on plot parameters
         handles, labels = ax.get_legend_handles_labels()
@@ -2793,7 +2795,8 @@ def plot_quality_distributions(quality_data, target_quality_indices, output_figu
             plot_info_dict[quality_index]['display_name'] = display_name
 
         ax.grid(True, alpha=0.3)
-        if quality_index == 'corr_coef':
+        # Sectional metrics use the same x-axis range as their non-sectional counterparts
+        if quality_index in ['corr_coef', 'corr_coef_sect']:
             ax.set_xlim(0, 1.0)
             
         # Store actual axis limits for GIF creation if requested
@@ -2818,7 +2821,8 @@ def plot_quality_distributions(quality_data, target_quality_indices, output_figu
                 text_y = ax_ylim[0] + 0.90 * (ax_ylim[1] - ax_ylim[0])  # 90% up from bottom (higher position)
                 
                 # Position text based on arrow direction
-                if quality_index == 'norm_dtw':
+                # Sectional metrics use the same positioning as their non-sectional counterparts
+                if quality_index in ['norm_dtw', 'norm_dtw_sect']:
                     # For left-pointing arrows, put text on left side of line
                     text_x = best_value - 0.01 * (ax_xlim[1] - ax_xlim[0])
                     ha = 'right'
@@ -2842,7 +2846,8 @@ def plot_quality_distributions(quality_data, target_quality_indices, output_figu
         arrow_y = ax_ylim[0] + 0.92 * (ax_ylim[1] - ax_ylim[0])  # 92% up from bottom
         
         # Determine arrow direction and position based on quality index
-        if quality_index == 'norm_dtw':
+        # Sectional metrics use the same arrow direction as their non-sectional counterparts
+        if quality_index in ['norm_dtw', 'norm_dtw_sect']:
             # For norm_dtw, lower values are better (arrow points left) - position in upper right, moved slightly left
             arrow_start_x = ax_xlim[0] + 0.94 * (ax_xlim[1] - ax_xlim[0])  # Start 94% from left (moved left)
             arrow_end_x = ax_xlim[0] + 0.77 * (ax_xlim[1] - ax_xlim[0])    # End 77% from left  
@@ -3095,7 +3100,8 @@ def plot_t_statistics_vs_constraints(quality_data, target_quality_indices, outpu
                     t_change = next_t - curr_t
                     
                     # Determine improvement/deterioration based on quality index
-                    if quality_index == 'norm_dtw':
+                    # Sectional metrics use the same improvement logic as their non-sectional counterparts
+                    if quality_index in ['norm_dtw', 'norm_dtw_sect']:
                         improvement_score = -t_change  # Negative change is improvement
                     else:
                         improvement_score = t_change   # Positive change is improvement
@@ -3175,13 +3181,17 @@ def plot_t_statistics_vs_constraints(quality_data, target_quality_indices, outpu
         def get_quality_display_name(quality_index):
             if quality_index == 'corr_coef':
                 return "Pearson's r"
+            elif quality_index == 'corr_coef_sect':
+                return "Pearson's r (Correlated Section)"
             elif quality_index == 'norm_dtw':
-                return "Normalized DTW Distance"
+                return "Normalized DTW Cost"
+            elif quality_index == 'norm_dtw_sect':
+                return "Normalized DTW Cost (Correlated Section)"
             else:
                 return quality_index
         
         display_name = get_quality_display_name(quality_index)
-        ax.set_title(f't-statistics vs Age Constraints for {display_name}\n{CORE_A} vs {CORE_B}')
+        ax.set_title(f'{display_name}\n{CORE_A} vs {CORE_B}')
         ax.grid(True, alpha=0.3, zorder=0)
         
         # Create legend for static elements and effect sizes
@@ -3245,7 +3255,8 @@ def plot_t_statistics_vs_constraints(quality_data, target_quality_indices, outpu
         arrow_y_center = (ax_ylim[0] + ax_ylim[1]) / 2  # Center vertically
         
         # Determine arrow direction based on quality index
-        if quality_index == 'norm_dtw':
+        # Sectional metrics use the same arrow direction as their non-sectional counterparts
+        if quality_index in ['norm_dtw', 'norm_dtw_sect']:
             # For norm_dtw, lower values are better (downward arrow)
             arrow_y_start = arrow_y_center + 0.2 * (ax_ylim[1] - ax_ylim[0])
             arrow_y_end = arrow_y_center - 0.2 * (ax_ylim[1] - ax_ylim[0])  
@@ -3271,7 +3282,8 @@ def plot_t_statistics_vs_constraints(quality_data, target_quality_indices, outpu
         ax.add_collection(lc)
         
         # Add arrowhead at the end, positioned to start from where the colored bar ends
-        if quality_index == 'norm_dtw':
+        # Sectional metrics use the same arrow direction as their non-sectional counterparts
+        if quality_index in ['norm_dtw', 'norm_dtw_sect']:
             # Downward arrow, use color from end of gradient
             arrow_color = cmap(1.0)
             # Position arrowhead to start where the gradient line ends
@@ -4032,7 +4044,9 @@ def _create_distribution_gif(plot_info, gif_filename, mute_mode, max_frames=50, 
         fig, ax = plt.subplots(figsize=(10, 4.5))  # Match static plot size
         
         # Plot null hypothesis with exact same styling as static plot
-        ax.hist(plot_info['combined_data'], bins=plot_info['n_bins'], alpha=0.3, color='gray', 
+        # Use synthetic_bins (actual bin edges) for consistent histogram scaling with PDF
+        hist_bins = plot_info.get('synthetic_bins', plot_info['n_bins'])
+        ax.hist(plot_info['combined_data'], bins=hist_bins, alpha=0.3, color='gray', 
                 density=False,
                 weights=np.ones(len(plot_info['combined_data'])) * 100 / len(plot_info['combined_data']), label='Synthetic data histogram')
         ax.plot(plot_info['x_synth'], plot_info['y_synth'], color='gray', linestyle=':', linewidth=2, alpha=0.8, label='Synthetic data PDF (Null Hypothesis)')
@@ -4045,7 +4059,8 @@ def _create_distribution_gif(plot_info, gif_filename, mute_mode, max_frames=50, 
             ax.set_ylim(plot_info['actual_plot_limits']['y_min'], plot_info['actual_plot_limits']['y_max'])
         else:
             # Fallback to calculated limits
-            if quality_index == 'corr_coef':
+            # Sectional metrics use the same x-axis range as their non-sectional counterparts
+            if quality_index in ['corr_coef', 'corr_coef_sect']:
                 ax.set_xlim(0, 1.0)
             else:
                 ax.set_xlim(plot_info['plot_limits']['x_min'], plot_info['plot_limits']['x_max'])
@@ -4055,14 +4070,18 @@ def _create_distribution_gif(plot_info, gif_filename, mute_mode, max_frames=50, 
         if not display_name or display_name == quality_index:
             if quality_index == 'corr_coef':
                 display_name = "Pearson's r"
+            elif quality_index == 'corr_coef_sect':
+                display_name = "Pearson's r (Correlated Section)"
             elif quality_index == 'norm_dtw':
-                display_name = "Normalized DTW Distance"
+                display_name = "Normalized DTW Cost"
+            elif quality_index == 'norm_dtw_sect':
+                display_name = "Normalized DTW Cost (Correlated Section)"
             else:
                 display_name = quality_index
         
         ax.set_xlabel(f'{display_name}')
         ax.set_ylabel('Percentage (%)')
-        ax.set_title(f'{display_name} Distribution Comparison\n{plot_info["CORE_A"]} vs {plot_info["CORE_B"]}')  # Same title as PNG
+        ax.set_title(f'{display_name}\n{plot_info["CORE_A"]} vs {plot_info["CORE_B"]}')  # Same title as PNG
         # Create complete legend (same as static plot)
         if plot_info['legend_elements'] and plot_info['legend_labels']:
             legend = ax.legend(plot_info['legend_elements'], plot_info['legend_labels'], bbox_to_anchor=(1.02, 1), loc='upper left')
@@ -4130,7 +4149,8 @@ def _create_distribution_gif(plot_info, gif_filename, mute_mode, max_frames=50, 
         
         # Determine arrow direction and position based on quality index
         quality_index = plot_info['quality_index']
-        if quality_index == 'norm_dtw':
+        # Sectional metrics use the same arrow direction as their non-sectional counterparts
+        if quality_index in ['norm_dtw', 'norm_dtw_sect']:
             # For norm_dtw, lower values are better (arrow points left) - position in upper right
             arrow_start_x = ax_xlim[0] + 0.99 * (ax_xlim[1] - ax_xlim[0])  # Start 99% from left (far right)
             arrow_end_x = ax_xlim[0] + 0.82 * (ax_xlim[1] - ax_xlim[0])    # End 82% from left  
@@ -4195,7 +4215,9 @@ def _create_distribution_gif(plot_info, gif_filename, mute_mode, max_frames=50, 
                 fig, ax = plt.subplots(figsize=(10, 4.5))  # Match static plot size
             
                 # Plot null hypothesis first (same as static plot)
-                ax.hist(plot_info['combined_data'], bins=plot_info['n_bins'], alpha=0.3, color='gray', 
+                # Use synthetic_bins (actual bin edges) for consistent histogram scaling with PDF
+                hist_bins = plot_info.get('synthetic_bins', plot_info['n_bins'])
+                ax.hist(plot_info['combined_data'], bins=hist_bins, alpha=0.3, color='gray', 
                         density=False,
                         weights=np.ones(len(plot_info['combined_data'])) * 100 / len(plot_info['combined_data']), label='Synthetic data histogram')
                 ax.plot(plot_info['x_synth'], plot_info['y_synth'], color='gray', linestyle=':', linewidth=2, alpha=0.8, label='Synthetic data PDF (Null Hypothesis)')
@@ -4232,14 +4254,15 @@ def _create_distribution_gif(plot_info, gif_filename, mute_mode, max_frames=50, 
                     ax.set_ylim(plot_info['actual_plot_limits']['y_min'], plot_info['actual_plot_limits']['y_max'])
                 else:
                     # Fallback to calculated limits
-                    if quality_index == 'corr_coef':
+                    # Sectional metrics use the same x-axis range as their non-sectional counterparts
+                    if quality_index in ['corr_coef', 'corr_coef_sect']:
                         ax.set_xlim(0, 1.0)
                     else:
                         ax.set_xlim(plot_info['plot_limits']['x_min'], plot_info['plot_limits']['x_max'])
                         ax.set_ylim(plot_info['plot_limits']['y_min'], plot_info['plot_limits']['y_max'])
                 ax.set_xlabel(f'{display_name}')
                 ax.set_ylabel('Percentage (%)')
-                ax.set_title(f'{display_name} Distribution Comparison\n{plot_info["CORE_A"]} vs {plot_info["CORE_B"]}')  # Same title as PNG
+                ax.set_title(f'{display_name}\n{plot_info["CORE_A"]} vs {plot_info["CORE_B"]}')  # Same title as PNG
                 # Create complete legend (same as static plot)
                 if plot_info['legend_elements'] and plot_info['legend_labels']:
                     legend = ax.legend(plot_info['legend_elements'], plot_info['legend_labels'], bbox_to_anchor=(1.02, 1), loc='upper left')
@@ -4306,8 +4329,9 @@ def _create_distribution_gif(plot_info, gif_filename, mute_mode, max_frames=50, 
                 arrow_y = ax_ylim[0] + 0.92 * (ax_ylim[1] - ax_ylim[0])  # 92% up from bottom
                 
                 # Determine arrow direction and position based on quality index
+                # Sectional metrics use the same arrow direction as their non-sectional counterparts
                 quality_index = plot_info['quality_index']
-                if quality_index == 'norm_dtw':
+                if quality_index in ['norm_dtw', 'norm_dtw_sect']:
                     # For norm_dtw, lower values are better (arrow points left) - position in upper right, moved slightly left
                     arrow_start_x = ax_xlim[0] + 0.94 * (ax_xlim[1] - ax_xlim[0])  # Start 94% from left (moved left)
                     arrow_end_x = ax_xlim[0] + 0.77 * (ax_xlim[1] - ax_xlim[0])    # End 77% from left  
@@ -4349,7 +4373,9 @@ def _create_distribution_gif(plot_info, gif_filename, mute_mode, max_frames=50, 
                 fig, ax = plt.subplots(figsize=(10, 4.5))  # Match static plot size
             
                 # Plot null hypothesis first (same as static plot)
-                ax.hist(plot_info['combined_data'], bins=plot_info['n_bins'], alpha=0.3, color='gray', 
+                # Use synthetic_bins (actual bin edges) for consistent histogram scaling with PDF
+                hist_bins = plot_info.get('synthetic_bins', plot_info['n_bins'])
+                ax.hist(plot_info['combined_data'], bins=hist_bins, alpha=0.3, color='gray', 
                         density=False,
                         weights=np.ones(len(plot_info['combined_data'])) * 100 / len(plot_info['combined_data']), label='Synthetic data histogram')
                 ax.plot(plot_info['x_synth'], plot_info['y_synth'], color='gray', linestyle=':', linewidth=2, alpha=0.8, label='Synthetic data PDF (Null Hypothesis)')
@@ -4385,8 +4411,9 @@ def _create_distribution_gif(plot_info, gif_filename, mute_mode, max_frames=50, 
                 text_y = ax_ylim[0] + 0.90 * (ax_ylim[1] - ax_ylim[0])  # 90% up from bottom (higher position)
                 
                 # Position text based on arrow direction
+                # Sectional metrics use the same positioning as their non-sectional counterparts
                 quality_index = plot_info['quality_index']
-                if quality_index == 'norm_dtw':
+                if quality_index in ['norm_dtw', 'norm_dtw_sect']:
                     # For left-pointing arrows, put text on left side of line
                     text_x = best_value - 0.01 * (ax_xlim[1] - ax_xlim[0])
                     ha = 'right'
@@ -4408,14 +4435,15 @@ def _create_distribution_gif(plot_info, gif_filename, mute_mode, max_frames=50, 
                     ax.set_ylim(plot_info['actual_plot_limits']['y_min'], plot_info['actual_plot_limits']['y_max'])
                 else:
                     # Fallback to calculated limits
-                    if quality_index == 'corr_coef':
+                    # Sectional metrics use the same x-axis range as their non-sectional counterparts
+                    if quality_index in ['corr_coef', 'corr_coef_sect']:
                         ax.set_xlim(0, 1.0)
                     else:
                         ax.set_xlim(plot_info['plot_limits']['x_min'], plot_info['plot_limits']['x_max'])
                         ax.set_ylim(plot_info['plot_limits']['y_min'], plot_info['plot_limits']['y_max'])
                 ax.set_xlabel(f'{display_name}')
                 ax.set_ylabel('Percentage (%)')
-                ax.set_title(f'{display_name} Distribution Comparison\n{plot_info["CORE_A"]} vs {plot_info["CORE_B"]}')  # Same title as PNG
+                ax.set_title(f'{display_name}\n{plot_info["CORE_A"]} vs {plot_info["CORE_B"]}')  # Same title as PNG
                 
                 # Create complete legend (same as static plot, best datum match shown as text)
                 if plot_info['legend_elements'] and plot_info['legend_labels']:
@@ -4481,8 +4509,9 @@ def _create_distribution_gif(plot_info, gif_filename, mute_mode, max_frames=50, 
                 arrow_y = ax_ylim[0] + 0.92 * (ax_ylim[1] - ax_ylim[0])  # 92% up from bottom
                 
                 # Determine arrow direction and position based on quality index
+                # Sectional metrics use the same arrow direction as their non-sectional counterparts
                 quality_index = plot_info['quality_index']
-                if quality_index == 'norm_dtw':
+                if quality_index in ['norm_dtw', 'norm_dtw_sect']:
                     # For norm_dtw, lower values are better (arrow points left) - position in upper right, moved slightly left
                     arrow_start_x = ax_xlim[0] + 0.94 * (ax_xlim[1] - ax_xlim[0])  # Start 94% from left (moved left)
                     arrow_end_x = ax_xlim[0] + 0.77 * (ax_xlim[1] - ax_xlim[0])    # End 77% from left  
@@ -4596,12 +4625,16 @@ def _create_tstat_gif(plot_info, gif_filename, mute_mode, max_frames=50):
         if not display_name or display_name == quality_index:
             if quality_index == 'corr_coef':
                 display_name = "Pearson's r"
+            elif quality_index == 'corr_coef_sect':
+                display_name = "Pearson's r (Correlated Section)"
             elif quality_index == 'norm_dtw':
-                display_name = "Normalized DTW Distance"
+                display_name = "Normalized DTW Cost"
+            elif quality_index == 'norm_dtw_sect':
+                display_name = "Normalized DTW Cost (Correlated Section)"
             else:
                 display_name = quality_index
         
-        ax.set_title(f't-statistics vs Age Constraints for {display_name}\n{plot_info["CORE_A"]} vs {plot_info["CORE_B"]}')
+        ax.set_title(f'{display_name}\n{plot_info["CORE_A"]} vs {plot_info["CORE_B"]}')
         ax.grid(True, alpha=0.3, zorder=0)
         
         # Create complete legend (same as static plot)
@@ -4651,8 +4684,9 @@ def _create_tstat_gif(plot_info, gif_filename, mute_mode, max_frames=50):
         arrow_y_center = (ax_ylim[0] + ax_ylim[1]) / 2  # Center vertically
         
         # Determine arrow direction based on quality index
+        # Sectional metrics use the same arrow direction as their non-sectional counterparts
         quality_index = plot_info['quality_index']
-        if quality_index == 'norm_dtw':
+        if quality_index in ['norm_dtw', 'norm_dtw_sect']:
             # For norm_dtw, lower values are better (downward arrow)
             arrow_y_start = arrow_y_center + 0.2 * (ax_ylim[1] - ax_ylim[0])
             arrow_y_end = arrow_y_center - 0.2 * (ax_ylim[1] - ax_ylim[0])  
@@ -4678,7 +4712,8 @@ def _create_tstat_gif(plot_info, gif_filename, mute_mode, max_frames=50):
         ax.add_collection(lc)
         
         # Add arrowhead at the end, positioned to start from where the colored bar ends
-        if quality_index == 'norm_dtw':
+        # Sectional metrics use the same arrow direction as their non-sectional counterparts
+        if quality_index in ['norm_dtw', 'norm_dtw_sect']:
             # Downward arrow, use color from end of gradient
             arrow_color = plot_info['cmap'](1.0)
             # Position arrowhead to start where the gradient line ends
@@ -4814,7 +4849,7 @@ def _create_tstat_gif(plot_info, gif_filename, mute_mode, max_frames=50):
                 # Format plot (same as static plot)
                 ax.set_xlabel(f'Number of {plot_info["CORE_B"]} Age Constraints')
                 ax.set_ylabel('t-statistic')
-                ax.set_title(f't-statistics vs Age Constraints for {display_name}\n{plot_info["CORE_A"]} vs {plot_info["CORE_B"]}')
+                ax.set_title(f'{display_name}\n{plot_info["CORE_A"]} vs {plot_info["CORE_B"]}')
                 ax.grid(True, alpha=0.3, zorder=0)
                 
                 # Create legend for static elements and effect sizes
@@ -4864,8 +4899,9 @@ def _create_tstat_gif(plot_info, gif_filename, mute_mode, max_frames=50):
                 arrow_y_center = (ax_ylim[0] + ax_ylim[1]) / 2  # Center vertically
                 
                 # Determine arrow direction based on quality index
+                # Sectional metrics use the same arrow direction as their non-sectional counterparts
                 quality_index = plot_info['quality_index']
-                if quality_index == 'norm_dtw':
+                if quality_index in ['norm_dtw', 'norm_dtw_sect']:
                     # For norm_dtw, lower values are better (downward arrow)
                     arrow_y_start = arrow_y_center + 0.2 * (ax_ylim[1] - ax_ylim[0])
                     arrow_y_end = arrow_y_center - 0.2 * (ax_ylim[1] - ax_ylim[0])  
@@ -4891,7 +4927,8 @@ def _create_tstat_gif(plot_info, gif_filename, mute_mode, max_frames=50):
                 ax.add_collection(lc)
                 
                 # Add arrowhead at the end, positioned to start from where the colored bar ends
-                if quality_index == 'norm_dtw':
+                # Sectional metrics use the same arrow direction as their non-sectional counterparts
+                if quality_index in ['norm_dtw', 'norm_dtw_sect']:
                     # Downward arrow, use color from end of gradient
                     arrow_color = plot_info['cmap'](1.0)
                     # Position arrowhead to start where the gradient line ends

@@ -152,10 +152,13 @@ def find_complete_core_paths(
     n_jobs=-1,
     shortest_path_search=True,
     shortest_path_level=2,
-    max_search_path=5000,
+    max_search_path=100000,
     output_metric_only=False,
     mute_mode=False,
-    pca_for_dependent_dtw=False
+    pca_for_dependent_dtw=False,
+    metrics_to_compute=None,
+    max_paths_for_metrics=None,
+    return_dataframe=False
 ):
     """
     Find and enumerate all complete core-to-core correlation paths with advanced optimization features.
@@ -168,26 +171,45 @@ def find_complete_core_paths(
             Expected keys: 'valid_dtw_pairs', 'segments_a', 'segments_b', 'depth_boundaries_a',
             'depth_boundaries_b', 'dtw_correlation', 'dtw_distance_matrix_full'
         log_a, log_b (array): Core log data for metric computation
-        output_csv (str): Output CSV filename
+        output_csv (str): Output CSV filename. Ignored if return_dataframe=True.
         debug (bool): Enable detailed progress reporting
         start_from_top_only (bool): Only start paths from top segments
         batch_size (int): Processing batch size
         n_jobs (int): Number of parallel jobs (-1 for all cores)
         shortest_path_search (bool): Keep only shortest path lengths during search
         shortest_path_level (int): Number of shortest unique lengths to keep
-        max_search_path (int): Maximum complete paths to find before stopping
+        max_search_path (int): Maximum complete paths to find before stopping. Default 100000.
         output_metric_only (bool): Only output quality metrics in the output CSV, no paths info
         mute_mode (bool): If True, suppress all print output
         pca_for_dependent_dtw (bool): If True, perform PCA for dependent DTW
+        metrics_to_compute (list or str, optional): List of metrics to compute. 
+            If None, computes default metrics: ['norm_dtw', 'corr_coef', 'norm_dtw_sect', 'corr_coef_sect'].
+            If 'ALL', computes all available metrics.
+            Available options:
+            - 'norm_dtw': Normalized DTW distance (lower is better)
+            - 'corr_coef': Correlation coefficient (higher is better)
+            - 'norm_dtw_sect': Sectional normalized DTW (excludes pinch-outs)
+            - 'corr_coef_sect': Sectional correlation coefficient (excludes pinch-outs)
+            - 'dtw_ratio': DTW warping ratio (lower is better)
+            - 'perc_diag': Path diagonality percentage (higher is better)
+            - 'dtw_warp_eff': DTW warping efficiency
+            - 'perc_age_overlap': Age overlap percentage (higher is better)
+            Invalid metrics in the list are silently skipped.
+        max_paths_for_metrics (int, optional): Maximum paths to compute metrics for.
+            If total paths exceed this, a random sample is used. 
+            If None, uses max_search_path value (no additional sampling).
+        return_dataframe (bool): If True, return metrics as DataFrame instead of writing to file.
+            This eliminates file I/O overhead for in-memory processing.
         
     Returns:
         dict: Comprehensive results including:
             - total_complete_paths_theoretical: Theoretical path count
             - total_complete_paths_found: Actually enumerated paths
             - viable_segments: Set of viable segments
-            - output_csv: Path to generated CSV file
+            - output_csv: Path to generated CSV file (or None if return_dataframe=True)
             - duplicates_removed: Number of duplicates removed
             - search_limit_reached: Whether search limit was hit
+            - metrics_dataframe: DataFrame with metrics (only if return_dataframe=True)
     
     Example:
         >>> dtw_result = run_comprehensive_dtw_analysis(...)
@@ -762,32 +784,49 @@ def find_complete_core_paths(
     if not mute_mode:
         print("\n=== Computing Metrics and Generating CSV Output ===")
     
+    # Process metrics_to_compute parameter
+    all_available_metrics = ['norm_dtw', 'dtw_ratio', 'perc_diag', 'dtw_warp_eff', 'corr_coef', 'perc_age_overlap', 'norm_dtw_sect', 'corr_coef_sect']
+    default_metrics = ['norm_dtw', 'corr_coef', 'norm_dtw_sect', 'corr_coef_sect']
+    
+    if metrics_to_compute is None:
+        # Default to the 4 primary metrics
+        metrics_to_compute_final = default_metrics
+    elif isinstance(metrics_to_compute, str) and metrics_to_compute.upper() == 'ALL':
+        # Compute all available metrics
+        metrics_to_compute_final = all_available_metrics
+    else:
+        # Filter to only valid metrics, skip invalid ones silently
+        metrics_to_compute_final = [m for m in metrics_to_compute if m in all_available_metrics]
+        if not metrics_to_compute_final:
+            # If no valid metrics, fall back to default
+            metrics_to_compute_final = default_metrics
+    
+    # Process max_paths_for_metrics parameter
+    # If None, use max_search_path (no additional sampling beyond path enumeration limit)
+    max_paths_for_metrics_final = max_paths_for_metrics if max_paths_for_metrics is not None else max_search_path
+    
     # Create output CSV with batch processing for memory efficiency
     def generate_output_csv():
         """Generate final output directly from deduplicated database using parallel processing."""
         
-        # Auto-detect file format based on extension
-        use_pickle = output_csv.lower().endswith('.pkl')
+        # Determine output mode
+        use_pickle = not return_dataframe and output_csv.lower().endswith('.pkl')
+        use_dataframe = return_dataframe
         
-        if use_pickle:
-            # For Pickle: collect all data first, then save as DataFrame
-            all_results = []
-            
-            # Define column names
-            if output_metric_only:
-                columns = ['mapping_id', 'length', 'norm_dtw', 'dtw_ratio', 'perc_diag', 'dtw_warp_eff', 'corr_coef', 'perc_age_overlap']
-            else:
-                columns = ['mapping_id', 'path', 'length', 'combined_wp', 'norm_dtw', 'dtw_ratio', 'perc_diag', 'dtw_warp_eff', 'corr_coef', 'perc_age_overlap']
+        # Define column names
+        if output_metric_only:
+            columns = ['mapping_id', 'length', 'norm_dtw', 'dtw_ratio', 'perc_diag', 'dtw_warp_eff', 'corr_coef', 'perc_age_overlap', 'norm_dtw_sect', 'corr_coef_sect']
         else:
-            # For CSV: create file with header as before
+            columns = ['mapping_id', 'path', 'length', 'combined_wp', 'norm_dtw', 'dtw_ratio', 'perc_diag', 'dtw_warp_eff', 'corr_coef', 'perc_age_overlap', 'norm_dtw_sect', 'corr_coef_sect']
+        
+        # Initialize storage for results (for pickle, dataframe, or in-memory modes)
+        all_results = []
+        
+        # For CSV file output, create file with header
+        if not use_pickle and not use_dataframe:
             with open(output_csv, 'w', newline='') as f:
                 writer = csv.writer(f)
-                if output_metric_only:
-                    writer.writerow(['mapping_id', 'length', 
-                                'norm_dtw', 'dtw_ratio', 'perc_diag', 'dtw_warp_eff', 'corr_coef', 'perc_age_overlap'])
-                else:
-                    writer.writerow(['mapping_id', 'path', 'length', 'combined_wp', 
-                                'norm_dtw', 'dtw_ratio', 'perc_diag', 'dtw_warp_eff', 'corr_coef', 'perc_age_overlap'])
+                writer.writerow(columns)
         
         # Get total number of complete paths for progress reporting
         cursor = shared_read_conn.execute("""
@@ -804,17 +843,23 @@ def find_complete_core_paths(
         """)
         
         # Get all paths to process
-        all_paths = cursor.fetchall()
+        all_paths_from_db = cursor.fetchall()
+        
+        # Solution 1: Sample paths if total exceeds max_paths_for_metrics_final
+        paths_to_process = all_paths_from_db
+        if len(all_paths_from_db) > max_paths_for_metrics_final:
+            if not mute_mode:
+                print(f"Sampling {max_paths_for_metrics_final} paths from {len(all_paths_from_db)} total for metric computation")
+            paths_to_process = random.sample(all_paths_from_db, max_paths_for_metrics_final)
         
         # Use the function's parameters for batch size and number of jobs
-        # If n_jobs is -1, use all cores; otherwise use the specified number
         n_jobs_to_use = os.cpu_count() if n_jobs == -1 else n_jobs
-        # Use batch_size parameter directly, with a reasonable fallback
         batch_size_to_use = batch_size if batch_size > 0 else 500
-        # Create batches of paths
-        batches = [all_paths[i:i + batch_size] for i in range(0, len(all_paths), batch_size)]
         
-        # Process a batch of paths
+        # Create batches of paths
+        batches = [paths_to_process[i:i + batch_size_to_use] for i in range(0, len(paths_to_process), batch_size_to_use)]
+        
+        # Process a batch of paths (designed to be parallelizable)
         def process_batch(batch, start_id):
             batch_results = []
             mapping_id = start_id
@@ -826,8 +871,14 @@ def find_complete_core_paths(
                 # Convert to 1-based and use semicolon separator for compactness
                 formatted_path_compact = ";".join(f"{a+1},{b+1}" for a, b in full_path)
                 
-                # Compute metrics and warping path
-                combined_wp, metrics = compute_path_metrics_lazy(compressed_path, log_a, log_b, dtw_results, dtw_distance_matrix_full, pca_for_dependent_dtw=pca_for_dependent_dtw)
+                # Compute metrics and warping path (with selective metrics - Solution 5)
+                combined_wp, metrics = compute_path_metrics_lazy(
+                    compressed_path, log_a, log_b, dtw_results, dtw_distance_matrix_full, 
+                    pca_for_dependent_dtw=pca_for_dependent_dtw,
+                    segments_a=segments_a, segments_b=segments_b,
+                    depth_boundaries_a=depth_boundaries_a, depth_boundaries_b=depth_boundaries_b,
+                    metrics_to_compute=metrics_to_compute_final
+                )
                 
                 # Format warping path compactly
                 if combined_wp is not None and len(combined_wp) > 0:
@@ -845,7 +896,9 @@ def find_complete_core_paths(
                         round(metrics['perc_diag'], 2),
                         round(metrics['dtw_warp_eff'], 6),
                         round(metrics['corr_coef'], 6),
-                        round(metrics['perc_age_overlap'], 2)
+                        round(metrics['perc_age_overlap'], 2),
+                        round(metrics['norm_dtw_sect'], 6),
+                        round(metrics['corr_coef_sect'], 6)
                     ])
                 else:
                     batch_results.append([
@@ -858,57 +911,88 @@ def find_complete_core_paths(
                         round(metrics['perc_diag'], 2),
                         round(metrics['dtw_warp_eff'], 6),
                         round(metrics['corr_coef'], 6),
-                        round(metrics['perc_age_overlap'], 2)
+                        round(metrics['perc_age_overlap'], 2),
+                        round(metrics['norm_dtw_sect'], 6),
+                        round(metrics['corr_coef_sect'], 6)
                     ])
                 
                 mapping_id += 1
                 
             return batch_results
         
+        paths_being_processed = len(paths_to_process)
         if not mute_mode:
-            print(f"Processing {total_paths} paths in {len(batches)} batches")
+            print(f"Processing {paths_being_processed} paths in {len(batches)} batches using {n_jobs_to_use} parallel jobs")
         
-        # Process batches in parallel
-        if not mute_mode:
-            pbar = tqdm(total=len(batches), desc="Processing batches")
-        
-        for batch_idx, batch in enumerate(batches):
-            # Calculate starting ID for this batch
-            start_id = batch_idx * batch_size + 1
-            
-            # Process this batch
-            batch_results = process_batch(batch, start_id)
-            
-            if use_pickle:
-                # For Pickle: collect results
-                all_results.extend(batch_results)
-            else:
-                # For CSV: write batch results immediately
-                with open(output_csv, 'a', newline='') as f:
-                    writer = csv.writer(f)
-                    writer.writerows(batch_results)
+        # Solution 4: Parallel batch processing
+        if n_jobs_to_use > 1 and len(batches) > 1:
+            # Parallel processing using joblib
+            batch_args = [(batch, batch_idx * batch_size_to_use + 1) for batch_idx, batch in enumerate(batches)]
             
             if not mute_mode:
-                pbar.update(1)
+                parallel_results = Parallel(n_jobs=n_jobs_to_use, verbose=0)(
+                    delayed(process_batch)(batch, start_id) 
+                    for batch, start_id in tqdm(batch_args, desc="Processing batches (parallel)")
+                )
+            else:
+                parallel_results = Parallel(n_jobs=n_jobs_to_use, verbose=0)(
+                    delayed(process_batch)(batch, start_id) 
+                    for batch, start_id in batch_args
+                )
+            
+            # Collect all results
+            for batch_results in parallel_results:
+                if use_pickle or use_dataframe:
+                    all_results.extend(batch_results)
+                else:
+                    # For CSV: write batch results immediately
+                    with open(output_csv, 'a', newline='') as f:
+                        writer = csv.writer(f)
+                        writer.writerows(batch_results)
+        else:
+            # Sequential processing (original behavior for n_jobs=1 or single batch)
+            if not mute_mode:
+                pbar = tqdm(total=len(batches), desc="Processing batches")
+            
+            for batch_idx, batch in enumerate(batches):
+                start_id = batch_idx * batch_size_to_use + 1
+                batch_results = process_batch(batch, start_id)
                 
-            # Periodic garbage collection
-            if batch_idx % 5 == 0:
-                gc.collect()
+                if use_pickle or use_dataframe:
+                    all_results.extend(batch_results)
+                else:
+                    with open(output_csv, 'a', newline='') as f:
+                        writer = csv.writer(f)
+                        writer.writerows(batch_results)
+                
+                if not mute_mode:
+                    pbar.update(1)
+                    
+                if batch_idx % 5 == 0:
+                    gc.collect()
+            
+            if not mute_mode:
+                pbar.close()
         
-        if not mute_mode:
-            pbar.close()
+        # Create DataFrame from results
+        result_df = pd.DataFrame(all_results, columns=columns) if all_results else pd.DataFrame(columns=columns)
         
-        # Save Pickle file if needed
-        if use_pickle:
-            df = pd.DataFrame(all_results, columns=columns)
-            df.to_pickle(output_csv)
-            del df, all_results
+        # Solution 2: Return DataFrame or save to file
+        if use_dataframe:
+            # Return DataFrame directly (no file I/O)
+            pass  # result_df will be returned
+        elif use_pickle:
+            result_df.to_pickle(output_csv)
+        
+        # Clean up
+        if not use_dataframe:
+            del all_results
             gc.collect()
         
-        return total_paths
+        return paths_being_processed, result_df if use_dataframe else None
     
     # Generate the output
-    total_paths_written = generate_output_csv()
+    total_paths_written, metrics_df = generate_output_csv()
     
     # Close shared database
     shared_read_conn.close()
@@ -916,13 +1000,17 @@ def find_complete_core_paths(
     # Print final statistics
     if not mute_mode:
         print(f"\nFinal Results:")
-        print(f"  Total unique complete paths written: {total_paths_written}")
+        print(f"  Total unique complete paths processed: {total_paths_written}")
         print(f"  Total duplicates removed during processing: {total_duplicates_removed}")
         print(f"  Deduplication efficiency: {(total_duplicates_removed/(total_paths_written + total_duplicates_removed)*100) if (total_paths_written + total_duplicates_removed) > 0 else 0:.2f}%")
         
         # Add search limit information to final results
         if search_limit_reached:
             print(f"  Search was limited to {max_search_path} complete paths for performance")
+        
+        # Add sampling information if applicable
+        if max_paths_for_metrics is not None:
+            print(f"  Metrics computed for sampled subset: {total_paths_written} paths")
     
     # Cleanup - remove all temporary files
     try:
@@ -936,18 +1024,21 @@ def find_complete_core_paths(
         if not mute_mode:
             print(f"Could not clean temporary directory: {e}")
     
-    if not mute_mode:
+    if not mute_mode and not return_dataframe:
         print(f"All complete core-to-core paths saved to {output_csv}")
     
     # Return comprehensive results dictionary
-    return {
+    result_dict = {
         'total_complete_paths_theoretical': path_computation_results['total_complete_paths'],
         'total_complete_paths_found': total_paths_written,
         'viable_segments': path_computation_results['viable_segments'],
         'viable_tops': path_computation_results['viable_tops'],
         'viable_bottoms': path_computation_results['viable_bottoms'],
         'paths_from_tops': path_computation_results['paths_from_tops'],
-        'output_csv': output_csv,
+        'output_csv': output_csv if not return_dataframe else None,
         'duplicates_removed': total_duplicates_removed,
-        'search_limit_reached': search_limit_reached
-    } 
+        'search_limit_reached': search_limit_reached,
+        'metrics_dataframe': metrics_df
+    }
+    
+    return result_dict 

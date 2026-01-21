@@ -786,6 +786,61 @@ def custom_dtw(log1, log2, subseq=False, exponent=1, QualityIndex=False, indepen
     else:
         return D, wp
 
+
+def _process_segment_pair_worker(a_idx, b_idx, pair_info, log_a, log_b, 
+                                  segments_a, segments_b, 
+                                  depth_boundaries_a, depth_boundaries_b,
+                                  independent_dtw, pca_for_dependent_dtw,
+                                  dtw_distance_threshold, debug, mute_mode):
+    """
+    Worker function for parallel DTW computation of a single segment pair.
+    This is a module-level function to enable pickling by joblib.
+    """
+    # Extract segments
+    a_start = depth_boundaries_a[segments_a[a_idx][0]]
+    a_end = depth_boundaries_a[segments_a[a_idx][1]]
+    b_start = depth_boundaries_b[segments_b[b_idx][0]]
+    b_end = depth_boundaries_b[segments_b[b_idx][1]]
+    
+    segment_a = log_a[a_start:a_end+1]
+    segment_b = log_b[b_start:b_end+1]
+    
+    # Perform DTW
+    try:
+        D_sub, wp, QIdx = custom_dtw(segment_a, segment_b, subseq=False, exponent=1, 
+                                      QualityIndex=True, independent_dtw=independent_dtw, 
+                                      pca_for_dependent_dtw=pca_for_dependent_dtw, sakoe_chiba=True)
+        
+        # Adjust warping path coordinates
+        adjusted_wp = wp.copy()
+        adjusted_wp[:, 0] += a_start
+        adjusted_wp[:, 1] += b_start
+        
+        final_dist = D_sub[-1, -1]
+        
+        # Add age overlap percentage to quality indicators
+        if 'perc_age_overlap' in pair_info:
+            QIdx['perc_age_overlap'] = pair_info['perc_age_overlap']
+        
+        # Flexible DTW distance filtering
+        if dtw_distance_threshold is None:
+            passes_distance = True
+        else:
+            passes_distance = final_dist < dtw_distance_threshold or len(segment_a) == 1 or len(segment_b) == 1
+        
+        return (a_idx, b_idx, {
+            'dtw_results': ([adjusted_wp], [], [QIdx]),
+            'dtw_distance': final_dist,
+            'passes_distance': passes_distance,
+        })
+    except Exception as e:
+        return (a_idx, b_idx, {
+            'dtw_results': ([], [], []),
+            'dtw_distance': float('inf'),
+            'passes_distance': False,
+        })
+
+
 def run_comprehensive_dtw_analysis(log_a, log_b, md_a, md_b, picked_datum_a=None, picked_datum_b=None, 
                               top_bottom=True, top_depth=0.0,
                               independent_dtw=False, 
@@ -805,7 +860,8 @@ def run_comprehensive_dtw_analysis(log_a, log_b, md_a, md_b, picked_datum_a=None
                               core_b_name=None,
                               mute_mode=False,
                               pca_for_dependent_dtw=False,
-                              dpi=None):
+                              dpi=None,
+                              n_jobs=-1):
     """
     Run comprehensive DTW analysis with integrated age correlation functionality.
     
@@ -883,6 +939,9 @@ def run_comprehensive_dtw_analysis(log_a, log_b, md_a, md_b, picked_datum_a=None
     pca_for_dependent_dtw : bool, default=True
         Whether to use PCA for dependent multidimensional DTW. If False, uses conventional 
         multidimensional DTW with librosa directly without PCA projection.
+    n_jobs : int, default=-1
+        Number of parallel jobs for DTW computation across segment pairs.
+        -1 means using all available cores. Set to 1 for sequential processing.
     
     Returns
     -------
@@ -1145,70 +1204,39 @@ def run_comprehensive_dtw_analysis(log_a, log_b, md_a, md_b, picked_datum_a=None
                 'perc_age_overlap': 0.0  # Default value when age consideration is disabled
             }
     
-    # Process pairs based on age criteria and calculate DTW   
-    def process_segment_pair(a_idx, b_idx, pair_info, independent_dtw=False):
-        """Process a single segment pair and calculate DTW"""
-        # Extract segments
-        a_start = depth_boundaries_a[segments_a[a_idx][0]]
-        a_end = depth_boundaries_a[segments_a[a_idx][1]]
-        b_start = depth_boundaries_b[segments_b[b_idx][0]]
-        b_end = depth_boundaries_b[segments_b[b_idx][1]]
+    # Calculate DTW for candidate pairs (parallel or sequential based on n_jobs)
+    if n_jobs == 1:
+        # Sequential processing
+        for a_idx, b_idx in tqdm(all_possible_pairs, desc="Calculating DTW for segment pairs..." if not mute_mode else None, disable=mute_mode):
+            pair_info = all_pairs_with_dtw[(a_idx, b_idx)]
+            _, _, dtw_info = _process_segment_pair_worker(
+                a_idx, b_idx, pair_info, log_a, log_b,
+                segments_a, segments_b, depth_boundaries_a, depth_boundaries_b,
+                independent_dtw, pca_for_dependent_dtw, dtw_distance_threshold, debug, mute_mode
+            )
+            pair_info.update(dtw_info)
+    else:
+        # Parallel processing
+        if not mute_mode:
+            print(f"Calculating DTW for {len(all_possible_pairs)} segment pairs using {n_jobs if n_jobs > 0 else 'all available'} cores...")
         
-        segment_a = log_a[a_start:a_end+1]
-        segment_b = log_b[b_start:b_end+1]
+        # Prepare arguments for parallel processing
+        parallel_args = [
+            (a_idx, b_idx, all_pairs_with_dtw[(a_idx, b_idx)], log_a, log_b,
+             segments_a, segments_b, depth_boundaries_a, depth_boundaries_b,
+             independent_dtw, pca_for_dependent_dtw, dtw_distance_threshold, debug, mute_mode)
+            for a_idx, b_idx in all_possible_pairs
+        ]
         
-        # Perform DTW
-        try:
-            D_sub, wp, QIdx = custom_dtw(segment_a, segment_b, subseq=False, exponent=1, QualityIndex=True, independent_dtw=independent_dtw, pca_for_dependent_dtw=pca_for_dependent_dtw, sakoe_chiba=True)
-            
-            # Adjust warping path coordinates
-            adjusted_wp = wp.copy()
-            adjusted_wp[:, 0] += a_start
-            adjusted_wp[:, 1] += b_start
-            
-            final_dist = D_sub[-1, -1]
-            
-            # Add age overlap percentage to quality indicators
-            if 'perc_age_overlap' in pair_info:
-                QIdx['perc_age_overlap'] = pair_info['perc_age_overlap']
-            
-            # Flexible DTW distance filtering
-            if dtw_distance_threshold is None:
-                # No DTW distance filtering - accept all segments
-                passes_distance = True
-                if debug and not mute_mode:
-                    print(f"Segment ({a_idx+1}, {b_idx+1}): DTW distance {final_dist:.2f} - ACCEPTED (no threshold)")
-            else:
-                # Apply DTW distance threshold
-                passes_distance = final_dist < dtw_distance_threshold or len(segment_a) == 1 or len(segment_b) == 1
-                if debug and not mute_mode and not passes_distance:
-                    print(f"Segment ({a_idx+1}, {b_idx+1}): DTW distance {final_dist:.2f} - REJECTED (threshold: {dtw_distance_threshold})")
-                elif debug and not mute_mode:
-                    print(f"Segment ({a_idx+1}, {b_idx+1}): DTW distance {final_dist:.2f} - ACCEPTED (threshold: {dtw_distance_threshold})")
-            
-            return {
-                'dtw_results': ([adjusted_wp], [], [QIdx]),
-                'dtw_distance': final_dist,
-                'passes_distance': passes_distance,
-            }
-        except Exception as e:
-            if debug and not mute_mode:
-                print(f"Error calculating DTW for pair ({a_idx}, {b_idx}): {e}")
-            return {
-                'dtw_results': ([], [], []),
-                'dtw_distance': float('inf'),
-                'passes_distance': False,
-            }
-    
-    # Calculate DTW for candidate pairs
-    for a_idx, b_idx in tqdm(all_possible_pairs, desc="Calculating DTW for segment pairs..." if not mute_mode else None, disable=mute_mode):
-        pair_info = all_pairs_with_dtw[(a_idx, b_idx)]
+        # Run in parallel
+        results = Parallel(n_jobs=n_jobs, verbose=0)(
+            delayed(_process_segment_pair_worker)(*args) 
+            for args in tqdm(parallel_args, desc="Calculating DTW for segment pairs..." if not mute_mode else None, disable=mute_mode)
+        )
         
-        # Get DTW results for this pair
-        dtw_info = process_segment_pair(a_idx, b_idx, pair_info, independent_dtw=independent_dtw)
-        
-        # Update the pair information with DTW results
-        pair_info.update(dtw_info)
+        # Update all_pairs_with_dtw with results
+        for a_idx, b_idx, dtw_info in results:
+            all_pairs_with_dtw[(a_idx, b_idx)].update(dtw_info)
     
     # Determine which pairs are valid based on age and DTW criteria
     valid_dtw_pairs = set()
