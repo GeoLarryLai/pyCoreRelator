@@ -32,6 +32,7 @@ from .plotting import (
     plot_quality_comparison_t_statistics,
     calculate_quality_comparison_t_statistics,
     plot_t_statistics_vs_constraints,
+    plot_cohens_d_vs_constraints,
     plot_quality_distributions
 )
 
@@ -65,6 +66,7 @@ __all__ = [
     'plot_quality_comparison_t_statistics',
     'calculate_quality_comparison_t_statistics',
     'plot_t_statistics_vs_constraints',
+    'plot_cohens_d_vs_constraints',
     'plot_quality_distributions',
     'plot_dtw_matrix_with_paths',
     'visualize_dtw_results_from_csv'

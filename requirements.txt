@@ -5,6 +5,7 @@ scipy>=1.7.0
 
 # Visualization and plotting
 matplotlib>=3.5.0
+networkx>=2.6
 Pillow>=8.3.0
 imageio>=2.9.0          # For GIF/video animation creation
 
@@ -27,6 +28,7 @@ opencv-python>=4.5.0    # For computer vision and image processing
 
 # Machine Learning dependencies (for gap filling and data imputation)
 scikit-learn>=1.0.0     # For ML-based data imputation and preprocessing
+kneed>=0.8.0            # Kneedle algorithm for elbow/knee detection (e.g. optimal k)
 xgboost>=1.6.0          # For XGBoost ML models
 lightgbm>=3.3.0         # For LightGBM ML models
 

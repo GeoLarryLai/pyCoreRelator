@@ -38,9 +38,860 @@ from .path_finding import find_complete_core_paths
 from .age_models import calculate_interpolated_ages
 # Note: plot_correlation_distribution is imported inside functions to avoid circular imports
 
+# Scikit-learn imports for Markov Chain clustering (imported here to check availability)
+try:
+    from sklearn.cluster import KMeans
+    from sklearn.preprocessing import RobustScaler
+    SKLEARN_AVAILABLE = True
+except ImportError:
+    SKLEARN_AVAILABLE = False
+
+try:
+    from kneed import KneeLocator
+    KNEED_AVAILABLE = True
+except ImportError:
+    KneeLocator = None
+    KNEED_AVAILABLE = False
+
+
+# =============================================================================
+# MARKOV CHAIN HELPER FUNCTIONS
+# =============================================================================
+
+def find_optimal_k(X_scaled, k_range=range(2, 16)):
+    """
+    Find optimal number of clusters using Kneedle/elbow method.
+    
+    Parameters
+    ----------
+    X_scaled : array-like of shape (n_samples, n_features)
+        Scaled feature array (should already be scaled before passing)
+    k_range : range or list, default=range(2, 11)
+        Range of k values to test
+    
+    Returns
+    -------
+    optimal_k : int
+        Optimal number of clusters
+    elbow_info : dict
+        Dictionary with 'inertias', 'distances', 'k_list' for plotting
+    """
+    if not SKLEARN_AVAILABLE:
+        raise ImportError("scikit-learn is required for Markov Chain clustering. Install with: pip install scikit-learn")
+    
+    k_list = list(k_range)
+    inertias = []
+    
+    for k in k_range:
+        kmeans = KMeans(n_clusters=k, random_state=42, n_init=10)
+        kmeans.fit(X_scaled)
+        inertias.append(kmeans.inertia_)
+    
+    # Normalize for distance calculation
+    k_norm = (np.array(k_list) - k_list[0]) / (k_list[-1] - k_list[0])
+    inertia_norm = (np.array(inertias) - inertias[-1]) / (inertias[0] - inertias[-1])
+    
+    # Perpendicular distance from line y = 1 - x (Kneedle algorithm)
+    distances = np.abs(k_norm + inertia_norm - 1) / np.sqrt(2)
+    optimal_k = k_list[np.argmax(distances)]
+    
+    elbow_info = {
+        'inertias': inertias,
+        'distances': distances.tolist(),
+        'k_list': k_list
+    }
+    
+    return optimal_k, elbow_info
+
+
+def build_transition_matrix(cluster_labels, unit_sequence_per_core, n_clusters):
+    """
+    Build transition probability matrix from cluster sequences.
+    
+    Parameters
+    ----------
+    cluster_labels : array-like of shape (n_units,)
+        Cluster assignment for each unit
+    unit_sequence_per_core : dict
+        Dictionary mapping core_name -> list of unit indices (deepest to shallowest).
+        Indices refer to positions in cluster_labels array.
+    n_clusters : int
+        Number of clusters
+    
+    Returns
+    -------
+    transition_matrix : ndarray of shape (n_clusters, n_clusters)
+        Transition probability matrix where [i,j] is P(cluster j | cluster i)
+    stationary_dist : ndarray of shape (n_clusters,)
+        Stationary distribution of the Markov chain
+    """
+    cluster_labels = np.asarray(cluster_labels)
+    
+    # Build transition count matrix from observed sequences
+    transition_counts = np.zeros((n_clusters, n_clusters), dtype=int)
+    
+    for core_name, unit_indices in unit_sequence_per_core.items():
+        # Get cluster sequence for this core (deepest to shallowest)
+        cluster_seq = [cluster_labels[idx] for idx in unit_indices]
+        
+        # Count transitions
+        for i in range(len(cluster_seq) - 1):
+            from_cluster = cluster_seq[i]
+            to_cluster = cluster_seq[i + 1]
+            transition_counts[from_cluster, to_cluster] += 1
+    
+    # Convert to probability matrix
+    row_sums = transition_counts.sum(axis=1, keepdims=True)
+    zero_rows = (row_sums == 0).flatten()
+    row_sums[row_sums == 0] = 1  # Avoid division by zero temporarily
+    transition_matrix = transition_counts / row_sums
+    
+    # For clusters with no observed transitions, use uniform distribution
+    # (required for valid probability distribution that sums to 1)
+    for i in range(n_clusters):
+        if zero_rows[i]:
+            transition_matrix[i, :] = 1.0 / n_clusters
+    
+    # Compute stationary distribution via eigenvalue decomposition
+    try:
+        eigenvalues, eigenvectors = np.linalg.eig(transition_matrix.T)
+        stationary_idx = np.argmin(np.abs(eigenvalues - 1))
+        stationary_dist = np.real(eigenvectors[:, stationary_idx])
+        stationary_dist = np.abs(stationary_dist) / np.abs(stationary_dist).sum()
+    except:
+        # Fallback: use uniform distribution
+        stationary_dist = np.ones(n_clusters) / n_clusters
+    
+    return transition_matrix, stationary_dist
+
+
+def build_higher_order_transitions(cluster_labels, unit_sequence_per_core, n_clusters, order):
+    """
+    Build higher-order transition probability dictionary.
+    
+    For an n-th order Markov chain, the next state depends on the previous n states.
+    
+    Parameters
+    ----------
+    cluster_labels : array-like of shape (n_units,)
+        Cluster assignment for each unit
+    unit_sequence_per_core : dict
+        Dictionary mapping core_name -> list of unit indices (deepest to shallowest).
+    n_clusters : int
+        Number of clusters
+    order : int
+        Order of the Markov chain (number of previous states to consider)
+    
+    Returns
+    -------
+    transition_dict : dict
+        Dictionary mapping tuples of previous states to probability arrays.
+        Key: tuple of length `order` representing previous states
+        Value: 1D array of shape (n_clusters,) with transition probabilities
+    """
+    from collections import defaultdict
+    
+    cluster_labels = np.asarray(cluster_labels)
+    
+    # Count transitions: (prev_n_states) -> next_state
+    transition_counts = defaultdict(lambda: np.zeros(n_clusters))
+    
+    for core_name, unit_indices in unit_sequence_per_core.items():
+        # Get cluster sequence for this core (deepest to shallowest)
+        cluster_seq = [cluster_labels[idx] for idx in unit_indices]
+        
+        if len(cluster_seq) <= order:
+            continue
+            
+        for i in range(len(cluster_seq) - order):
+            # Previous n states as tuple
+            prev_states = tuple(cluster_seq[i:i + order])
+            next_state = cluster_seq[i + order]
+            transition_counts[prev_states][next_state] += 1
+    
+    # Convert counts to probabilities
+    transition_dict = {}
+    for prev_states, counts in transition_counts.items():
+        total = counts.sum()
+        if total > 0:
+            transition_dict[prev_states] = counts / total
+        else:
+            transition_dict[prev_states] = np.ones(n_clusters) / n_clusters
+    
+    return transition_dict
+
+
+def _get_higher_order_transition_probs(cluster_history, transition_dict, transition_matrix, 
+                                        stationary_dist, mc_order):
+    """
+    Get transition probabilities for higher-order Markov chain with fallback.
+    
+    Parameters
+    ----------
+    cluster_history : list
+        History of cluster states (most recent at end)
+    transition_dict : dict
+        Higher-order transition dictionary mapping state tuples to probabilities
+    transition_matrix : ndarray
+        1st-order transition matrix for fallback
+    stationary_dist : ndarray
+        Stationary distribution for ultimate fallback
+    mc_order : int
+        Order of the Markov chain
+    
+    Returns
+    -------
+    transition_probs : ndarray
+        Transition probability array
+    """
+    # Get the last mc_order states as tuple
+    if len(cluster_history) >= mc_order:
+        prev_tuple = tuple(cluster_history[-mc_order:])
+    else:
+        prev_tuple = tuple(cluster_history)
+    
+    # Try exact match first
+    if prev_tuple in transition_dict:
+        return transition_dict[prev_tuple]
+    
+    # Fallback: try progressively shorter history
+    for length in range(len(prev_tuple) - 1, 0, -1):
+        shorter_tuple = prev_tuple[-length:]
+        if shorter_tuple in transition_dict:
+            return transition_dict[shorter_tuple]
+    
+    # Fallback to 1st-order transition matrix
+    if len(cluster_history) > 0:
+        last_cluster = cluster_history[-1]
+        return transition_matrix[last_cluster]
+    
+    # Ultimate fallback: stationary distribution
+    return stationary_dist
+
+
+def build_vom_transitions(cluster_labels, unit_sequence_per_core, n_clusters, max_order):
+    """
+    Build Variable-Order Markov (VOM) transition dictionaries for all orders.
+    
+    VOM uses the longest observed context (up to max_order) for predictions,
+    naturally handling unseen n-grams by falling back to shorter contexts.
+    
+    Parameters
+    ----------
+    cluster_labels : array-like
+        Cluster assignment for each unit
+    unit_sequence_per_core : dict
+        Dictionary mapping core_name -> list of unit indices
+    n_clusters : int
+        Number of clusters
+    max_order : int
+        Maximum order to build transitions for
+    
+    Returns
+    -------
+    vom_transition_dicts : dict
+        Dictionary mapping order -> transition_dict for orders 1 to max_order
+    """
+    cluster_labels = np.asarray(cluster_labels)
+    vom_transition_dicts = {}
+    
+    for order in range(1, max_order + 1):
+        transition_counts = {}
+        
+        for core_name, unit_indices in unit_sequence_per_core.items():
+            cluster_seq = [cluster_labels[idx] for idx in unit_indices]
+            
+            if len(cluster_seq) <= order:
+                continue
+            
+            for i in range(len(cluster_seq) - order):
+                prev_state = tuple(cluster_seq[i:i + order])
+                next_state = cluster_seq[i + order]
+                
+                if prev_state not in transition_counts:
+                    transition_counts[prev_state] = {}
+                if next_state not in transition_counts[prev_state]:
+                    transition_counts[prev_state][next_state] = 0
+                transition_counts[prev_state][next_state] += 1
+        
+        # Normalize to probabilities (store as dict of dicts for VOM)
+        transition_dict = {}
+        for prev_state, next_counts in transition_counts.items():
+            total = sum(next_counts.values())
+            transition_dict[prev_state] = {s: c/total for s, c in next_counts.items()}
+        
+        vom_transition_dicts[order] = transition_dict
+    
+    return vom_transition_dicts
+
+
+def build_fp_transitions(cluster_labels, unit_sequence_per_core, n_clusters, order):
+    """
+    Build Forbidden Path (FP) transition dictionary and observed starting sequences.
+    
+    FP only allows transitions from n-grams that were observed in training data.
+    Initializes sequences from observed starting patterns to avoid phantom histories.
+    
+    Parameters
+    ----------
+    cluster_labels : array-like
+        Cluster assignment for each unit
+    unit_sequence_per_core : dict
+        Dictionary mapping core_name -> list of unit indices
+    n_clusters : int
+        Number of clusters
+    order : int
+        Order of the Markov chain
+    
+    Returns
+    -------
+    transition_dict : dict
+        Dictionary mapping observed n-grams to next-state probability dicts
+    observed_starts : list
+        List of observed starting n-gram sequences
+    """
+    cluster_labels = np.asarray(cluster_labels)
+    transition_counts = {}
+    observed_starts = set()
+    
+    for core_name, unit_indices in unit_sequence_per_core.items():
+        cluster_seq = [cluster_labels[idx] for idx in unit_indices]
+        
+        if len(cluster_seq) <= order:
+            continue
+        
+        # Record the starting sequence (first 'order' clusters)
+        if len(cluster_seq) >= order:
+            observed_starts.add(tuple(cluster_seq[:order]))
+        
+        # Build transition counts
+        for i in range(len(cluster_seq) - order):
+            prev_state = tuple(cluster_seq[i:i + order])
+            next_state = cluster_seq[i + order]
+            
+            if prev_state not in transition_counts:
+                transition_counts[prev_state] = {}
+            if next_state not in transition_counts[prev_state]:
+                transition_counts[prev_state][next_state] = 0
+            transition_counts[prev_state][next_state] += 1
+    
+    # Normalize to probabilities
+    transition_dict = {}
+    for prev_state, next_counts in transition_counts.items():
+        total = sum(next_counts.values())
+        transition_dict[prev_state] = {s: c/total for s, c in next_counts.items()}
+    
+    return transition_dict, list(observed_starts)
+
+
+def _get_vom_transition_probs(cluster_history, vom_transition_dicts, stationary_dist, n_clusters, max_order):
+    """
+    Get transition probabilities using Variable-Order Markov (longest matching context).
+    
+    Returns
+    -------
+    probs : ndarray
+        Transition probability array
+    order_used : int
+        The order that was actually used (0 if stationary fallback)
+    """
+    # Try from max_order down to 1
+    for order in range(min(len(cluster_history), max_order), 0, -1):
+        context = tuple(cluster_history[-order:])
+        if order in vom_transition_dicts and context in vom_transition_dicts[order]:
+            probs = np.zeros(n_clusters)
+            for next_state, prob in vom_transition_dicts[order][context].items():
+                probs[next_state] = prob
+            return probs, order
+    
+    # Fallback to stationary distribution
+    return stationary_dist, 0
+
+
+def _get_fp_transition_probs(cluster_history, fp_transition_dict, stationary_dist, n_clusters, order):
+    """
+    Get transition probabilities for Forbidden Path model.
+    
+    Returns None if the current n-gram was never observed (forbidden path).
+    
+    Returns
+    -------
+    probs : ndarray or None
+        Transition probability array, or None if forbidden
+    is_valid : bool
+        True if the n-gram was observed, False if forbidden
+    """
+    if len(cluster_history) < order:
+        return stationary_dist, False
+    
+    context = tuple(cluster_history[-order:])
+    
+    if context in fp_transition_dict:
+        probs = np.zeros(n_clusters)
+        for next_state, prob in fp_transition_dict[context].items():
+            probs[next_state] = prob
+        return probs, True
+    
+    return None, False  # Forbidden path
+
+
+def _plot_higher_order_transition_matrix(transition_dict, n_clusters, order, show_plots, save_figure_func,
+                                          observed_only=False):
+    """
+    Plot a higher-order transition matrix.
+    
+    For n-th order MC, rows represent history sequences of length n,
+    and columns represent the single next state.
+    
+    Parameters
+    ----------
+    transition_dict : dict
+        Dictionary mapping state tuples to probability arrays
+    n_clusters : int
+        Number of clusters
+    order : int
+        Order of the Markov chain
+    show_plots : bool
+        Whether to display the plot
+    save_figure_func : callable
+        Function to save the figure
+    observed_only : bool, default=False
+        If True, only show rows for observed histories (for VOM/FP modes).
+        If False, show all possible histories including phantom ones (for basic mode).
+    """
+    from itertools import product
+    
+    # Generate all possible history sequences of length `order`
+    all_histories = list(product(range(n_clusters), repeat=order))
+    n_total_histories = len(all_histories)  # n_clusters^order
+    
+    # Count observed histories
+    n_observed = sum(1 for h in all_histories if h in transition_dict)
+    
+    if observed_only:
+        # Only include observed histories (for VOM/FP modes)
+        observed_histories = [h for h in all_histories if h in transition_dict]
+        if len(observed_histories) == 0:
+            print(f"  No observed {order}-grams to plot")
+            return
+        histories_to_plot = observed_histories
+    else:
+        # Include all possible histories (for basic mode)
+        histories_to_plot = all_histories
+    
+    n_rows = len(histories_to_plot)
+    
+    # Build the transition matrix: rows = histories, columns = next state
+    trans_matrix = np.zeros((n_rows, n_clusters))
+    
+    for row_idx, history in enumerate(histories_to_plot):
+        if history in transition_dict:
+            trans_matrix[row_idx, :] = transition_dict[history]
+        else:
+            # No observed transitions for this history - leave as zeros
+            trans_matrix[row_idx, :] = 0
+    
+    # Create row labels: e.g., "C1,C2" for 2nd order, "C1,C2,C3" for 3rd order
+    row_labels = [','.join([f'C{c+1}' for c in h]) for h in histories_to_plot]
+    col_labels = [f'C{i+1}' for i in range(n_clusters)]
+    
+    # Determine figure size based on matrix dimensions
+    fig_height = max(4, min(12, 0.3 * n_rows + 1))
+    fig_width = max(4, min(8, 0.5 * n_clusters + 2))
+    
+    fig, ax = plt.subplots(figsize=(fig_width, fig_height))
+    im = ax.imshow(trans_matrix, cmap='Blues', vmin=0, vmax=1, aspect='auto')
+    
+    # Add text annotations if matrix is not too large
+    if n_rows <= 27 and n_clusters <= 9:  # Up to 3^3 histories
+        for i in range(n_rows):
+            for j in range(n_clusters):
+                val = trans_matrix[i, j]
+                if val > 0:  # Only show non-zero values
+                    text_color = 'white' if val > 0.5 else 'black'
+                    fontsize = 7 if n_rows > 9 else 9
+                    ax.text(j, i, f'{val:.2f}', ha='center', va='center', 
+                           fontsize=fontsize, color=text_color)
+    
+    # Set axis labels
+    ax.set_xticks(range(n_clusters))
+    ax.set_xticklabels(col_labels)
+    ax.set_yticks(range(n_rows))
+    ax.set_yticklabels(row_labels, fontsize=7 if n_rows > 9 else 9)
+    
+    ax.set_xlabel('Next State', fontsize=10)
+    ax.set_ylabel(f'History (previous {order} states)', fontsize=10)
+    
+    # Add ordinal suffix
+    ordinal = {1: 'st', 2: 'nd', 3: 'rd'}.get(order, 'th')
+    if observed_only:
+        ax.set_title(f'{order}{ordinal}-Order Transition Matrix\n({n_observed}/{n_total_histories} histories observed, showing observed only)', 
+                     fontsize=10)
+    else:
+        ax.set_title(f'{order}{ordinal}-Order Transition Matrix\n({n_observed}/{n_total_histories} histories observed)', 
+                     fontsize=10)
+    
+    cbar = plt.colorbar(im, ax=ax)
+    cbar.set_label('Probability', fontsize=9)
+    plt.tight_layout()
+    save_figure_func(fig, f'markov_transition_matrix_order{order}')
+    
+    if show_plots:
+        plt.show()
+    else:
+        plt.close(fig)
+
+
+def train_markov_model(features, unit_sequence_per_core, n_clusters=None, k_range=range(2, 11),
+                       mc_order=1, mc_model='VOM', feature_names=None,
+                       show_plots=True, savefig=False, save_path=None, save_format='png'):
+    """
+    Train Markov model from unit features and stacking sequences.
+    
+    This function performs K-means clustering on the provided features and builds
+    a transition probability matrix based on observed cluster sequences in cores.
+    Supports 1st-order, higher-order, VOM, and FP Markov chains.
+    
+    Parameters
+    ----------
+    features : array-like of shape (n_units, n_features)
+        Feature array for all units. Can be any features computed by the user
+        (thickness, mud_cap_fraction, log ratios, etc.)
+    unit_sequence_per_core : dict
+        Dictionary mapping core_name -> list of unit indices (deepest to shallowest).
+        Indices refer to positions in the features array.
+        Used to build transition matrix from observed cluster sequences.
+    n_clusters : int or None, default=None
+        Number of clusters. If None, auto-detect using elbow method.
+    k_range : range or list, default=range(2, 11)
+        Range of k values for elbow method (used if n_clusters is None)
+    mc_order : int, default=1
+        Order of the Markov chain. 
+        - mc_order=1: Standard 1st-order MC where next state depends only on current state.
+        - mc_order>1: Higher-order MC where next state depends on previous `mc_order` states.
+    mc_model : str, default='VOM'
+        Markov chain model type for higher-order chains (mc_order > 1):
+        - 'basic': Simple higher-order MC without phantom history handling.
+        - 'VOM': Variable-Order Markov Model - uses longest observed context up to mc_order.
+          Naturally handles unseen n-grams by falling back to shorter contexts.
+        - 'FP': Forbidden Path Model - only allows transitions from observed n-grams.
+          Initializes sequences from observed starting patterns.
+    feature_names : list of str or None, default=None
+        Names for each feature column, used for axis labels in scatter plots.
+        If None, uses generic names like "Feature 1", "Feature 2", etc.
+    show_plots : bool, default=True
+        If True, display elbow plot and cluster scatter plots.
+    savefig : bool, default=False
+        If True, save figures to disk.
+    save_path : str or None, default=None
+        Directory path for saving figures. Required if savefig=True.
+    save_format : str or list, default='png'
+        Format(s) for saved figures. Can be single format ('png') or list (['png', 'svg']).
+        Supported: 'png', 'jpg', 'svg', 'pdf'
+    
+    Returns
+    -------
+    markov_params : dict
+        Dictionary containing trained model parameters:
+        - 'kmeans': trained KMeans model
+        - 'scaler': trained RobustScaler
+        - 'n_clusters': int
+        - 'mc_order': int, the Markov chain order
+        - 'mc_model': str, the model type ('basic', 'VOM', or 'FP')
+        - 'cluster_labels': array of cluster assignments for training units
+        - 'transition_matrix': 2D array of 1st-order transition probabilities
+        - 'transition_dict': highest-order transition dict (for basic mc_order>1, else None)
+        - 'transition_dicts': dict mapping order -> transition_dict (for basic mode)
+        - 'vom_transition_dicts': dict for VOM model (order -> {n-gram: {next: prob}})
+        - 'fp_transition_dict': dict for FP model ({n-gram: {next: prob}})
+        - 'observed_starts': list of observed starting n-grams (for FP model)
+        - 'stationary_dist': 1D array of stationary distribution
+        - 'cluster_centers': 2D array of cluster centers (in original scale)
+        - 'elbow_info': dict (if n_clusters was auto-detected, else None)
+    
+    Example
+    -------
+    >>> # 1st-order Markov Chain
+    >>> markov_params = train_markov_model(features, unit_seq)
+    >>> 
+    >>> # 3rd-order VOM (Variable-Order Markov, default for higher-order)
+    >>> markov_params = train_markov_model(features, unit_seq, mc_order=3, mc_model='VOM')
+    >>> 
+    >>> # 3rd-order FP (Forbidden Path)
+    >>> markov_params = train_markov_model(features, unit_seq, mc_order=3, mc_model='FP')
+    >>> 
+    >>> # 3rd-order basic (no phantom history handling)
+    >>> markov_params = train_markov_model(features, unit_seq, mc_order=3, mc_model='basic')
+    """
+    # Validate mc_model
+    mc_model = mc_model.upper()
+    if mc_model not in ['BASIC', 'VOM', 'FP']:
+        raise ValueError(f"mc_model must be 'basic', 'VOM', or 'FP', got '{mc_model}'")
+    if not SKLEARN_AVAILABLE:
+        raise ImportError("scikit-learn is required for Markov Chain clustering. Install with: pip install scikit-learn")
+    
+    # Helper function to save figures
+    def _save_figure(fig, filename_base):
+        if not savefig:
+            return
+        if save_path is None:
+            raise ValueError("save_path is required when savefig=True")
+        os.makedirs(save_path, exist_ok=True)
+        
+        formats = save_format if isinstance(save_format, list) else [save_format]
+        for fmt in formats:
+            filepath = os.path.join(save_path, f"{filename_base}.{fmt}")
+            fig.savefig(filepath, dpi=150, bbox_inches='tight')
+            print(f"  Saved: {filepath}")
+    
+    features = np.asarray(features)
+    if features.ndim == 1:
+        features = features.reshape(-1, 1)
+    
+    n_features = features.shape[1]
+    
+    # Generate feature names if not provided
+    if feature_names is None:
+        feature_names = [f'Feature {i+1}' for i in range(n_features)]
+    elif len(feature_names) < n_features:
+        # Extend with generic names if not enough provided
+        feature_names = list(feature_names) + [f'Feature {i+1}' for i in range(len(feature_names), n_features)]
+    
+    # Scale features
+    scaler = RobustScaler()
+    X_scaled = scaler.fit_transform(features)
+    
+    # Find optimal k if not specified
+    elbow_info = None
+    if n_clusters is None:
+        n_clusters, elbow_info = find_optimal_k(X_scaled, k_range)
+        print(f"Auto-detected optimal k = {n_clusters}")
+        
+        # Plot elbow curve
+        if show_plots or savefig:
+            fig, ax = plt.subplots(figsize=(5, 3.5))
+            ax.plot(elbow_info['k_list'], elbow_info['inertias'], 'bo-', markersize=6)
+            ax.axvline(x=n_clusters, color='r', linestyle='--', linewidth=1.5, 
+                       label=f'Optimal k = {n_clusters}')
+            ax.set_xlabel('Number of Clusters (k)', fontsize=10)
+            ax.set_ylabel('Inertia (Within-cluster SSE)', fontsize=10)
+            ax.set_title('Elbow Method for Optimal k', fontsize=11)
+            ax.legend(fontsize=9)
+            ax.grid(True, alpha=0.3)
+            plt.tight_layout()
+            _save_figure(fig, 'markov_elbow_plot')
+            if show_plots:
+                plt.show()
+            else:
+                plt.close(fig)
+    
+    # Fit K-means
+    kmeans = KMeans(n_clusters=n_clusters, random_state=42, n_init=10)
+    cluster_labels = kmeans.fit_predict(X_scaled)
+    
+    # Get cluster centers in original scale
+    cluster_centers = scaler.inverse_transform(kmeans.cluster_centers_)
+    
+    # Plot cluster scatter plots with cluster names
+    # When more than 2 features, show Feature 1 vs each other feature
+    if show_plots or savefig:
+        from matplotlib.colors import BoundaryNorm
+        
+        # Count units per cluster
+        unique, counts = np.unique(cluster_labels, return_counts=True)
+        cluster_counts = dict(zip(unique, counts))
+        
+        # Create discrete colormap for clusters
+        cmap = plt.cm.get_cmap('tab10', n_clusters)
+        bounds = np.arange(-0.5, n_clusters + 0.5, 1)
+        norm = BoundaryNorm(bounds, cmap.N)
+        
+        # Determine number of scatter plots needed
+        n_scatter_plots = max(1, n_features - 1)  # Feature 1 vs all others
+        
+        for plot_idx in range(n_scatter_plots):
+            feat_x_idx = 0  # Always Feature 1 on x-axis
+            feat_y_idx = plot_idx + 1 if n_features > 1 else 0
+            
+            fig, ax = plt.subplots(figsize=(5, 4))
+            scatter = ax.scatter(features[:, feat_x_idx], features[:, feat_y_idx], 
+                                c=cluster_labels, cmap=cmap, norm=norm, alpha=0.7, s=40, 
+                                edgecolors='k', linewidth=0.5)
+            ax.scatter(cluster_centers[:, feat_x_idx], cluster_centers[:, feat_y_idx], 
+                      c='red', marker='X', s=150, edgecolors='k', linewidth=1.5, 
+                      label='Centroids')
+            
+            # Annotate cluster centers with cluster name (C1, C2, ...)
+            for i in range(n_clusters):
+                cx, cy = cluster_centers[i, feat_x_idx], cluster_centers[i, feat_y_idx]
+                ax.annotate(f'C{i+1}', (cx, cy), textcoords='offset points', 
+                           xytext=(8, 8), fontsize=9, fontweight='bold',
+                           bbox=dict(boxstyle='round,pad=0.2', facecolor='white', alpha=0.7))
+            
+            ax.set_xlabel(f'({feature_names[feat_x_idx]})', fontsize=10)
+            ax.set_ylabel(f'({feature_names[feat_y_idx]})', fontsize=10)
+            ax.set_title(f'K-Means Clustering (k={n_clusters})', fontsize=11)
+            ax.legend(fontsize=9)
+            ax.grid(True, alpha=0.3)
+            cbar = plt.colorbar(scatter, ax=ax, ticks=range(n_clusters))
+            cbar.ax.set_yticklabels([f'C{i+1}' for i in range(n_clusters)])
+            cbar.set_label('Cluster', fontsize=9)
+            plt.tight_layout()
+            
+            suffix = f'_f1_vs_f{feat_y_idx+1}' if n_features > 2 else ''
+            _save_figure(fig, f'markov_cluster_scatter{suffix}')
+            if show_plots:
+                plt.show()
+            else:
+                plt.close(fig)
+    
+    # Build transition matrix (always build 1st-order for plotting and fallback)
+    transition_matrix, stationary_dist = build_transition_matrix(
+        cluster_labels, unit_sequence_per_core, n_clusters
+    )
+    
+    # Initialize model-specific parameters
+    transition_dicts = {}  # For basic mode
+    vom_transition_dicts = None  # For VOM mode
+    fp_transition_dict = None  # For FP mode
+    fp_transition_dicts_for_plot = {}  # For FP mode plotting (all orders)
+    observed_starts = None  # For FP mode
+    
+    # Build higher-order transitions based on mc_model
+    if mc_order > 1:
+        if mc_model == 'BASIC':
+            # Basic higher-order MC (no phantom history handling)
+            for order in range(2, mc_order + 1):
+                transition_dicts[order] = build_higher_order_transitions(
+                    cluster_labels, unit_sequence_per_core, n_clusters, order
+                )
+                print(f"Built {order}-order basic MC with {len(transition_dicts[order])} state transitions")
+        
+        elif mc_model == 'VOM':
+            # Variable-Order Markov Model
+            vom_transition_dicts = build_vom_transitions(
+                cluster_labels, unit_sequence_per_core, n_clusters, mc_order
+            )
+            print(f"Built VOM with max_order={mc_order}")
+            for order in range(1, mc_order + 1):
+                n_ngrams = len(vom_transition_dicts.get(order, {}))
+                print(f"  Order {order}: {n_ngrams} observed {order}-grams")
+        
+        elif mc_model == 'FP':
+            # Forbidden Path Model - build for all orders (for plotting)
+            # but only the highest order is used for generation
+            fp_transition_dict, observed_starts = build_fp_transitions(
+                cluster_labels, unit_sequence_per_core, n_clusters, mc_order
+            )
+            # Also build for intermediate orders (for plotting purposes)
+            fp_transition_dicts_for_plot = {}
+            for order in range(2, mc_order + 1):
+                fp_dict_order, _ = build_fp_transitions(
+                    cluster_labels, unit_sequence_per_core, n_clusters, order
+                )
+                fp_transition_dicts_for_plot[order] = fp_dict_order
+            print(f"Built Forbidden Path with order={mc_order}")
+            for order in range(2, mc_order + 1):
+                n_ngrams = len(fp_transition_dicts_for_plot.get(order, {}))
+                print(f"  Order {order}: {n_ngrams} observed {order}-grams")
+            print(f"  Observed starting sequences: {len(observed_starts)}")
+    
+    # Plot transition matrices for all orders
+    if show_plots or savefig:
+        # Plot 1st-order transition matrix
+        fig, ax = plt.subplots(figsize=(4.5, 4))
+        im = ax.imshow(transition_matrix, cmap='Blues', vmin=0, vmax=1)
+        
+        # Add text annotations
+        for i in range(n_clusters):
+            for j in range(n_clusters):
+                val = transition_matrix[i, j]
+                text_color = 'white' if val > 0.5 else 'black'
+                ax.text(j, i, f'{val:.2f}', ha='center', va='center', 
+                       fontsize=9, color=text_color)
+        
+        ax.set_xticks(range(n_clusters))
+        ax.set_yticks(range(n_clusters))
+        ax.set_xticklabels([f'C{i+1}' for i in range(n_clusters)])
+        ax.set_yticklabels([f'C{i+1}' for i in range(n_clusters)])
+        ax.set_xlabel('To Cluster', fontsize=10)
+        ax.set_ylabel('From Cluster', fontsize=10)
+        ax.set_title('1st-Order Transition Matrix', fontsize=11)
+        cbar = plt.colorbar(im, ax=ax)
+        cbar.set_label('Probability', fontsize=9)
+        plt.tight_layout()
+        _save_figure(fig, 'markov_transition_matrix_order1')
+        if show_plots:
+            plt.show()
+        else:
+            plt.close(fig)
+        
+        # Plot higher-order transition matrices
+        if mc_order > 1:
+            for order in range(2, mc_order + 1):
+                # Get the appropriate transition dict based on model type
+                if mc_model == 'BASIC' and order in transition_dicts:
+                    # Basic mode: show all possible histories (including phantom)
+                    _plot_higher_order_transition_matrix(
+                        transition_dicts[order], n_clusters, order,
+                        show_plots, _save_figure, observed_only=False
+                    )
+                elif mc_model == 'VOM' and vom_transition_dicts and order in vom_transition_dicts:
+                    # VOM mode: show only observed histories (no phantom rows)
+                    vom_dict_for_plot = {}
+                    for ngram, next_dict in vom_transition_dicts[order].items():
+                        probs = np.zeros(n_clusters)
+                        for next_state, prob in next_dict.items():
+                            probs[next_state] = prob
+                        vom_dict_for_plot[ngram] = probs
+                    _plot_higher_order_transition_matrix(
+                        vom_dict_for_plot, n_clusters, order,
+                        show_plots, _save_figure, observed_only=True
+                    )
+                elif mc_model == 'FP' and order in fp_transition_dicts_for_plot:
+                    # FP mode: show only observed histories (no phantom rows)
+                    fp_dict_for_plot = {}
+                    for ngram, next_dict in fp_transition_dicts_for_plot[order].items():
+                        probs = np.zeros(n_clusters)
+                        for next_state, prob in next_dict.items():
+                            probs[next_state] = prob
+                        fp_dict_for_plot[ngram] = probs
+                    _plot_higher_order_transition_matrix(
+                        fp_dict_for_plot, n_clusters, order,
+                        show_plots, _save_figure, observed_only=True
+                    )
+    
+    # For backward compatibility, transition_dict is the highest order dict (or None)
+    transition_dict = transition_dicts.get(mc_order, None) if mc_model == 'BASIC' and mc_order > 1 else None
+    
+    markov_params = {
+        'kmeans': kmeans,
+        'scaler': scaler,
+        'n_clusters': n_clusters,
+        'mc_order': mc_order,
+        'mc_model': mc_model,
+        'cluster_labels': cluster_labels,
+        'transition_matrix': transition_matrix,
+        'transition_dict': transition_dict,  # For basic mode backward compat
+        'transition_dicts': transition_dicts if mc_model == 'BASIC' and mc_order > 1 else None,
+        'vom_transition_dicts': vom_transition_dicts,  # For VOM mode
+        'fp_transition_dict': fp_transition_dict,  # For FP mode
+        'observed_starts': observed_starts,  # For FP mode
+        'stationary_dist': stationary_dist,
+        'cluster_centers': cluster_centers,
+        'elbow_info': elbow_info
+    }
+    
+    return markov_params
+
+
+# =============================================================================
+# SEGMENT POOL FUNCTIONS
+# =============================================================================
 
 def load_segment_pool(core_names, log_data_csv, log_data_type, picked_datum, 
-                     depth_column, alternative_column_names=None, boundary_category=None, neglect_topbottom=True):
+                     depth_column, alternative_column_names=None, boundary_category=None, 
+                     neglect_topbottom=True, require_valid_sequence=True):
     """
     Load segment pool data from turbidite database.
     
@@ -54,6 +905,7 @@ def load_segment_pool(core_names, log_data_csv, log_data_type, picked_datum,
     - boundary_category: category number for turbidite boundaries (default: None). 
                         If None, uses category 1 if available, otherwise uses the lowest available category
     - neglect_topbottom: if True, skip the first and last segments of each core (default: True)
+    - require_valid_sequence: if True, only include segments with valid 1-2-3 category sequence (default: True)
     
     Returns:
     - seg_pool_metadata: dict containing loaded core data
@@ -71,6 +923,21 @@ def load_segment_pool(core_names, log_data_csv, log_data_type, picked_datum,
         print(f"Processing {core_name}...")
         
         try:
+            # First, verify all required log files exist before loading
+            missing_logs = []
+            for log_col in log_data_type:
+                if log_col not in log_data_csv[core_name]:
+                    missing_logs.append(log_col)
+                else:
+                    log_path = log_data_csv[core_name][log_col]
+                    if not os.path.exists(log_path):
+                        missing_logs.append(log_col)
+            
+            # Skip core if any required log type is missing
+            if missing_logs:
+                print(f"  Skipping {core_name}: Missing log types: {missing_logs}")
+                continue
+            
             # Load data for segment pool
             log_data, md_data = load_log_data(
                 log_data_csv[core_name],
@@ -82,6 +949,13 @@ def load_segment_pool(core_names, log_data_csv, log_data_type, picked_datum,
             # Check if data was successfully loaded
             if len(md_data) == 0:
                 print(f"  Skipping {core_name}: Failed to load log data")
+                continue
+            
+            # Verify the loaded data has correct dimensions
+            expected_dims = len(log_data_type)
+            actual_dims = log_data.shape[1] if log_data.ndim > 1 else 1
+            if actual_dims != expected_dims:
+                print(f"  Skipping {core_name}: Expected {expected_dims} log columns, got {actual_dims}")
                 continue
             
             # Store core data
@@ -119,6 +993,49 @@ def load_segment_pool(core_names, log_data_csv, log_data_type, picked_datum,
                 
                 category_depths = np.sort(category_depths)  # Ensure sorted order
                 
+                # Build set of valid cat1 depths (those with valid 1-2-3 sequence) if required
+                valid_cat1_depths = set()
+                if require_valid_sequence:
+                    # Get all depths and categories sorted by depth
+                    all_depths = picked_df['picked_depths_cm'].values
+                    all_categories = picked_df['category'].values
+                    sorted_indices = np.argsort(all_depths)
+                    sorted_depths = all_depths[sorted_indices]
+                    sorted_categories = all_categories[sorted_indices]
+                    
+                    # Find valid 1-2-3 sequences
+                    cat1_indices = np.where(sorted_categories == 1)[0]
+                    used_cat2 = set()
+                    used_cat3 = set()
+                    
+                    for cat1_idx in cat1_indices:
+                        cat1_depth = sorted_depths[cat1_idx]
+                        
+                        # Find closest cat2 shallower than cat1 (smaller depth value)
+                        cat2_candidates = np.where((sorted_categories == 2) & (sorted_depths < cat1_depth))[0]
+                        cat2_candidates = np.array([idx for idx in cat2_candidates if idx not in used_cat2])
+                        
+                        if len(cat2_candidates) == 0:
+                            continue
+                        
+                        # Get the closest cat2 (largest depth that's still < cat1_depth)
+                        closest_cat2_idx = cat2_candidates[np.argmax(sorted_depths[cat2_candidates])]
+                        cat2_depth = sorted_depths[closest_cat2_idx]
+                        
+                        # Find closest cat3 shallower than cat2
+                        cat3_candidates = np.where((sorted_categories == 3) & (sorted_depths < cat2_depth))[0]
+                        cat3_candidates = np.array([idx for idx in cat3_candidates if idx not in used_cat3])
+                        
+                        if len(cat3_candidates) == 0:
+                            continue
+                        
+                        # Valid 1-2-3 sequence found
+                        used_cat2.add(closest_cat2_idx)
+                        used_cat3.add(cat3_candidates[np.argmax(sorted_depths[cat3_candidates])])
+                        valid_cat1_depths.add(cat1_depth)
+                    
+                    print(f"  Found {len(valid_cat1_depths)} segments with valid 1-2-3 sequences")
+                
                 # Create turbidite segments (from boundary to boundary)
                 # Determine range based on neglect_topbottom parameter
                 if neglect_topbottom and len(category_depths) > 2:
@@ -130,9 +1047,19 @@ def load_segment_pool(core_names, log_data_csv, log_data_type, picked_datum,
                     start_range = 0
                     end_range = len(category_depths) - 1
                 
+                segments_added = 0
+                segments_skipped = 0
+                
                 for i in range(start_range, end_range):
                     start_depth = category_depths[i]
                     end_depth = category_depths[i + 1]
+                    
+                    # Check if this segment has valid 1-2-3 sequence (if required)
+                    if require_valid_sequence:
+                        # The segment's base is at end_depth (deeper), check if it's in valid set
+                        if end_depth not in valid_cat1_depths:
+                            segments_skipped += 1
+                            continue
                     
                     # Find indices corresponding to these depths
                     start_idx = np.argmin(np.abs(md_data - start_depth))
@@ -145,11 +1072,15 @@ def load_segment_pool(core_names, log_data_csv, log_data_type, picked_datum,
                         
                         seg_logs.append(turb_segment)
                         seg_depths.append(turb_depth)
+                        segments_added += 1
+                
+                if require_valid_sequence:
+                    print(f"  Added {segments_added} segments, skipped {segments_skipped} (no valid 1-2-3 sequence)")
                 
             except Exception as e:
                 print(f"Warning: Could not load turbidite boundaries for {core_name}: {e}")
             
-            print(f"  Loaded: {len(log_data)} points, columns: {log_data_type}")
+            print(f"  Loaded: {len(md_data)} points, columns: {log_data_type}")
             
         except Exception as e:
             print(f"Error loading {core_name}: {e}")
@@ -222,23 +1153,157 @@ def modify_segment_pool(segment_logs, segment_depths, remove_list=None):
     
     return modified_segment_logs, modified_segment_depths
 
-def create_synthetic_log(target_thickness, segment_logs, segment_depths, exclude_inds=None, repetition=False):
+def create_synthetic_log(segment_logs, segment_depths, max_thickness=None, max_num_units=None,
+                         exclude_inds=None, repetition=False, method='random', markov_params=None, 
+                         segment_features=None, random_seed=None):
     """Create synthetic log using turbidite database approach with picked depths at turbidite bases.
     
-    Parameters:
-    - target_thickness: target thickness for the synthetic log
-    - segment_logs: list of turbidite log segments
-    - segment_depths: list of corresponding depth arrays
-    - exclude_inds: indices to exclude from selection (optional)
-    - repetition: if True, allow reusing turbidite segments; if False, each segment can only be used once (default: False)
+    Parameters
+    ----------
+    segment_logs : list
+        List of turbidite log segments (numpy arrays)
+    segment_depths : list
+        List of corresponding depth arrays
+    max_thickness : float or None, default=None
+        Maximum thickness for the synthetic log. If None and max_num_units is provided,
+        thickness is determined by stacking units until max_num_units is reached.
+        If both are None, defaults to max_num_units=10.
+    max_num_units : int or None, default=None
+        Maximum number of units to stack. If None and max_thickness is provided,
+        stacking continues until max_thickness is reached.
+        If both are None, defaults to 10.
+    exclude_inds : list or None, default=None
+        Indices to exclude from selection
+    repetition : bool, default=False
+        If True, allow reusing turbidite segments; if False, each segment can only be used once
+    method : str, default='random'
+        Segment selection method:
+        - 'random': Random selection (original behavior)
+        - 'MarkovChain': Markov Chain-based selection using trained cluster transitions.
+          Supports both 1st-order and higher-order Markov chains based on markov_params.
+    markov_params : dict or None, default=None
+        Dictionary from train_markov_model() containing trained model parameters.
+        Required when method='MarkovChain'. Contains:
+        - 'kmeans', 'scaler', 'n_clusters': clustering model
+        - 'transition_matrix', 'stationary_dist': 1st-order MC parameters
+        - 'mc_order': Markov chain order (1 for 1st-order, >1 for higher-order)
+        - 'transition_dict': higher-order transition dictionary (for mc_order > 1)
+    segment_features : array-like or None, default=None
+        Feature array of shape (n_segments, n_features) for cluster assignment.
+        Required when method='MarkovChain'. Should contain the same feature types used for training.
+    random_seed : int or None, default=None
+        Random seed for reproducibility. If None, results vary between runs.
     
-    Returns:
-    - tuple: (log, d, valid_picked_depths, inds)
-      - log: synthetic log data array
-      - d: depth values array
-      - valid_picked_depths: list of boundary depth values (just depths, no category info)
-      - inds: list of indices of segments used from the pool
+    Returns
+    -------
+    log : ndarray
+        Synthetic log data array
+    d : ndarray
+        Depth values array
+    valid_picked_depths : list
+        List of boundary depth values (just depths, no category info)
+    inds : list
+        List of indices of segments used from the pool
+    
+    Example
+    -------
+    >>> # Random method with max_thickness (default, backward compatible)
+    >>> syn_log, syn_md, syn_depths, inds = create_synthetic_log(
+    ...     segment_logs=seg_logs,
+    ...     segment_depths=seg_depths,
+    ...     max_thickness=400
+    ... )
+    >>> 
+    >>> # Random method with max_num_units only
+    >>> syn_log, syn_md, syn_depths, inds = create_synthetic_log(
+    ...     segment_logs=seg_logs,
+    ...     segment_depths=seg_depths,
+    ...     max_num_units=15
+    ... )
+    >>> 
+    >>> # MarkovChain method with both constraints
+    >>> markov_params = train_markov_model(features, unit_seq)
+    >>> syn_log, syn_md, syn_depths, inds = create_synthetic_log(
+    ...     segment_logs=seg_logs,
+    ...     segment_depths=seg_depths,
+    ...     max_thickness=400,
+    ...     max_num_units=10,
+    ...     method='MarkovChain',
+    ...     markov_params=markov_params,
+    ...     segment_features=segment_features
+    ... )
     """
+    # Handle default case: if both are None, default to max_num_units=10
+    if max_thickness is None and max_num_units is None:
+        max_num_units = 10
+    # Set random seed if provided
+    if random_seed is not None:
+        random.seed(random_seed)
+        np.random.seed(random_seed)
+    
+    # Validate method
+    method = method.lower()
+    if method not in ['random', 'markovchain']:
+        raise ValueError(f"method must be 'random' or 'MarkovChain', got '{method}'")
+    
+    # Validate MarkovChain requirements
+    if method == 'markovchain':
+        if markov_params is None:
+            raise ValueError("markov_params is required when method='MarkovChain'. Use train_markov_model() first.")
+        if segment_features is None:
+            raise ValueError("segment_features is required when method='MarkovChain'. Provide feature array for segments.")
+        
+        # Assign clusters to segments using trained model
+        segment_features = np.asarray(segment_features)
+        if segment_features.ndim == 1:
+            segment_features = segment_features.reshape(-1, 1)
+        
+        scaler = markov_params['scaler']
+        kmeans = markov_params['kmeans']
+        segment_features_scaled = scaler.transform(segment_features)
+        segment_clusters = kmeans.predict(segment_features_scaled)
+        
+        # Get transition parameters
+        transition_matrix = markov_params['transition_matrix']
+        stationary_dist = markov_params['stationary_dist']
+        n_clusters = markov_params['n_clusters']
+        
+        # Get MC model parameters
+        mc_order = markov_params.get('mc_order', 1)
+        mc_model = markov_params.get('mc_model', 'BASIC').upper()
+        
+        # Get model-specific transition data
+        transition_dict = markov_params.get('transition_dict', None)  # For basic mode
+        vom_transition_dicts = markov_params.get('vom_transition_dicts', None)  # For VOM
+        fp_transition_dict = markov_params.get('fp_transition_dict', None)  # For FP
+        observed_starts = markov_params.get('observed_starts', None)  # For FP
+        
+        # Build available segments by cluster
+        available_by_cluster = {i: [] for i in range(n_clusters)}
+        for seg_idx, cluster in enumerate(segment_clusters):
+            if exclude_inds is None or seg_idx not in exclude_inds:
+                available_by_cluster[cluster].append(seg_idx)
+        
+        # Track used segments for MarkovChain
+        used_segments = set()
+        
+        # Track cluster history for higher-order MC
+        cluster_history = []
+        
+        # Sample initial cluster(s) based on model type
+        if mc_order > 1 and mc_model == 'FP' and observed_starts and len(observed_starts) > 0:
+            # FP: Initialize with an observed starting sequence
+            start_seq = list(observed_starts[np.random.randint(len(observed_starts))])
+            cluster_history = start_seq.copy()
+            current_cluster = cluster_history[-1]
+        elif mc_order > 1:
+            # VOM or basic: Initialize with stationary distribution
+            for _ in range(mc_order):
+                cluster_history.append(np.random.choice(n_clusters, p=stationary_dist))
+            current_cluster = cluster_history[-1]
+        else:
+            current_cluster = np.random.choice(n_clusters, p=stationary_dist)
+    
     # Determine target dimensions from the first available segment
     target_dimensions = segment_logs[0].shape[1] if len(segment_logs) > 0 and segment_logs[0].ndim > 1 else 1
     
@@ -248,36 +1313,108 @@ def create_synthetic_log(target_thickness, segment_logs, segment_depths, exclude
     inds = []
     picked_depths = []
     
-    # Initialize available indices for selection
-    if repetition:
-        # If repetition is allowed, always use the full range
-        available_inds = list(range(len(segment_logs)))
-    else:
-        # If no repetition, start with all indices and remove as we use them
-        available_inds = list(range(len(segment_logs)))
-        if exclude_inds is not None:
-            available_inds = [ind for ind in available_inds if ind not in exclude_inds]
+    # Initialize available indices for random selection
+    if method == 'random':
+        if repetition:
+            available_inds = list(range(len(segment_logs)))
+        else:
+            available_inds = list(range(len(segment_logs)))
+            if exclude_inds is not None:
+                available_inds = [ind for ind in available_inds if ind not in exclude_inds]
     
     # Add initial boundary
     picked_depths.append((0, 1))
     
-    while max_depth <= target_thickness:
-        # Check if we have available indices
-        if not repetition and len(available_inds) == 0:
-            print("Warning: No more unique turbidite segments available. Stopping log generation.")
-            break
-            
-        if repetition:
-            # Original behavior: select from full range, excluding only exclude_inds
-            potential_inds = [ind for ind in range(len(segment_logs)) if exclude_inds is None or ind not in exclude_inds]
-            if not potential_inds:
-                print("Warning: No available turbidite segments after exclusions. Stopping log generation.")
+    # Track number of units added
+    num_units = 0
+    
+    # Determine loop continuation condition
+    def should_continue():
+        # Check unit limit if specified
+        if max_num_units is not None and num_units >= max_num_units:
+            return False
+        # Check thickness limit if specified
+        if max_thickness is not None and max_depth > max_thickness:
+            return False
+        # If only max_num_units specified (no thickness limit), continue until unit limit
+        if max_thickness is None:
+            return True
+        # Otherwise continue until thickness is reached
+        return max_depth <= max_thickness
+    
+    while should_continue():
+        if method == 'random':
+            # ===== RANDOM SELECTION =====
+            if not repetition and len(available_inds) == 0:
+                print("Warning: No more unique turbidite segments available. Stopping log generation.")
                 break
-            ind = random.choices(potential_inds, k=1)[0]
+                
+            if repetition:
+                potential_inds = [ind for ind in range(len(segment_logs)) if exclude_inds is None or ind not in exclude_inds]
+                if not potential_inds:
+                    print("Warning: No available turbidite segments after exclusions. Stopping log generation.")
+                    break
+                ind = random.choices(potential_inds, k=1)[0]
+            else:
+                ind = random.choices(available_inds, k=1)[0]
+                available_inds.remove(ind)
+        
         else:
-            # New behavior: select from available indices and remove after use
-            ind = random.choices(available_inds, k=1)[0]
-            available_inds.remove(ind)  # Remove from available list to prevent reuse
+            # ===== MARKOV CHAIN SELECTION =====
+            # Find available segments in current cluster
+            available = [s for s in available_by_cluster[current_cluster] 
+                         if repetition or s not in used_segments]
+            
+            # If no segments in current cluster, try other clusters
+            if len(available) == 0:
+                found = False
+                for alt_cluster in range(n_clusters):
+                    alt_available = [s for s in available_by_cluster[alt_cluster] 
+                                     if repetition or s not in used_segments]
+                    if len(alt_available) > 0:
+                        current_cluster = alt_cluster
+                        available = alt_available
+                        found = True
+                        break
+                if not found:
+                    print("Warning: No more segments available for MarkovChain. Stopping log generation.")
+                    break
+            
+            # Select random segment from current cluster
+            ind = random.choice(available)
+            used_segments.add(ind)
+            
+            # Track cluster in history
+            cluster_history.append(current_cluster)
+            
+            # Transition to next cluster based on MC model and order
+            if mc_order > 1:
+                if mc_model == 'VOM' and vom_transition_dicts is not None:
+                    # VOM: Use longest matching context
+                    transition_probs, _ = _get_vom_transition_probs(
+                        cluster_history, vom_transition_dicts, stationary_dist, n_clusters, mc_order
+                    )
+                elif mc_model == 'FP' and fp_transition_dict is not None:
+                    # FP: Use forbidden path transitions
+                    transition_probs, is_valid = _get_fp_transition_probs(
+                        cluster_history, fp_transition_dict, stationary_dist, n_clusters, mc_order
+                    )
+                    if not is_valid:
+                        # Forbidden path - fall back to stationary or try to find valid path
+                        transition_probs = stationary_dist
+                elif mc_model == 'BASIC' and transition_dict is not None:
+                    # Basic higher-order MC
+                    transition_probs = _get_higher_order_transition_probs(
+                        cluster_history, transition_dict, transition_matrix, stationary_dist, mc_order
+                    )
+                else:
+                    # Fallback to 1st-order
+                    transition_probs = transition_matrix[current_cluster]
+            else:
+                # 1st-order MC: use transition matrix
+                transition_probs = transition_matrix[current_cluster]
+            
+            current_cluster = np.random.choice(n_clusters, p=transition_probs)
             
         inds.append(ind)
         
@@ -314,26 +1451,34 @@ def create_synthetic_log(target_thickness, segment_logs, segment_depths, exclude
             md_log = np.hstack((md_log, 1 + md_log[-1] + turb_depths))
             
         max_depth = md_log[-1]
+        num_units += 1
         
         # Add picked depth at the base of this turbidite (current max_depth)
-        if max_depth <= target_thickness:
+        # Only add if within thickness limit (if specified) or always add if no thickness limit
+        if max_thickness is None or max_depth <= max_thickness:
             picked_depths.append((max_depth, 1))
     
-    # Truncate to target thickness
-    valid_indices = md_log <= target_thickness
-    if target_dimensions > 1:
-        log = fake_log[valid_indices]
+    # Truncate to target thickness if specified
+    if max_thickness is not None:
+        valid_indices = md_log <= max_thickness
+        if target_dimensions > 1:
+            log = fake_log[valid_indices]
+        else:
+            log = fake_log[valid_indices]
+        d = md_log[valid_indices]
+        
+        # Filter picked depths to only include those within the valid range
+        valid_picked_depths = [depth for depth, category in picked_depths if depth <= max_thickness]
     else:
-        log = fake_log[valid_indices]
-    d = md_log[valid_indices]
-    
-    # Filter picked depths to only include those within the valid range
-    # Extract just the depth values (no category info)
-    valid_picked_depths = [depth for depth, category in picked_depths if depth <= target_thickness]
+        # No thickness limit - use all data
+        log = fake_log
+        d = md_log
+        valid_picked_depths = [depth for depth, category in picked_depths]
     
     # Ensure we have an end boundary
-    if len(valid_picked_depths) == 0 or valid_picked_depths[-1] != d[-1]:
-        valid_picked_depths.append(d[-1])
+    if len(valid_picked_depths) == 0 or (len(d) > 0 and valid_picked_depths[-1] != d[-1]):
+        if len(d) > 0:
+            valid_picked_depths.append(d[-1])
     
     return log, d, valid_picked_depths, inds
 
@@ -1553,7 +2698,8 @@ def plot_synthetic_correlation_quality(
     bin_width=None,
     plot_individual_pdf=False,
     save_plot=False,
-    plot_filename=None
+    plot_filename=None,
+    invert_norm_dtw=True
 ):
     """
     Plot synthetic correlation quality distributions from saved CSV files.
@@ -1583,6 +2729,10 @@ def plot_synthetic_correlation_quality(
     plot_filename : str or None, default=None
         Filename for saving plot. Can include {quality_index} placeholder.
         If save_plot=True but plot_filename=None, uses default naming based on plot type
+    invert_norm_dtw : bool, default=True
+        If True, for norm_dtw and norm_dtw_sect metrics, plot (1 - norm_dtw) values
+        so that higher values indicate better quality (consistent with corr_coef).
+        If False, plot original norm_dtw values (lower = better).
     
     Returns:
     --------
@@ -1633,8 +2783,14 @@ def plot_synthetic_correlation_quality(
                             raw_data.extend(bin_samples)
             
             # Store fit params with reconstructed raw data
+            raw_data_array = np.array(raw_data)
+            
+            # Transform norm_dtw values if invert_norm_dtw is True
+            if invert_norm_dtw and targeted_quality_index in ['norm_dtw', 'norm_dtw_sect']:
+                raw_data_array = 1 - raw_data_array
+            
             fit_params = {
-                'raw_data': np.array(raw_data),
+                'raw_data': raw_data_array,
                 'bins': bins,
                 'mean': row['mean'] if 'mean' in row else None,
                 'std': row['std'] if 'std' in row else None
@@ -1682,25 +2838,33 @@ def plot_synthetic_correlation_quality(
             
             # Plot all PDF curves as transparent red lines
             for fit_params in all_fit_params:
-                mean_val = fit_params.get('mean')
-                std_val = fit_params.get('std')
                 raw_data = fit_params.get('raw_data')
                 
-                if mean_val is not None and std_val is not None and raw_data is not None and len(raw_data) > 0:
-                    # Generate PDF curve with proper scaling
-                    x_min = raw_data.min()
-                    x_max = raw_data.max()
-                    x = np.linspace(x_min, x_max, 1000)
-                    # Scale PDF by bin_width * 100 to match histogram percentage scale
-                    y = stats.norm.pdf(x, mean_val, std_val) * current_bin_width * 100
-                    ax.plot(x, y, 'r-', linewidth=.7, alpha=0.3)
+                if raw_data is not None and len(raw_data) > 0:
+                    # Compute mean and std from the (potentially inverted) raw data
+                    mean_val = np.mean(raw_data)
+                    std_val = np.std(raw_data)
+                    
+                    if std_val > 0:
+                        # Generate PDF curve with proper scaling
+                        x_min = raw_data.min()
+                        x_max = raw_data.max()
+                        x = np.linspace(x_min, x_max, 1000)
+                        # Scale PDF by bin_width * 100 to match histogram percentage scale
+                        y = stats.norm.pdf(x, mean_val, std_val) * current_bin_width * 100
+                        ax.plot(x, y, 'r-', linewidth=.7, alpha=0.3)
             
             # Formatting based on quality index
-            if targeted_quality_index == 'corr_coef':
+            # Sectional metrics use the same x-axis range as their non-sectional counterparts
+            if targeted_quality_index in ['corr_coef', 'corr_coef_sect']:
                 ax.set_xlabel("Pearson's r\n(Correlation Coefficient)")
                 ax.set_xlim(0, 1.0)
-            elif targeted_quality_index == 'norm_dtw':
-                ax.set_xlabel("Normalized DTW Distance")
+            elif targeted_quality_index in ['norm_dtw', 'norm_dtw_sect']:
+                if invert_norm_dtw:
+                    ax.set_xlabel("1 - Normalized DTW Cost\n(Higher = Better)")
+                    ax.set_xlim(0.6, 1.0)
+                else:
+                    ax.set_xlabel("Normalized DTW Cost")
             elif targeted_quality_index == 'dtw_ratio':
                 ax.set_xlabel("DTW Ratio")
             elif targeted_quality_index == 'perc_diag':
@@ -1815,11 +2979,16 @@ def plot_synthetic_correlation_quality(
                     label=f'Normal Fit (μ={fitted_mean:.3f}, σ={fitted_std:.3f})')
             
             # Formatting based on quality index
-            if targeted_quality_index == 'corr_coef':
+            # Sectional metrics use the same x-axis range as their non-sectional counterparts
+            if targeted_quality_index in ['corr_coef', 'corr_coef_sect']:
                 ax.set_xlabel("Pearson's r\n(Correlation Coefficient)")
                 ax.set_xlim(0, 1.0)
-            elif targeted_quality_index == 'norm_dtw':
-                ax.set_xlabel("Normalized DTW Distance")
+            elif targeted_quality_index in ['norm_dtw', 'norm_dtw_sect']:
+                if invert_norm_dtw:
+                    ax.set_xlabel("1 - Normalized DTW Cost\n(Higher = Better)")
+                    ax.set_xlim(0.6, 1.0)
+                else:
+                    ax.set_xlabel("Normalized DTW Cost")
             elif targeted_quality_index == 'dtw_ratio':
                 ax.set_xlabel("DTW Ratio")
             elif targeted_quality_index == 'perc_diag':
@@ -1869,8 +3038,10 @@ def synthetic_correlation_quality(
     log_data_type, 
     quality_indices=['corr_coef', 'norm_dtw'], 
     number_of_iterations=20, 
-    core_a_length=400, 
-    core_b_length=400,
+    max_core_a_thickness=None, 
+    max_core_b_thickness=None,
+    max_num_units_core_a=None,
+    max_num_units_core_b=None,
     repetition=False, 
     pca_for_dependent_dtw=False, 
     output_csv_dir=None,
@@ -1879,7 +3050,10 @@ def synthetic_correlation_quality(
     append_mode=False,
     combination_id=None,
     max_paths_for_metrics=None,
-    n_jobs=-1
+    n_jobs=-1,
+    method='random',
+    markov_params=None,
+    segment_features=None
 ):
     """
     Run DTW correlation quality measurement analysis for synthetic core pairs over multiple iterations.
@@ -1898,10 +3072,18 @@ def synthetic_correlation_quality(
         List of quality indices (metrics) to compute for each synthetic pair.
     number_of_iterations : int, default 20
         Number of synthetic core pairs to generate/analyze.
-    core_a_length : int, default 400
-        Target length (in cm) for synthetic core A.
-    core_b_length : int, default 400
-        Target length (in cm) for synthetic core B.
+    max_core_a_thickness : float or None, default None
+        Maximum thickness for synthetic core A. If None and max_num_units_core_a is provided,
+        thickness is determined by stacking units. If both are None, defaults to max_num_units=10.
+    max_core_b_thickness : float or None, default None
+        Maximum thickness for synthetic core B. If None and max_num_units_core_b is provided,
+        thickness is determined by stacking units. If both are None, defaults to max_num_units=10.
+    max_num_units_core_a : int or None, default None
+        Maximum number of units to stack for core A. If None and max_core_a_thickness is provided,
+        stacking continues until thickness is reached.
+    max_num_units_core_b : int or None, default None
+        Maximum number of units to stack for core B. If None and max_core_b_thickness is provided,
+        stacking continues until thickness is reached.
     repetition : bool, default False
         Whether to allow resampling (reuse) of turbidite segments when assembling synthetic cores.
     pca_for_dependent_dtw : bool, default False
@@ -1927,6 +3109,16 @@ def synthetic_correlation_quality(
         unnecessary. If None, uses max_search_path value (no additional sampling).
     n_jobs : int, default -1
         Number of parallel jobs for metric computation. -1 uses all available cores.
+    method : str, default 'random'
+        Segment selection method for create_synthetic_log:
+        - 'random': Random selection (original behavior)
+        - 'MarkovChain': Markov Chain-based selection using trained cluster transitions
+    markov_params : dict or None, default None
+        Dictionary from train_markov_model() containing trained model parameters.
+        Required when method='MarkovChain'.
+    segment_features : array-like or None, default None
+        Feature array of shape (n_segments, n_features) for cluster assignment.
+        Required when method='MarkovChain'.
 
     Returns
     -------
@@ -1957,25 +3149,51 @@ def synthetic_correlation_quality(
     
     print(f"Starting synthetic correlation analysis with {number_of_iterations} iterations...")
     print(f"Quality indices: {quality_indices}")
-    print(f"Core lengths: A={core_a_length}cm, B={core_b_length}cm")
+    # Build constraint description
+    core_a_desc = []
+    if max_core_a_thickness is not None:
+        core_a_desc.append(f"max_thickness={max_core_a_thickness}")
+    if max_num_units_core_a is not None:
+        core_a_desc.append(f"max_units={max_num_units_core_a}")
+    if not core_a_desc:
+        core_a_desc.append("max_units=10 (default)")
+    
+    core_b_desc = []
+    if max_core_b_thickness is not None:
+        core_b_desc.append(f"max_thickness={max_core_b_thickness}")
+    if max_num_units_core_b is not None:
+        core_b_desc.append(f"max_units={max_num_units_core_b}")
+    if not core_b_desc:
+        core_b_desc.append("max_units=10 (default)")
+    
+    print(f"Core A constraints: {', '.join(core_a_desc)}")
+    print(f"Core B constraints: {', '.join(core_b_desc)}")
     
     # Run iterations with progress bar
     for iteration in tqdm(range(number_of_iterations), desc="Running synthetic analysis"):
         
         # Generate synthetic core pair
         syn_log_a, syn_md_a, syn_picked_a, inds_a = create_synthetic_log(
-            target_thickness=core_a_length, 
             segment_logs=segment_logs, 
-            segment_depths=segment_depths, 
+            segment_depths=segment_depths,
+            max_thickness=max_core_a_thickness,
+            max_num_units=max_num_units_core_a,
             exclude_inds=None, 
-            repetition=repetition
+            repetition=repetition,
+            method=method,
+            markov_params=markov_params,
+            segment_features=segment_features
         )
         syn_log_b, syn_md_b, syn_picked_b, inds_b = create_synthetic_log(
-            target_thickness=core_b_length, 
             segment_logs=segment_logs, 
-            segment_depths=segment_depths, 
+            segment_depths=segment_depths,
+            max_thickness=max_core_b_thickness,
+            max_num_units=max_num_units_core_b,
             exclude_inds=None, 
-            repetition=repetition
+            repetition=repetition,
+            method=method,
+            markov_params=markov_params,
+            segment_features=segment_features
         )
         
         # Run DTW analysis (syn_picked_a and syn_picked_b are already just depth values)
@@ -1999,7 +3217,7 @@ def synthetic_correlation_quality(
             syn_log_a, 
             syn_log_b,
             output_csv=temp_csv,
-            output_metric_only=True,
+            output_metric_only=False,
             shortest_path_search=True,
             shortest_path_level=2,
             max_search_path=max_search_path,
@@ -2024,15 +3242,53 @@ def synthetic_correlation_quality(
                 quality_values = metrics_df[targeted_quality_index].dropna().values
                 
                 if len(quality_values) > 0:
-                    # Compute normal distribution fit params directly
+                    # Compute histogram for reconstruction in plot function
+                    data_min = float(np.min(quality_values))
+                    data_max = float(np.max(quality_values))
                     mean_val = float(np.mean(quality_values))
                     std_val = float(np.std(quality_values))
+                    median_val = float(np.median(quality_values))
+                    n_points = len(quality_values)
+                    
+                    # Determine bin width based on quality index
+                    if 'corr_coef' in targeted_quality_index:
+                        bin_width = 0.025
+                    elif 'norm_dtw' in targeted_quality_index:
+                        bin_width = 0.0025
+                    else:
+                        # Use Freedman-Diaconis rule
+                        iqr = np.percentile(quality_values, 75) - np.percentile(quality_values, 25)
+                        bin_width = 2 * iqr / (n_points ** (1/3)) if iqr > 0 else 0.025
+                    
+                    # Create histogram bins
+                    bin_start = np.floor(data_min / bin_width) * bin_width
+                    bin_end = np.ceil(data_max / bin_width) * bin_width
+                    bins = np.arange(bin_start, bin_end + bin_width, bin_width)
+                    
+                    # Compute histogram (as percentages)
+                    hist_counts, _ = np.histogram(quality_values, bins=bins)
+                    hist_percentages = (hist_counts / n_points) * 100
+                    
+                    # Fit normal distribution for x_range and y_values
+                    x_range = np.linspace(data_min, data_max, 200)
+                    from scipy import stats
+                    y_values = stats.norm.pdf(x_range, mean_val, std_val) * n_points * bin_width
+                    
                     fit_params = {
-                        'mean': mean_val,
+                        'data_min': data_min,
+                        'data_max': data_max,
+                        'median': median_val,
                         'std': std_val,
-                        'count': len(quality_values),
-                        'min': float(np.min(quality_values)),
-                        'max': float(np.max(quality_values))
+                        'n_points': n_points,
+                        'hist_area': float(np.sum(hist_percentages)),
+                        'bins': np.array2string(bins, separator=' ', max_line_width=np.inf),
+                        'hist': np.array2string(hist_percentages, separator=' ', max_line_width=np.inf),
+                        'bin_width': bin_width,
+                        'n_bins': len(bins) - 1,
+                        'method': 'normal',
+                        'mean': mean_val,
+                        'x_range': np.array2string(x_range, separator=' ', max_line_width=np.inf),
+                        'y_values': np.array2string(y_values, separator=' ', max_line_width=np.inf)
                     }
                 else:
                     fit_params = None
@@ -2043,8 +3299,8 @@ def synthetic_correlation_quality(
             if fit_params is not None:
                 fit_params_copy = fit_params.copy()
                 fit_params_copy['iteration'] = iteration
-                fit_params_copy['core_a_length'] = core_a_length
-                fit_params_copy['core_b_length'] = core_b_length
+                fit_params_copy['core_a_length'] = max_core_a_thickness
+                fit_params_copy['core_b_length'] = max_core_b_thickness
                 if combination_id is not None:
                     fit_params_copy['combination_id'] = combination_id
                 

@@ -430,16 +430,23 @@ Remove unwanted segments from the pool data and return the modified pool.
 **Returns:**
 - `tuple`: (modified_segment_logs, modified_segment_depths) containing remaining log and depth arrays
 
-#### `create_synthetic_log(target_thickness, segment_logs, segment_depths, exclude_inds=None, repetition=False)`
+#### `create_synthetic_log(segment_logs, segment_depths, max_thickness=None, max_num_units=None, exclude_inds=None, repetition=False, method='random', markov_params=None, segment_features=None, random_seed=None)`
 
-Create synthetic log using turbidite database approach with picked depths at turbidite bases.
+Create synthetic log using turbidite database approach with picked depths at turbidite bases. Supports both random and MC-based segment selection. Stacking continues until either `max_thickness` or `max_num_units` is reached (whichever comes first).
 
 **Parameters:**
-- `target_thickness` (float): Target thickness for the synthetic log
-- `segment_logs` (list): List of turbidite log segments
+- `segment_logs` (list): List of turbidite log segments (numpy arrays)
 - `segment_depths` (list): List of corresponding depth arrays
+- `max_thickness` (float, optional): Maximum thickness for the synthetic log. If None and max_num_units is provided, thickness is determined by stacking units until max_num_units is reached. If both are None, defaults to max_num_units=10
+- `max_num_units` (int, optional): Maximum number of units to stack. If None and max_thickness is provided, stacking continues until max_thickness is reached. If both are None, defaults to 10
 - `exclude_inds` (list, optional): Indices to exclude from selection
 - `repetition` (bool, default=False): If True, allow reusing turbidite segments; if False, each segment can only be used once
+- `method` (str, default='random'): Segment selection method:
+  - `'random'`: Random selection (original behavior)
+  - `'MarkovChain'`: Markov Chain-based selection using trained cluster transitions
+- `markov_params` (dict, optional): Dictionary from `train_markov_model()` containing trained model parameters. Required when `method='MarkovChain'`
+- `segment_features` (array-like, optional): Feature array of shape (n_segments, n_features) for cluster assignment. Required when `method='MarkovChain'`
+- `random_seed` (int, optional): Random seed for reproducibility
 
 **Returns:**
 - `tuple`: (log, d, valid_picked_depths, inds)
@@ -448,16 +455,106 @@ Create synthetic log using turbidite database approach with picked depths at tur
   - `valid_picked_depths` (list): List of boundary depth values
   - `inds` (list): Indices of segments used from the segment pool
 
-**Example:**
+**Example (Random method with max_thickness):**
 ```python
 syn_log_a, syn_md_a, syn_depth_a, inds_a = create_synthetic_log(
-    target_thickness=600,
     segment_logs=mod_seg_logs,
     segment_depths=mod_seg_depths,
-    repetition=False
+    max_thickness=600,
+    max_num_units=10
 )
-# syn_depth_a is a list of depth values (e.g., [0, 59.48, 92.21, ...])
 ```
+
+**Example (Random method with max_num_units only):**
+```python
+syn_log_a, syn_md_a, syn_depth_a, inds_a = create_synthetic_log(
+    segment_logs=mod_seg_logs,
+    segment_depths=mod_seg_depths,
+    max_num_units=15
+)
+```
+
+**Example (MarkovChain method):**
+```python
+# First train Markov model (features computed in notebook)
+markov_params = train_markov_model(unit_features, unit_sequence_per_core)
+
+# Then create synthetic log with MarkovChain
+syn_log_a, syn_md_a, syn_depth_a, inds_a = create_synthetic_log(
+    segment_logs=seg_logs,
+    segment_depths=seg_depths,
+    max_thickness=600,
+    max_num_units=10,
+    method='MarkovChain',
+    markov_params=markov_params,
+    segment_features=segment_features
+)
+```
+
+#### `train_markov_model(features, unit_sequence_per_core, n_clusters=None, k_range=range(2, 11), show_plots=True, savefig=False, save_path=None, save_format='png')`
+
+Train Markov model from unit features and stacking sequences for MC-based synthetic stratigraphy generation.
+
+**Parameters:**
+- `features` (array-like): 2D array of shape (n_units, n_features). Any features computed by the user (e.g., thickness, mud_cap_fraction, log ratios)
+- `unit_sequence_per_core` (dict): Dictionary mapping core_name -> list of unit indices (deepest to shallowest). Indices refer to positions in the features array. Used to build transition matrix from observed cluster sequences
+- `n_clusters` (int, optional): Number of clusters. If None, auto-detect using elbow method
+- `k_range` (range, default=range(2, 11)): Range of k values for elbow method
+- `show_plots` (bool, default=True): If True, display elbow plot and cluster scatter plot
+- `savefig` (bool, default=False): If True, save figures to disk
+- `save_path` (str, optional): Directory path for saving figures. Required if savefig=True
+- `save_format` (str or list, default='png'): Format(s) for saved figures. Can be single format ('png') or list (['png', 'svg']). Supported: 'png', 'jpg', 'svg', 'pdf'
+
+**Returns:**
+- `markov_params` (dict): Dictionary containing trained model parameters:
+  - `'kmeans'`: trained KMeans model
+  - `'scaler'`: trained RobustScaler
+  - `'n_clusters'`: int
+  - `'cluster_labels'`: array of cluster assignments for training units
+  - `'transition_matrix'`: 2D array of transition probabilities
+  - `'stationary_dist'`: 1D array of stationary distribution
+  - `'cluster_centers'`: 2D array of cluster centers (in original scale)
+  - `'elbow_info'`: dict (if n_clusters was auto-detected)
+
+**Example:**
+```python
+# Compute features in notebook (domain-specific)
+unit_features = np.array([[10.5, 0.3], [15.2, 0.5], ...])  # e.g., thickness, mud_cap
+unit_sequence_per_core = {'CoreA': [0, 1, 2], 'CoreB': [3, 4, 5]}
+
+# Train model with plots and save figures
+markov_params = train_markov_model(
+    unit_features, unit_sequence_per_core,
+    show_plots=True, savefig=True, 
+    save_path='outputs', save_format=['png', 'svg']
+)
+print(f"Optimal k: {markov_params['n_clusters']}")
+```
+
+#### `find_optimal_k(X_scaled, k_range=range(2, 11))`
+
+Find optimal number of clusters using Kneedle/elbow method.
+
+**Parameters:**
+- `X_scaled` (array-like): 2D array of shape (n_samples, n_features), already scaled
+- `k_range` (range, default=range(2, 11)): Range of k values to test
+
+**Returns:**
+- `optimal_k` (int): Optimal number of clusters
+- `elbow_info` (dict): Dictionary with 'inertias', 'distances', 'k_list' for plotting
+
+#### `build_transition_matrix(cluster_labels, unit_sequence_per_core, n_clusters)`
+
+Build transition probability matrix from cluster sequences.
+
+**Parameters:**
+- `cluster_labels` (array-like): 1D array of cluster assignments for all units
+- `unit_sequence_per_core` (dict): Dictionary mapping core_name -> list of unit indices (deepest to shallowest)
+- `n_clusters` (int): Number of clusters
+
+**Returns:**
+- `transition_matrix` (ndarray): 2D array of shape (n_clusters, n_clusters) where [i,j] is P(cluster j | cluster i)
+- `stationary_dist` (ndarray): 1D array of stationary distribution
 
 #### `create_synthetic_core_pair(core_a_length, core_b_length, seg_logs, seg_depths, log_columns, repetition=False, plot_results=True, save_plot=False, plot_filename=None)`
 
@@ -497,9 +594,9 @@ Plot a single synthetic log with turbidite boundaries.
 **Returns:**
 - `tuple`: (fig, ax) matplotlib figure and axis objects
 
-#### `synthetic_correlation_quality(segment_logs, segment_depths, log_data_type, quality_indices=['corr_coef', 'norm_dtw'], number_of_iterations=20, core_a_length=600, core_b_length=600, repetition=False, pca_for_dependent_dtw=False, output_csv_dir=None, max_search_path=100000, mute_mode=True, append_mode=False, combination_id=None, max_paths_for_metrics=None, n_jobs=-1)`
+#### `synthetic_correlation_quality(segment_logs, segment_depths, log_data_type, quality_indices=['corr_coef', 'norm_dtw'], number_of_iterations=20, max_core_a_thickness=None, max_core_b_thickness=None, max_num_units_core_a=None, max_num_units_core_b=None, repetition=False, pca_for_dependent_dtw=False, output_csv_dir=None, max_search_path=100000, mute_mode=True, append_mode=False, combination_id=None, max_paths_for_metrics=None, n_jobs=-1, method='random', markov_params=None, segment_features=None)`
 
-Generate DTW correlation quality analysis for synthetic core pairs with multiple iterations. This function saves distribution parameters for each correlation quality metric across all iterations.
+Generate DTW correlation quality analysis for synthetic core pairs with multiple iterations. This function saves distribution parameters for each correlation quality metric across all iterations. Supports both random and MarkovChain-based segment selection.
 
 **Parameters:**
 - `segment_logs` (list): List of turbidite log segments from `load_segment_pool()` or `modify_segment_pool()`
@@ -507,8 +604,10 @@ Generate DTW correlation quality analysis for synthetic core pairs with multiple
 - `log_data_type` (list): List of log column names
 - `quality_indices` (list, default=['corr_coef', 'norm_dtw']): List of quality indices to analyze
 - `number_of_iterations` (int, default=20): Number of synthetic pairs to generate
-- `core_a_length` (float, default=600): Target length for synthetic core A in cm
-- `core_b_length` (float, default=600): Target length for synthetic core B in cm
+- `max_core_a_thickness` (float, optional): Maximum thickness for synthetic core A. If None and max_num_units_core_a is provided, thickness is determined by stacking units. If both are None, defaults to max_num_units=10
+- `max_core_b_thickness` (float, optional): Maximum thickness for synthetic core B. If None and max_num_units_core_b is provided, thickness is determined by stacking units. If both are None, defaults to max_num_units=10
+- `max_num_units_core_a` (int, optional): Maximum number of units to stack for core A. If None and max_core_a_thickness is provided, stacking continues until thickness is reached
+- `max_num_units_core_b` (int, optional): Maximum number of units to stack for core B. If None and max_core_b_thickness is provided, stacking continues until thickness is reached
 - `repetition` (bool, default=False): Allow reselecting turbidite segments
 - `pca_for_dependent_dtw` (bool, default=False): Use PCA for dependent DTW analysis
 - `output_csv_dir` (str, optional): Directory path for output CSV files. If None, saves files in current directory
@@ -518,6 +617,9 @@ Generate DTW correlation quality analysis for synthetic core pairs with multiple
 - `combination_id` (int, optional): Optional identifier for the current combination of core lengths
 - `max_paths_for_metrics` (int, optional): Maximum paths to compute metrics for. If total paths exceed this, a random sample is used. If None, uses `max_search_path` value (no additional sampling)
 - `n_jobs` (int, default=-1): Number of parallel jobs for metric computation. -1 uses all available cores
+- `method` (str, default='random'): Segment selection method: 'random' or 'MarkovChain'
+- `markov_params` (dict, optional): Dictionary from `train_markov_model()`. Required when `method='MarkovChain'`
+- `segment_features` (array-like, optional): Feature array for cluster assignment. Required when `method='MarkovChain'`
 
 **Returns:**
 - `dict`: Mapping quality indices to their output CSV filenames
@@ -1459,9 +1561,9 @@ Calculate t-statistics for quality metric comparisons between real core correlat
 **Returns:**
 - None: Updates CSV files in-place with statistical columns (t_statistic, cohens_d, effect_size_category)
 
-#### `plot_quality_comparison_t_statistics(target_quality_indices, output_csv_directory, input_syntheticPDF_directory, core_a_name, core_b_name, log_columns=None, mute_mode=False, save_fig=False, output_figure_directory=None, fig_format=['png'], dpi=150, save_gif=False, output_gif_directory=None, max_frames=50, plot_real_data_histogram=False, plot_age_removal_step_pdf=False, show_best_datum_match=True, sequential_mappings_csv=None)`
+#### `plot_quality_comparison_t_statistics(target_quality_indices, output_csv_directory, input_syntheticPDF_directory, core_a_name, core_b_name, log_columns=None, mute_mode=False, save_fig=False, output_figure_directory=None, fig_format=['png'], dpi=150, save_gif=False, output_gif_directory=None, max_frames=50, plot_real_data_histogram=False, plot_age_removal_step_pdf=False, show_best_datum_match=True, sequential_mappings_csv=None, skip_age_removal_graph=False, skip_pdf_graph=False, show_t_graph=False, show_d_graph=False, show_g_graph=True, linear_g_scale=False, invert_norm_dtw=True)`
 
-Plot quality index distributions comparing real data vs synthetic null hypothesis with t-statistics analysis.
+Plot quality index distributions comparing real data vs synthetic null hypothesis with Hedges' g and optional Cohen's d / t-statistics analysis.
 
 **Parameters:**
 - `target_quality_indices` (list): Quality metrics to plot (e.g., ['corr_coef', 'norm_dtw', 'perc_diag'])
@@ -1482,9 +1584,38 @@ Plot quality index distributions comparing real data vs synthetic null hypothesi
 - `plot_age_removal_step_pdf` (bool, default=False): If True, plot all PDF curves including dashed lines for partially removed constraints
 - `show_best_datum_match` (bool, default=True): If True, plot vertical line showing best datum match value from sequential_mappings_csv
 - `sequential_mappings_csv` (str or dict, optional): Path to CSV file(s) containing sequential mappings with 'Ranking_datums' column. Can be a single CSV path (str) or dictionary mapping quality indices to CSV paths
+- `skip_age_removal_graph` (bool, default=False): If True, skip plotting the t-statistic vs number of age constraints remaining graph (both static figures and GIF animations). Only the distribution graph will be plotted
+- `skip_pdf_graph` (bool, default=False): If True, skip plotting the distribution graph (both static figures and GIF animations). Only the t-statistic vs age constraints graph will be plotted
+- `show_t_graph` (bool, default=False): If True, show t-statistic graph alongside other effect size graphs. If False (default), skip t-statistic graph (recommended since t-statistic is sample-size sensitive)
+- `show_d_graph` (bool, default=False): If True, show Cohen's d graph alongside Hedges' g graph. If False (default), skip Cohen's d graph and only show Hedges' g graph (Hedges' g is bias-corrected, more appropriate for smaller samples)
+- `show_g_graph` (bool, default=True): If True, show Hedges' g graph (default behavior). If False, skip plotting Hedges' g graph
+- `linear_g_scale` (bool, default=False): If True, plot Hedges' g with normal linear g scale on left y-axis (default behavior). If False, rescale y-axis so Probability of Superiority (PS) is linear (0-100%), with right y-axis showing PS at 10% intervals (0%, 10%, 20%, ..., 90%, 100%), and left y-axis showing corresponding g values at each PS tick. Data points and CI ranges are transformed accordingly
+- `invert_norm_dtw` (bool, default=True): If True, for norm_dtw and norm_dtw_sect metrics: distribution graphs plot (1 - norm_dtw) with x-axis 0 to 1 and arrow pointing right (higher = better, like corr_coef); effect size graphs use inverted columns (t_statistic_inv, cohens_d_inv, hedges_g_inv) with improvement/deterioration calculation following corr_coef convention. If False, plot original norm_dtw values with arrow pointing left (lower = better)
 
 **Returns:**
 - None (creates static plots and/or animated GIFs based on parameters)
+
+#### `plot_hedges_g_vs_constraints(quality_data, target_quality_indices, output_figure_filenames, CORE_A, CORE_B, debug=True, n_jobs=-1, batch_size=None, return_plot_info=False, fig_format=['png'], dpi=None, invert_norm_dtw=True, linear_g_scale=False)`
+
+Plot Hedges' g vs number of age constraints for each quality index with 95% confidence intervals. Hedges' g is a bias-corrected version of Cohen's d, more appropriate for smaller sample sizes. Data points are colored with white fill and black outline, with dark gray error bars showing individual CIs. Connection lines are colored based on change in Hedges' g value. A light gray shaded area spans the full CI range envelope. This function is automatically called by `plot_quality_comparison_t_statistics()` and is the primary effect size graph shown by default.
+
+**Parameters:**
+- `quality_data` (dict): Preprocessed quality data from `load_and_prepare_quality_data()` function
+- `target_quality_indices` (list): Quality metrics to plot (e.g., ['corr_coef', 'norm_dtw'])
+- `output_figure_filenames` (dict): Dictionary mapping quality_index to output figure filename paths
+- `CORE_A` (str): Name of core A
+- `CORE_B` (str): Name of core B
+- `debug` (bool, default=True): If True, only print essential messages
+- `n_jobs` (int, default=-1): Number of parallel jobs (-1 uses all cores)
+- `batch_size` (int, optional): Batch size for parallel processing
+- `return_plot_info` (bool, default=False): If True, return plotting info for GIF creation
+- `fig_format` (list, default=['png']): List of file formats for saved figures
+- `dpi` (int, optional): Resolution for saved figures
+- `invert_norm_dtw` (bool, default=True): If True, use hedges_g_inv column for norm_dtw metrics
+- `linear_g_scale` (bool, default=False): If True, plot with normal linear Hedges' g scale on left y-axis (default behavior). If False, rescale y-axis so Probability of Superiority (PS) is linear (0-100%), with right y-axis showing PS at 10% intervals (0%, 10%, 20%, ..., 90%, 100%), and left y-axis showing corresponding g values at each PS tick
+
+**Returns:**
+- dict or None: If return_plot_info=True, returns plotting information for GIF creation
 
 ### Matrix Plots (`matrix_plots.py`)
 

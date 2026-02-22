@@ -1346,7 +1346,7 @@ def visualize_combined_segments(dtw_result, log_a, log_b, md_a, md_b, segment_pa
     return combined_wp, combined_quality
 
 
-def plot_correlation_distribution(mapping_csv, target_mapping_id=None, quality_index=None, save_png=True, png_filename=None, core_a_name=None, core_b_name=None, bin_width=None, pdf_method='normal', kde_bandwidth=0.05, mute_mode=False, targeted_binsize=None, dpi=None):
+def plot_correlation_distribution(mapping_csv, target_mapping_id=None, quality_index=None, save_png=True, png_filename=None, core_a_name=None, core_b_name=None, bin_width=None, pdf_method='normal', kde_bandwidth=0.05, mute_mode=False, targeted_binsize=None, dpi=None, invert_norm_dtw=True):
     """
     UPDATED: Handle new CSV format with different column structure.
     Plot distribution of a specified quality index.
@@ -1363,20 +1363,22 @@ def plot_correlation_distribution(mapping_csv, target_mapping_id=None, quality_i
     - mute_mode: bool, if True, suppress all print statements (default: False)
     - targeted_binsize: tuple or None, (synthetic_bins, bin_width) for consistent bin sizing with synthetic data (default: None)
     - dpi: int, optional resolution for saved figures in dots per inch. If None, uses default (150)
+    - invert_norm_dtw: bool, if True and quality_index is 'norm_dtw', plot 1 - norm_dtw as nDTWc (default: True)
     """
     
     # Define quality index display names and descriptions
     quality_index_mapping = {
-        'norm_dtw': 'Normalized DTW Cost (lower is better)',
-        'norm_dtw_sect': 'Normalized DTW Cost (Correlated Section) (lower is better)',
-        'dtw_ratio': 'DTW Warping Ratio (lower is better)', 
-        'variance_deviation': 'Warping Deviation variance (lower is better)',
-        'perc_diag': 'Diagonality % (higher is better)',
-        'corr_coef': 'Pearson\'s r (higher is better)',
-        'corr_coef_sect': 'Pearson\'s r (Correlated Section) (higher is better)',
-        'match_min': 'Matching Function min (lower is better)',
-        'match_mean': 'Matching Function mean (lower is better)',
-        'perc_age_overlap': 'Age Overlap % (higher is better)'
+        'norm_dtw': 'Normalized DTW Cost',
+        'norm_dtw_inverted': r'nDTW$_c$',
+        'norm_dtw_sect': 'Normalized DTW Cost (Correlated Section)',
+        'dtw_ratio': 'DTW Warping Ratio', 
+        'variance_deviation': 'Warping Deviation variance',
+        'perc_diag': 'Diagonality %',
+        'corr_coef': 'Pearson\'s r',
+        'corr_coef_sect': 'Pearson\'s r (Correlated Section)',
+        'match_min': 'Matching Function min',
+        'match_mean': 'Matching Function mean',
+        'perc_age_overlap': 'Age Overlap %'
     }
     
     # Check if quality_index is provided
@@ -1411,6 +1413,12 @@ def plot_correlation_distribution(mapping_csv, target_mapping_id=None, quality_i
     # Convert to numpy array and remove NaN values
     quality_values = np.array(df[quality_index])
     quality_values = quality_values[~np.isnan(quality_values)]
+    
+    # Track if we're using inverted norm_dtw for display purposes
+    using_inverted_norm_dtw = False
+    if invert_norm_dtw and quality_index == 'norm_dtw':
+        quality_values = 1 - quality_values
+        using_inverted_norm_dtw = True
     # Check if there are enough unique values for proper distribution
     if len(quality_values) == 0:
         if not mute_mode:
@@ -1577,12 +1585,18 @@ def plot_correlation_distribution(mapping_csv, target_mapping_id=None, quality_i
         target_row = df[df['mapping_id'] == target_mapping_id]
         if not target_row.empty:
             target_value = target_row[quality_index].values[0]
+            # Apply inversion if using inverted norm_dtw
+            if using_inverted_norm_dtw:
+                target_value = 1 - target_value
             percentile = (quality_values < target_value).mean() * 100
             fit_params['target_value'] = target_value
             fit_params['target_percentile'] = percentile
     
     # Get the display name for the quality index
-    quality_display_name = quality_index_mapping.get(quality_index, quality_index)
+    if using_inverted_norm_dtw:
+        quality_display_name = quality_index_mapping.get('norm_dtw_inverted', r'nDTW$_c$')
+    else:
+        quality_display_name = quality_index_mapping.get(quality_index, quality_index)
     
     # If not in mute mode, create and show the plot
     if not mute_mode:
@@ -1626,11 +1640,14 @@ def plot_correlation_distribution(mapping_csv, target_mapping_id=None, quality_i
         # Sectional metrics use the same x-axis range as their non-sectional counterparts
         if quality_index in ['corr_coef', 'corr_coef_sect']:
             ax.set_xlim(0, 1.0)
+        elif using_inverted_norm_dtw:
+            ax.set_xlim(0.6, 1.0)
         
         # Add labels and title
         ax.set_xlabel(quality_display_name)
         ax.set_ylabel('Percentage (%)')
-        title = f'Distribution of {quality_index}'
+        title_index = quality_display_name if using_inverted_norm_dtw else quality_index
+        title = f'Distribution of {title_index}'
         if core_a_name and core_b_name:
             title += f'\n{core_a_name} vs {core_b_name}'
         plt.title(title)
@@ -1692,7 +1709,7 @@ def plot_correlation_distribution(mapping_csv, target_mapping_id=None, quality_i
         # In mute mode, just return fit_params
         return fit_params
     
-def process_single_row_parallel(row_data, combined_data, debug=False):
+def process_single_row_parallel(row_data, combined_data, debug=False, use_inverted=False):
     """
     Helper function to process a single row using pre-calculated t-statistic and Cohen's d from CSV.
     
@@ -1704,10 +1721,12 @@ def process_single_row_parallel(row_data, combined_data, debug=False):
         Reference data (not used anymore, kept for compatibility)
     debug : bool
         Whether to print debug information
+    use_inverted : bool
+        If True, use t_statistic_inv and cohens_d_inv columns (for inverted norm_dtw)
     
     Returns:
     --------
-    tuple : (x_value, t_stat, cohens_d, effect_size_category, success)
+    tuple : (x_value, t_stat, cohens_d, effect_size_category, n_points, success)
     """
     idx, row, age_consideration, core_b_constraints_count = row_data
     
@@ -1719,10 +1738,15 @@ def process_single_row_parallel(row_data, combined_data, debug=False):
     
     # Use pre-calculated t-statistic and Cohen's d from CSV columns
     try:
-        # Get pre-calculated values from CSV columns
-        t_stat = row.get('t_statistic', 0.0)
-        cohens_d_value = row.get('cohens_d', 0.0)
-        effect_size_category = row.get('effect_size_category', 'negligible')
+        # Get pre-calculated values from CSV columns (use inverted columns if requested)
+        if use_inverted:
+            t_stat = row.get('t_inv', row.get('t', 0.0))
+            cohens_d_value = row.get('d_inv', row.get('d', 0.0))
+        else:
+            t_stat = row.get('t', 0.0)
+            cohens_d_value = row.get('d', 0.0)
+        effect_size_category = row.get('effect_size', 'negligible')
+        n_points = row.get('n_points', 0)
         
         # Handle NaN values
         if pd.isna(t_stat):
@@ -1731,13 +1755,15 @@ def process_single_row_parallel(row_data, combined_data, debug=False):
             cohens_d_value = 0.0
         if pd.isna(effect_size_category) or effect_size_category == '':
             effect_size_category = 'negligible'
+        if pd.isna(n_points):
+            n_points = 0
             
-        return x_value, t_stat, cohens_d_value, effect_size_category, True
+        return x_value, t_stat, cohens_d_value, effect_size_category, n_points, True
         
     except Exception as e:
         if debug:
             print(f"Error processing row {idx}: {e}")
-        return x_value, 0.0, 0.0, "negligible", False
+        return x_value, 0.0, 0.0, "negligible", 0, False
 
 
 def calculate_improvement_scores_parallel(constraint_data, quality_index):
@@ -1988,7 +2014,7 @@ def plot_quality_distributions(quality_data, target_quality_indices, output_figu
                                CORE_A, CORE_B, debug=True, return_plot_info=False,
                                plot_real_data_histogram=True, plot_age_removal_step_pdf=True,
                                synthetic_csv_filenames=None, best_datum_values=None, 
-                               fig_format=['png'], dpi=None):
+                               fig_format=['png'], dpi=None, invert_norm_dtw=True):
     """
     Plot quality index distributions comparing real data vs synthetic null hypothesis.
     
@@ -2094,6 +2120,10 @@ def plot_quality_distributions(quality_data, target_quality_indices, output_figu
                 # Convert to numpy array (same as Cell 10)
                 synthetic_quality_values = np.array(all_raw_data)
                 
+                # Transform norm_dtw values if invert_norm_dtw is True
+                if invert_norm_dtw and quality_index in ['norm_dtw', 'norm_dtw_sect']:
+                    synthetic_quality_values = 1 - synthetic_quality_values
+                
             except Exception as e:
                 print(f"Error reconstructing synthetic data: {e}")
                 synthetic_quality_values = None
@@ -2186,6 +2216,7 @@ def plot_quality_distributions(quality_data, target_quality_indices, output_figu
                 'unique_combinations': unique_combinations,
                 'min_core_b': df_all_params['core_b_constraints_count'].min(),
                 'max_core_b': df_all_params['core_b_constraints_count'].max(),
+                'invert_norm_dtw': invert_norm_dtw,
                 'plot_limits': {  # Initial plot_limits - will be updated after plotting real data
                     # Sectional metrics use the same x-axis range as their non-sectional counterparts
                     # corr_coef and corr_coef_sect range from 0 to 1, norm_dtw and norm_dtw_sect start from 0
@@ -2258,6 +2289,10 @@ def plot_quality_distributions(quality_data, target_quality_indices, output_figu
                     
                     # Reconstruct quality values from histogram (for exact plotting)
                     row_quality_values = reconstruct_raw_data_from_histogram(bins_data, hist_data, n_points)
+                    
+                    # Transform norm_dtw values if invert_norm_dtw is True
+                    if invert_norm_dtw and quality_index in ['norm_dtw', 'norm_dtw_sect']:
+                        row_quality_values = 1 - np.array(row_quality_values)
                 except:
                     pass
             
@@ -2411,6 +2446,10 @@ def plot_quality_distributions(quality_data, target_quality_indices, output_figu
                 
                 raw_data_points = reconstruct_raw_data_from_histogram(bins, hist_percentages, n_points)
                 
+                # Transform norm_dtw values if invert_norm_dtw is True
+                if invert_norm_dtw and quality_index in ['norm_dtw', 'norm_dtw_sect']:
+                    raw_data_points = 1 - np.array(raw_data_points)
+                
                 if shortest_path_search:
                     if combo_key not in solid_real_data_by_combo_max:
                         solid_real_data_by_combo_max[combo_key] = []
@@ -2424,14 +2463,10 @@ def plot_quality_distributions(quality_data, target_quality_indices, output_figu
         for combo_key, data in solid_real_data_by_combo_max.items():
             if len(data) > 1:
                 data_array = np.array(data)
-                t_stat, p_value = stats.ttest_ind(data_array, combined_data)
-                
                 cohens_d_val = cohens_d(data_array, combined_data)
                 
                 solid_stats_by_combo[combo_key] = {
-                    't_stat': t_stat,
-                    'p_value': p_value,
-                    'cohens_d': cohens_d_val,
+                    'd': cohens_d_val,
                     'n_samples': len(data_array),
                     'mean': np.mean(data_array),
                     'std': np.std(data_array)
@@ -2441,14 +2476,10 @@ def plot_quality_distributions(quality_data, target_quality_indices, output_figu
         for combo_key, data in dash_real_data_by_combo_max.items():
             if len(data) > 1:
                 data_array = np.array(data)
-                t_stat, p_value = stats.ttest_ind(data_array, combined_data)
-                
                 cohens_d_val = cohens_d(data_array, combined_data)
                 
                 dash_stats_by_combo[combo_key] = {
-                    't_stat': t_stat,
-                    'p_value': p_value,
-                    'cohens_d': cohens_d_val,
+                    'd': cohens_d_val,
                     'n_samples': len(data_array),
                     'mean': np.mean(data_array),
                     'std': np.std(data_array)
@@ -2478,34 +2509,27 @@ def plot_quality_distributions(quality_data, target_quality_indices, output_figu
                     desc = combo_key
                 print(f"{desc}:")
                 print(f"  Mean: {stats_dict['mean']:.1f}, SD: {stats_dict['std']:.1f}")
-                print(f"  t-statistic: {stats_dict['t_stat']:.1f} (measures difference between means relative to variation)")
-                print(f"  p-value: {stats_dict['p_value']:.2g}")
-                print(f"  Cohen's d: {stats_dict['cohens_d']:.1f}")
+                print(f"  Cohen's d: {stats_dict['d']:.1f}")
                 print(f"  Sample size: {stats_dict['n_samples']}")
                 
                 # Interpret effect size
-                if abs(stats_dict['cohens_d']) < 0.2:
+                if abs(stats_dict['d']) < 0.2:
                     effect_size = "negligible"
-                elif abs(stats_dict['cohens_d']) < 0.5:
+                elif abs(stats_dict['d']) < 0.5:
                     effect_size = "small"
-                elif abs(stats_dict['cohens_d']) < 0.8:
+                elif abs(stats_dict['d']) < 0.8:
                     effect_size = "medium"
                 else:
                     effect_size = "large"
                 
                 # Statistical interpretation
-                if stats_dict['t_stat'] > 0:
+                if stats_dict['d'] > 0:
                     direction = "higher than"
                 else:
                     direction = "lower than"
                 
                 print(f"  Effect size: {effect_size} difference between distributions")
-                
-                # Only use "significantly" if p-value indicates statistical significance
-                if stats_dict['p_value'] < 0.05:
-                    print(f"  Interpretation: Significantly {direction} null hypothesis with {effect_size} effect size")
-                else:
-                    print(f"  Interpretation: no statistical significance (p-value = {stats_dict['p_value']:.2e})")
+                print(f"  Interpretation: {direction} null hypothesis with {effect_size} effect size")
                 print()
 
         if not debug and dash_stats_by_combo:
@@ -2523,34 +2547,27 @@ def plot_quality_distributions(quality_data, target_quality_indices, output_figu
                 
                 print(f"{desc}:")
                 print(f"  Mean: {stats_dict['mean']:.1f}, SD: {stats_dict['std']:.1f}")
-                print(f"  t-statistic: {stats_dict['t_stat']:.1f} (measures difference between means relative to variation)")
-                print(f"  p-value: {stats_dict['p_value']:.2g}")
-                print(f"  Cohen's d: {stats_dict['cohens_d']:.1f}")
+                print(f"  Cohen's d: {stats_dict['d']:.1f}")
                 print(f"  Sample size: {stats_dict['n_samples']}")
                 
                 # Interpret effect size
-                if abs(stats_dict['cohens_d']) < 0.2:
+                if abs(stats_dict['d']) < 0.2:
                     effect_size = "negligible"
-                elif abs(stats_dict['cohens_d']) < 0.5:
+                elif abs(stats_dict['d']) < 0.5:
                     effect_size = "small"
-                elif abs(stats_dict['cohens_d']) < 0.8:
+                elif abs(stats_dict['d']) < 0.8:
                     effect_size = "medium"
                 else:
                     effect_size = "large"
                 
                 # Statistical interpretation
-                if stats_dict['t_stat'] > 0:
+                if stats_dict['d'] > 0:
                     direction = "higher than"
                 else:
                     direction = "lower than"
                 
                 print(f"  Effect size: {effect_size} difference between distributions")
-                
-                # Only use "significantly" if p-value indicates statistical significance
-                if stats_dict['p_value'] < 0.05:
-                    print(f"  Interpretation: Significantly {direction} null hypothesis with {effect_size} effect size")
-                else:
-                    print(f"  Interpretation: no statistical significance (p-value = {stats_dict['p_value']:.2e})")
+                print(f"  Interpretation: {direction} null hypothesis with {effect_size} effect size")
                 print()
 
         # Get display name for quality index
@@ -2560,19 +2577,18 @@ def plot_quality_distributions(quality_data, target_quality_indices, output_figu
             elif quality_index == 'corr_coef_sect':
                 return "Pearson's r (Correlated Section)"
             elif quality_index == 'norm_dtw':
-                return "Normalized DTW Cost"
+                return "1 - Normalized DTW Cost" if invert_norm_dtw else "Normalized DTW Cost"
             elif quality_index == 'norm_dtw_sect':
-                return "Normalized DTW Cost (Correlated Section)"
+                return "1 - Normalized DTW Cost (Correlated Section)" if invert_norm_dtw else "Normalized DTW Cost (Correlated Section)"
             else:
                 return quality_index
         
         display_name = get_quality_display_name(quality_index)
         
-        # Set x-axis range for norm_dtw to start from 0
+        # Set x-axis range for norm_dtw to 0.7 to 1.0
         # Sectional metrics use the same x-axis range as their non-sectional counterparts
         if quality_index in ['norm_dtw', 'norm_dtw_sect']:
-            current_xlim = ax.get_xlim()
-            ax.set_xlim(0, current_xlim[1])
+            ax.set_xlim(0.7, 1.0)
         
         # Formatting
         ax.set_xlabel(f"{display_name}")
@@ -2812,8 +2828,12 @@ def plot_quality_distributions(quality_data, target_quality_indices, output_figu
         if best_datum_values and quality_index in best_datum_values:
             best_value = best_datum_values[quality_index]
             if pd.notna(best_value):  # Check if value is not NaN
+                # Invert norm_dtw value to match the x-axis (1 - norm_dtw) when invert_norm_dtw is True
+                is_norm_dtw_metric = quality_index in ['norm_dtw', 'norm_dtw_sect']
+                plot_value = (1 - best_value) if (invert_norm_dtw and is_norm_dtw_metric) else best_value
+                
                 # Plot line in dark green with long dash and highest zorder
-                ax.axvline(best_value, color='darkgreen', linestyle='--', linewidth=2, zorder=100)
+                ax.axvline(plot_value, color='darkgreen', linestyle='--', linewidth=2, zorder=100)
                 
                 # Add text annotation next to the line
                 ax_xlim = ax.get_xlim()
@@ -2821,18 +2841,20 @@ def plot_quality_distributions(quality_data, target_quality_indices, output_figu
                 text_y = ax_ylim[0] + 0.90 * (ax_ylim[1] - ax_ylim[0])  # 90% up from bottom (higher position)
                 
                 # Position text based on arrow direction
-                # Sectional metrics use the same positioning as their non-sectional counterparts
-                if quality_index in ['norm_dtw', 'norm_dtw_sect']:
+                # When invert_norm_dtw=True, norm_dtw metrics use right-pointing arrows (like corr_coef)
+                use_left_arrow = is_norm_dtw_metric and not invert_norm_dtw
+                
+                if use_left_arrow:
                     # For left-pointing arrows, put text on left side of line
-                    text_x = best_value - 0.01 * (ax_xlim[1] - ax_xlim[0])
+                    text_x = plot_value - 0.01 * (ax_xlim[1] - ax_xlim[0])
                     ha = 'right'
                 else:
                     # For right-pointing arrows, put text on right side of line
-                    text_x = best_value + 0.01 * (ax_xlim[1] - ax_xlim[0])
+                    text_x = plot_value + 0.01 * (ax_xlim[1] - ax_xlim[0])
                     ha = 'left'
                 
                 ax.text(text_x, text_y, 
-                       f'Best\nDatum\nMatch\n({best_value:.3f})', 
+                       f'Best\nDatum\nMatch\n({plot_value:.3f})', 
                        color='darkgreen', fontweight='bold', fontsize='x-small',
                        ha=ha, va='center', zorder=101)
         else:
@@ -2847,13 +2869,17 @@ def plot_quality_distributions(quality_data, target_quality_indices, output_figu
         
         # Determine arrow direction and position based on quality index
         # Sectional metrics use the same arrow direction as their non-sectional counterparts
-        if quality_index in ['norm_dtw', 'norm_dtw_sect']:
-            # For norm_dtw, lower values are better (arrow points left) - position in upper right, moved slightly left
+        # When invert_norm_dtw=True, norm_dtw metrics use same direction as corr_coef (higher = better)
+        is_norm_dtw_metric = quality_index in ['norm_dtw', 'norm_dtw_sect']
+        use_left_arrow = is_norm_dtw_metric and not invert_norm_dtw  # Only use left arrow if NOT inverted
+        
+        if use_left_arrow:
+            # For norm_dtw (non-inverted), lower values are better (arrow points left) - position in upper right, moved slightly left
             arrow_start_x = ax_xlim[0] + 0.94 * (ax_xlim[1] - ax_xlim[0])  # Start 94% from left (moved left)
             arrow_end_x = ax_xlim[0] + 0.77 * (ax_xlim[1] - ax_xlim[0])    # End 77% from left  
             text_x = ax_xlim[0] + 0.855 * (ax_xlim[1] - ax_xlim[0])        # Text centered between 77% and 94%
         else:
-            # For corr_coef and other indices, higher values are better (arrow points right) - position in upper left
+            # For corr_coef and other indices (or inverted norm_dtw), higher values are better (arrow points right) - position in upper left
             arrow_start_x = ax_xlim[0] + 0.07 * (ax_xlim[1] - ax_xlim[0])  # Start 7% from left
             arrow_end_x = ax_xlim[0] + 0.24 * (ax_xlim[1] - ax_xlim[0])    # End 24% from left
             text_x = ax_xlim[0] + 0.155 * (ax_xlim[1] - ax_xlim[0])        # Text centered under arrow
@@ -2923,7 +2949,7 @@ def plot_quality_distributions(quality_data, target_quality_indices, output_figu
 
 def plot_t_statistics_vs_constraints(quality_data, target_quality_indices, output_figure_filenames,
                                      CORE_A, CORE_B, debug=True, n_jobs=-1, batch_size=None, return_plot_info=False, 
-                                     fig_format=['png'], dpi=None):
+                                     fig_format=['png'], dpi=None, invert_norm_dtw=True):
     """
     Plot t-statistics vs number of age constraints for each quality index.
     OPTIMIZED with parallel processing and dynamic sizing.
@@ -2999,6 +3025,9 @@ def plot_t_statistics_vs_constraints(quality_data, target_quality_indices, outpu
             else:
                 print(f"  Calculating t-statistics and Cohen's d using {n_jobs} cores...")
         
+        # Determine if we should use inverted columns for norm_dtw metrics
+        use_inverted = invert_norm_dtw and quality_index in ['norm_dtw', 'norm_dtw_sect']
+        
         with tqdm(total=len(row_data_list), desc="  Processing t-statistics", disable=debug) as pbar:
             # Process in batches to manage memory
             all_results = []
@@ -3006,7 +3035,7 @@ def plot_t_statistics_vs_constraints(quality_data, target_quality_indices, outpu
                 batch = row_data_list[i:i+batch_size]
                 
                 batch_results = Parallel(n_jobs=n_jobs, verbose=0)(
-                    delayed(process_single_row_parallel)(row_data, combined_data, debug)
+                    delayed(process_single_row_parallel)(row_data, combined_data, debug, use_inverted)
                     for row_data in batch
                 )
                 all_results.extend(batch_results)
@@ -3016,14 +3045,43 @@ def plot_t_statistics_vs_constraints(quality_data, target_quality_indices, outpu
         constraint_points = {}
         constraint_effect_sizes = {}
         constraint_cohens_d = {}
-        for x_value, t_stat, cohens_d_val, effect_size_cat, success in all_results:
+        constraint_n_points = {}
+        constraint_t_ci_lower = {}
+        constraint_t_ci_upper = {}
+        
+        for x_value, t_stat, cohens_d_val, effect_size_cat, n_points, success in all_results:
             if x_value not in constraint_points:
                 constraint_points[x_value] = []
                 constraint_effect_sizes[x_value] = []
                 constraint_cohens_d[x_value] = []
+                constraint_n_points[x_value] = []
+                constraint_t_ci_lower[x_value] = []
+                constraint_t_ci_upper[x_value] = []
             constraint_points[x_value].append(t_stat)
             constraint_effect_sizes[x_value].append(effect_size_cat)
             constraint_cohens_d[x_value].append(cohens_d_val)
+            constraint_n_points[x_value].append(n_points)
+        
+        # Read CI values directly from dataframe
+        for idx, row in df_all_params.iterrows():
+            age_consideration = row['age_consideration']
+            core_b_constraints_count = row['core_b_constraints_count']
+            
+            if age_consideration:
+                x_value = core_b_constraints_count
+            else:
+                x_value = 0
+            
+            # Get t CI values (use inverted if needed for norm_dtw)
+            if use_inverted:
+                t_ci_lower = row.get('t_ci_lower_inv', row.get('t_ci_lower', np.nan))
+                t_ci_upper = row.get('t_ci_upper_inv', row.get('t_ci_upper', np.nan))
+            else:
+                t_ci_lower = row.get('t_ci_lower', np.nan)
+                t_ci_upper = row.get('t_ci_upper', np.nan)
+            
+            constraint_t_ci_lower[x_value].append(t_ci_lower)
+            constraint_t_ci_upper[x_value].append(t_ci_upper)
         
         # Calculate improvement scores in parallel
         if not debug:  # Only show message when debug=False (mute_mode=False)
@@ -3100,9 +3158,12 @@ def plot_t_statistics_vs_constraints(quality_data, target_quality_indices, outpu
                     t_change = next_t - curr_t
                     
                     # Determine improvement/deterioration based on quality index
-                    # Sectional metrics use the same improvement logic as their non-sectional counterparts
-                    if quality_index in ['norm_dtw', 'norm_dtw_sect']:
-                        improvement_score = -t_change  # Negative change is improvement
+                    # When invert_norm_dtw=True, norm_dtw metrics follow corr_coef convention
+                    is_norm_dtw_metric = quality_index in ['norm_dtw', 'norm_dtw_sect']
+                    use_negative_improvement = is_norm_dtw_metric and not invert_norm_dtw
+                    
+                    if use_negative_improvement:
+                        improvement_score = -t_change  # Negative change is improvement (non-inverted norm_dtw)
                     else:
                         improvement_score = t_change   # Positive change is improvement
                     
@@ -3138,17 +3199,58 @@ def plot_t_statistics_vs_constraints(quality_data, target_quality_indices, outpu
                               linewidths=sizing['line_width'], zorder=1)
             ax.add_collection(lc)
         
-        # Plot all individual points colored by effect size (on top of connections)
+        # Draw light gray shaded area showing overall CI range across all constraint counts (zorder=0, lowest layer)
+        # At each x position, find the absolute min and max across ALL CI values (both lower and upper bounds)
+        ci_envelope_x = []
+        ci_envelope_upper = []
+        ci_envelope_lower = []
+        
+        for x_constraint in sorted(constraint_points.keys()):
+            # Collect ALL CI values (both lower and upper bounds) and find the overall min/max
+            all_ci_values = []
+            for ci_low, ci_up in zip(constraint_t_ci_lower[x_constraint], constraint_t_ci_upper[x_constraint]):
+                if not pd.isna(ci_low):
+                    all_ci_values.append(ci_low)
+                if not pd.isna(ci_up):
+                    all_ci_values.append(ci_up)
+            
+            if all_ci_values:
+                ci_envelope_x.append(x_constraint)
+                ci_envelope_lower.append(min(all_ci_values))  # Absolute minimum of all CI values
+                ci_envelope_upper.append(max(all_ci_values))  # Absolute maximum of all CI values
+        
+        # Draw continuous shaded polygon covering the full CI range from x=0 to x=max
+        if len(ci_envelope_x) > 0:
+            ax.fill_between(ci_envelope_x, ci_envelope_lower, ci_envelope_upper, 
+                           color='lightgray', alpha=0.4, zorder=0, label='95% CI Range')
+        
+        # Draw dark gray error bars at each data point (zorder=2, under points but above shaded area)
         for x_constraint in constraint_points.keys():
             t_stats = constraint_points[x_constraint]
-            effect_sizes = constraint_effect_sizes[x_constraint]
+            ci_lowers = constraint_t_ci_lower[x_constraint]
+            ci_uppers = constraint_t_ci_upper[x_constraint]
             
-            for t_stat, effect_size in zip(t_stats, effect_sizes):
-                # Get color based on effect size
-                dot_color = get_effect_size_color(effect_size)
+            for i, t_stat in enumerate(t_stats):
+                ci_low = ci_lowers[i] if i < len(ci_lowers) else np.nan
+                ci_up = ci_uppers[i] if i < len(ci_uppers) else np.nan
                 
-                # Plot individual point colored by effect size with black outline
-                ax.scatter(x_constraint, t_stat, color=dot_color, edgecolor='black', 
+                if not pd.isna(ci_low) and not pd.isna(ci_up):
+                    ax.plot([x_constraint, x_constraint], [ci_low, ci_up], 
+                           color='dimgray', linewidth=1.5, alpha=0.7, zorder=2)
+                    # Add small horizontal caps at the ends
+                    cap_width = 0.08
+                    ax.plot([x_constraint - cap_width, x_constraint + cap_width], [ci_low, ci_low],
+                           color='dimgray', linewidth=1.5, alpha=0.7, zorder=2)
+                    ax.plot([x_constraint - cap_width, x_constraint + cap_width], [ci_up, ci_up],
+                           color='dimgray', linewidth=1.5, alpha=0.7, zorder=2)
+        
+        # Plot all individual points with white fill and black outline
+        for x_constraint in constraint_points.keys():
+            t_stats = constraint_points[x_constraint]
+            
+            for t_stat in t_stats:
+                # Plot individual point with white fill and black outline
+                ax.scatter(x_constraint, t_stat, color='white', edgecolor='black', 
                           linewidth=max(0.5, sizing['line_width']), s=sizing['dot_size'], zorder=3)
                 
                 # Store individual point data for GIF creation if requested
@@ -3156,8 +3258,7 @@ def plot_t_statistics_vs_constraints(quality_data, target_quality_indices, outpu
                     plot_info_dict[quality_index]['individual_points'].append({
                         'x': x_constraint,
                         'y': t_stat,
-                        'color': dot_color,
-                        'effect_size': effect_size,
+                        'color': 'white',
                         'edgecolor': 'black',
                         'linewidth': max(0.5, sizing['line_width']),
                         'size': sizing['dot_size'],
@@ -3165,8 +3266,7 @@ def plot_t_statistics_vs_constraints(quality_data, target_quality_indices, outpu
                     })
         
         # Add null hypothesis line
-        ax.axhline(y=0, color='darkgray', linestyle='--', alpha=0.7, linewidth=2, 
-                  label='Synthetic Data (t=0)', zorder=2)
+        ax.axhline(y=0, color='darkgray', linestyle='--', alpha=0.7, linewidth=2, zorder=2)
         
         # Set x-axis
         all_constraints = df_all_params['core_b_constraints_count'].unique()
@@ -3184,9 +3284,9 @@ def plot_t_statistics_vs_constraints(quality_data, target_quality_indices, outpu
             elif quality_index == 'corr_coef_sect':
                 return "Pearson's r (Correlated Section)"
             elif quality_index == 'norm_dtw':
-                return "Normalized DTW Cost"
+                return "1 - Normalized DTW Cost" if invert_norm_dtw else "Normalized DTW Cost"
             elif quality_index == 'norm_dtw_sect':
-                return "Normalized DTW Cost (Correlated Section)"
+                return "1 - Normalized DTW Cost (Correlated Section)" if invert_norm_dtw else "Normalized DTW Cost (Correlated Section)"
             else:
                 return quality_index
         
@@ -3194,35 +3294,11 @@ def plot_t_statistics_vs_constraints(quality_data, target_quality_indices, outpu
         ax.set_title(f'{display_name}\n{CORE_A} vs {CORE_B}')
         ax.grid(True, alpha=0.3, zorder=0)
         
-        # Create legend for static elements and effect sizes
-        legend_elements = [
-            ax.plot([], [], color='darkgray', linestyle='--', alpha=0.7, linewidth=2)[0],
-        ]
-        legend_labels = [
-            'Synthetic Data (t=0)', 
-        ]
-        
-        # Add effect size legend elements with Cohen's d ranges
-        effect_size_info = [
-            ('negligible', '|d| < 0.2'),
-            ('small', '0.2 ≤ |d| < 0.5'),
-            ('medium', '0.5 ≤ |d| < 0.8'),
-            ('large', '|d| ≥ 0.8')
-        ]
-        
-        for category, d_range in effect_size_info:
-            color = get_effect_size_color(category)
-            legend_elements.append(
-                ax.scatter([], [], color=color, edgecolor='black', 
-                          linewidth=max(0.5, sizing['line_width']), s=sizing['dot_size'])
-            )
-            legend_labels.append(f'{category.capitalize()} effect ({d_range})')
-        
-        legend = ax.legend(legend_elements, legend_labels, bbox_to_anchor=(1.02, 0.5), loc='center left')
-        
-        # Make legend text smaller
-        for text in legend.get_texts():
-            text.set_fontsize(9)
+        # Add inline text label for synthetic data line with white background box
+        # Position text inside the graph at y=0 (on the dashed line), left-aligned with x=0
+        ax.text(0, 0, 'Synthetic Data', fontsize=9, ha='left', va='center',
+               color='dimgray', style='italic', zorder=4,
+               bbox=dict(boxstyle='round,pad=0.3', facecolor='white', edgecolor='none'))
         
         # Store actual axis limits for GIF creation if requested  
         if return_plot_info:
@@ -3234,12 +3310,24 @@ def plot_t_statistics_vs_constraints(quality_data, target_quality_indices, outpu
             }
             # Store display name for GIF titles
             plot_info_dict[quality_index]['display_name'] = display_name
+            # Store CI data for GIF creation
+            plot_info_dict[quality_index]['ci_envelope'] = {
+                'x': ci_envelope_x,
+                'lower': ci_envelope_lower,
+                'upper': ci_envelope_upper
+            }
+            plot_info_dict[quality_index]['constraint_ci_data'] = {
+                'ci_lower': dict(constraint_t_ci_lower),
+                'ci_upper': dict(constraint_t_ci_upper)
+            }
         
-        # Add horizontal colorbar for improvement/deterioration
+        # Add vertical colorbar for improvement/deterioration on right side
         sm = plt.cm.ScalarMappable(cmap=cmap, norm=plt.Normalize(vmin=-max_abs_score, vmax=max_abs_score))
         sm.set_array([])
-        cbar = plt.colorbar(sm, ax=ax, orientation='horizontal', shrink=0.6, aspect=20, pad=0.12)
-        cbar.set_label('Change in Correlation Quality', labelpad=10)
+        cbar = plt.colorbar(sm, ax=ax, orientation='vertical', shrink=0.6, aspect=20, pad=0.05)
+        # Set bold label on the left side of the colorbar
+        cbar.ax.yaxis.set_label_position('left')
+        cbar.ax.set_ylabel('Change in t-statistic', fontweight='bold', labelpad=5, rotation=90)
         
         # Set colorbar ticks and labels
         cbar.set_ticks([-max_abs_score, 0, max_abs_score])
@@ -3255,13 +3343,16 @@ def plot_t_statistics_vs_constraints(quality_data, target_quality_indices, outpu
         arrow_y_center = (ax_ylim[0] + ax_ylim[1]) / 2  # Center vertically
         
         # Determine arrow direction based on quality index
-        # Sectional metrics use the same arrow direction as their non-sectional counterparts
-        if quality_index in ['norm_dtw', 'norm_dtw_sect']:
-            # For norm_dtw, lower values are better (downward arrow)
+        # When invert_norm_dtw=True, norm_dtw metrics use upward arrow (like corr_coef)
+        is_norm_dtw_metric = quality_index in ['norm_dtw', 'norm_dtw_sect']
+        use_downward_arrow = is_norm_dtw_metric and not invert_norm_dtw
+        
+        if use_downward_arrow:
+            # For norm_dtw (non-inverted), lower values are better (downward arrow)
             arrow_y_start = arrow_y_center + 0.2 * (ax_ylim[1] - ax_ylim[0])
             arrow_y_end = arrow_y_center - 0.2 * (ax_ylim[1] - ax_ylim[0])  
         else:
-            # For other quality indices, higher values are better (upward arrow)
+            # For other quality indices (or inverted norm_dtw), higher values are better (upward arrow)
             arrow_y_start = arrow_y_center - 0.2 * (ax_ylim[1] - ax_ylim[0])
             arrow_y_end = arrow_y_center + 0.2 * (ax_ylim[1] - ax_ylim[0]) 
             
@@ -3281,20 +3372,10 @@ def plot_t_statistics_vs_constraints(quality_data, target_quality_indices, outpu
         lc = LineCollection(segments, colors=colors_gradient, linewidths=3, zorder=4)
         ax.add_collection(lc)
         
-        # Add arrowhead at the end, positioned to start from where the colored bar ends
-        # Sectional metrics use the same arrow direction as their non-sectional counterparts
-        if quality_index in ['norm_dtw', 'norm_dtw_sect']:
-            # Downward arrow, use color from end of gradient
-            arrow_color = cmap(1.0)
-            # Position arrowhead to start where the gradient line ends
-            arrowhead_start_y = y_vals[-2]  # Second to last point of the gradient
-            arrowhead_end_y = arrow_y_end
-        else:
-            # Upward arrow, use color from end of gradient
-            arrow_color = cmap(1.0)
-            # Position arrowhead to start where the gradient line ends
-            arrowhead_start_y = y_vals[-2]  # Second to last point of the gradient
-            arrowhead_end_y = arrow_y_end
+        # Add arrowhead at the end
+        arrow_color = cmap(1.0)
+        arrowhead_start_y = y_vals[-2]
+        arrowhead_end_y = arrow_y_end
         
         # Add just the arrowhead
         ax.annotate('', 
@@ -3347,6 +3428,7 @@ def plot_t_statistics_vs_constraints(quality_data, target_quality_indices, outpu
                 'constraint_points': constraint_points,
                 'constraint_effect_sizes': constraint_effect_sizes,
                 'constraint_cohens_d': constraint_cohens_d,
+                'constraint_n_points': constraint_n_points,
                 'constraint_t_stats': constraint_t_stats,
                 'line_segments': line_segments,
                 'line_colors': line_colors,
@@ -3402,6 +3484,1194 @@ def plot_t_statistics_vs_constraints(quality_data, target_quality_indices, outpu
         return plot_info_dict
     else:
         return None
+
+
+def plot_cohens_d_vs_constraints(quality_data, target_quality_indices, output_figure_filenames,
+                                 CORE_A, CORE_B, debug=True, n_jobs=-1, batch_size=None, return_plot_info=False, 
+                                 fig_format=['png'], dpi=None, invert_norm_dtw=True):
+    """
+    Plot Cohen's d vs number of age constraints for each quality index.
+    Data points are colored by sample size (n_points) using a color spectrum.
+    Connection lines are colored based on change in Cohen's d value.
+    
+    Parameters:
+    -----------
+    quality_data : dict
+        Preprocessed quality data from load_and_prepare_quality_data function
+    target_quality_indices : list
+        List of quality indices to process (e.g., ['corr_coef', 'norm_dtw', 'perc_diag'])
+    output_figure_filenames : dict
+        Dictionary mapping quality_index to output figure filename paths
+    CORE_A : str
+        Name of core A
+    CORE_B : str
+        Name of core B
+    debug : bool, default True
+        If True, only print essential messages. If False, print all detailed messages.
+    n_jobs : int, default -1
+        Number of parallel jobs to run. -1 means using all available cores.
+    batch_size : int, optional
+        Batch size for parallel processing. If None, automatically determined.
+    return_plot_info : bool, default False
+        If True, return plotting information for gif creation
+    fig_format : list, default ['png']
+        List of file formats for saved figures
+    dpi : int, optional
+        Resolution for saved figures
+    
+    Returns:
+    --------
+    dict or None
+        If return_plot_info=True, returns plotting information for gif creation
+    """
+    
+    plot_info_dict = {}
+    
+    for quality_index in target_quality_indices:
+        if quality_index not in quality_data:
+            print(f"Skipping {quality_index} - no data available")
+            continue
+            
+        data = quality_data[quality_index]
+        df_all_params = data['df_all_params']
+        combined_data = data['combined_data']
+        
+        if not debug:
+            print(f"Processing Cohen's d for {quality_index} with {len(df_all_params)} scenarios...")
+        
+        # Initialize plot_info_dict entry if needed
+        if return_plot_info:
+            plot_info_dict[quality_index] = {
+                'individual_points': [],
+                'individual_segments': []
+            }
+        
+        # Create plot
+        fig, ax = plt.subplots(figsize=(9.5, 5))
+        
+        # Prepare data for parallel processing
+        if batch_size is None:
+            batch_size = max(50, len(df_all_params) // (n_jobs if n_jobs > 0 else 4))
+        
+        # Prepare row data for parallel processing
+        row_data_list = []
+        for idx, row in df_all_params.iterrows():
+            row_data_list.append((idx, row, row['age_consideration'], row['core_b_constraints_count']))
+        
+        # Process data in parallel
+        if not debug:
+            if n_jobs == -1:
+                print(f"  Calculating Cohen's d using all available cores...")
+            else:
+                print(f"  Calculating Cohen's d using {n_jobs} cores...")
+        
+        # Determine if we should use inverted columns for norm_dtw metrics
+        use_inverted = invert_norm_dtw and quality_index in ['norm_dtw', 'norm_dtw_sect']
+        
+        with tqdm(total=len(row_data_list), desc="  Processing Cohen's d", disable=debug) as pbar:
+            all_results = []
+            for i in range(0, len(row_data_list), batch_size):
+                batch = row_data_list[i:i+batch_size]
+                
+                batch_results = Parallel(n_jobs=n_jobs, verbose=0)(
+                    delayed(process_single_row_parallel)(row_data, combined_data, debug, use_inverted)
+                    for row_data in batch
+                )
+                all_results.extend(batch_results)
+                pbar.update(len(batch))
+        
+        # Organize results by constraint count
+        constraint_cohens_d = {}
+        constraint_n_points = {}
+        constraint_d_ci_lower = {}
+        constraint_d_ci_upper = {}
+        
+        for x_value, t_stat, cohens_d_val, effect_size_cat, n_points, success in all_results:
+            if x_value not in constraint_cohens_d:
+                constraint_cohens_d[x_value] = []
+                constraint_n_points[x_value] = []
+                constraint_d_ci_lower[x_value] = []
+                constraint_d_ci_upper[x_value] = []
+            constraint_cohens_d[x_value].append(cohens_d_val)
+            constraint_n_points[x_value].append(n_points)
+        
+        # Read CI values directly from dataframe
+        for idx, row in df_all_params.iterrows():
+            age_consideration = row['age_consideration']
+            core_b_constraints_count = row['core_b_constraints_count']
+            
+            if age_consideration:
+                x_value = core_b_constraints_count
+            else:
+                x_value = 0
+            
+            # Get Cohen's d CI values (use inverted if needed for norm_dtw)
+            if use_inverted:
+                d_ci_lower = row.get('d_ci_lower_inv', row.get('d_ci_lower', np.nan))
+                d_ci_upper = row.get('d_ci_upper_inv', row.get('d_ci_upper', np.nan))
+            else:
+                d_ci_lower = row.get('d_ci_lower', np.nan)
+                d_ci_upper = row.get('d_ci_upper', np.nan)
+            
+            constraint_d_ci_lower[x_value].append(d_ci_lower)
+            constraint_d_ci_upper[x_value].append(d_ci_upper)
+        
+        # Calculate improvement scores for Cohen's d
+        sorted_constraints = sorted(constraint_cohens_d.keys())
+        
+        # Calculate improvement scores based on Cohen's d change
+        all_improvement_scores = []
+        for i in range(len(sorted_constraints) - 1):
+            current_constraint = sorted_constraints[i]
+            next_constraint = sorted_constraints[i + 1]
+            current_d_values = constraint_cohens_d[current_constraint]
+            next_d_values = constraint_cohens_d[next_constraint]
+            
+            for curr_d in current_d_values:
+                for next_d in next_d_values:
+                    d_change = next_d - curr_d
+                    # When invert_norm_dtw=True, norm_dtw metrics follow corr_coef convention
+                    is_norm_dtw_metric = quality_index in ['norm_dtw', 'norm_dtw_sect']
+                    use_negative_improvement = is_norm_dtw_metric and not invert_norm_dtw
+                    
+                    if use_negative_improvement:
+                        improvement_score = -d_change  # Non-inverted norm_dtw: negative change is improvement
+                    else:
+                        improvement_score = d_change   # Positive change is improvement
+                    all_improvement_scores.append(improvement_score)
+        
+        # Normalize improvement scores
+        if all_improvement_scores:
+            max_abs_score = max(abs(score) for score in all_improvement_scores)
+        else:
+            max_abs_score = 1.0
+        
+        # Calculate total data points and connections for dynamic sizing
+        total_points = sum(len(d_vals) for d_vals in constraint_cohens_d.values())
+        total_connections = sum(len(constraint_cohens_d[sorted_constraints[i]]) * 
+                              len(constraint_cohens_d[sorted_constraints[i+1]]) 
+                              for i in range(len(sorted_constraints)-1))
+        
+        # Get dynamic sizing parameters
+        sizing = calculate_dynamic_sizes(total_points, total_connections)
+        
+        if not debug:
+            print(f"  Drawing {total_points} points and {total_connections} connections...")
+        
+        # Create colormap for improvement/deterioration (connection lines)
+        colors_list = ['#0066CC', '#e3e3e3', '#CC0000']  # Blue -> gray -> Red
+        n_bins = 256
+        cmap = LinearSegmentedColormap.from_list('improvement', colors_list, N=n_bins)
+        
+        # Prepare all line segments and colors for vectorized drawing
+        if not debug:
+            print(f"  Preparing line segments for vectorized drawing...")
+        line_segments = []
+        line_colors = []
+        
+        # Determine if we should use negative improvement logic for norm_dtw
+        is_norm_dtw_metric = quality_index in ['norm_dtw', 'norm_dtw_sect']
+        use_negative_improvement = is_norm_dtw_metric and not invert_norm_dtw
+        
+        for i in range(len(sorted_constraints) - 1):
+            current_constraint = sorted_constraints[i]
+            next_constraint = sorted_constraints[i + 1]
+            
+            current_d_values = constraint_cohens_d[current_constraint]
+            next_d_values = constraint_cohens_d[next_constraint]
+            
+            # Connect every dot in current constraint to every dot in next constraint
+            for curr_d in current_d_values:
+                for next_d in next_d_values:
+                    # Calculate change in Cohen's d
+                    d_change = next_d - curr_d
+                    
+                    # Determine improvement/deterioration based on quality index
+                    if use_negative_improvement:
+                        improvement_score = -d_change  # Non-inverted norm_dtw: negative change is improvement
+                    else:
+                        improvement_score = d_change   # Positive change is improvement
+                    
+                    # Normalize to [-1, 1] range for colormap
+                    if max_abs_score > 0:
+                        normalized_score = np.clip(improvement_score / max_abs_score, -1, 1)
+                    else:
+                        normalized_score = 0
+                    
+                    # Map to colormap (0 = blue/deterioration, 1 = red/improvement)
+                    color_value = (normalized_score + 1) / 2  # Convert [-1,1] to [0,1]
+                    color = cmap(color_value)
+                    
+                    # Store line segment and color
+                    line_segments.append([[current_constraint, curr_d], [next_constraint, next_d]])
+                    line_colors.append(color)
+                    
+                    # Store individual segment data for GIF creation if requested
+                    if return_plot_info:
+                        plot_info_dict[quality_index]['individual_segments'].append({
+                            'segment': [[current_constraint, curr_d], [next_constraint, next_d]],
+                            'color': color,
+                            'alpha': sizing['alpha'],
+                            'linewidth': sizing['line_width'],
+                            'zorder': 1
+                        })
+        
+        # Draw all connections at once using LineCollection
+        if not debug:
+            print(f"  Drawing {len(line_segments)} line segments using vectorized approach...")
+        if line_segments:
+            lc = LineCollection(line_segments, colors=line_colors, alpha=sizing['alpha'], 
+                              linewidths=sizing['line_width'], zorder=1)
+            ax.add_collection(lc)
+        
+        # Draw light gray shaded area showing overall CI range across all constraint counts (zorder=0, lowest layer)
+        # At each x position, find the absolute min and max across ALL CI values (both lower and upper bounds)
+        ci_envelope_x = []
+        ci_envelope_upper = []
+        ci_envelope_lower = []
+        
+        for x_constraint in sorted(constraint_cohens_d.keys()):
+            # Collect ALL CI values (both lower and upper bounds) and find the overall min/max
+            all_ci_values = []
+            for ci_low, ci_up in zip(constraint_d_ci_lower[x_constraint], constraint_d_ci_upper[x_constraint]):
+                if not pd.isna(ci_low):
+                    all_ci_values.append(ci_low)
+                if not pd.isna(ci_up):
+                    all_ci_values.append(ci_up)
+            
+            if all_ci_values:
+                ci_envelope_x.append(x_constraint)
+                ci_envelope_lower.append(min(all_ci_values))  # Absolute minimum of all CI values
+                ci_envelope_upper.append(max(all_ci_values))  # Absolute maximum of all CI values
+        
+        # Draw continuous shaded polygon covering the full CI range from x=0 to x=max
+        if len(ci_envelope_x) > 0:
+            ax.fill_between(ci_envelope_x, ci_envelope_lower, ci_envelope_upper, 
+                           color='lightgray', alpha=0.4, zorder=0, label='95% CI Range')
+        
+        # Draw dark gray error bars at each data point (zorder=2, under points but above shaded area)
+        for x_constraint in constraint_cohens_d.keys():
+            d_values = constraint_cohens_d[x_constraint]
+            ci_lowers = constraint_d_ci_lower[x_constraint]
+            ci_uppers = constraint_d_ci_upper[x_constraint]
+            
+            for i, cohens_d_val in enumerate(d_values):
+                ci_low = ci_lowers[i] if i < len(ci_lowers) else np.nan
+                ci_up = ci_uppers[i] if i < len(ci_uppers) else np.nan
+                
+                if not pd.isna(ci_low) and not pd.isna(ci_up):
+                    ax.plot([x_constraint, x_constraint], [ci_low, ci_up], 
+                           color='dimgray', linewidth=1.5, alpha=0.7, zorder=2)
+                    # Add small horizontal caps at the ends
+                    cap_width = 0.08
+                    ax.plot([x_constraint - cap_width, x_constraint + cap_width], [ci_low, ci_low],
+                           color='dimgray', linewidth=1.5, alpha=0.7, zorder=2)
+                    ax.plot([x_constraint - cap_width, x_constraint + cap_width], [ci_up, ci_up],
+                           color='dimgray', linewidth=1.5, alpha=0.7, zorder=2)
+        
+        # Plot all individual points with white fill and black outline
+        for x_constraint in constraint_cohens_d.keys():
+            d_values = constraint_cohens_d[x_constraint]
+            
+            for cohens_d_val in d_values:
+                # Plot individual point with white fill and black outline
+                ax.scatter(x_constraint, cohens_d_val, color='white', edgecolor='black', 
+                          linewidth=max(0.5, sizing['line_width']), s=sizing['dot_size'], zorder=3)
+                
+                # Store individual point data for GIF creation if requested
+                if return_plot_info:
+                    plot_info_dict[quality_index]['individual_points'].append({
+                        'x': x_constraint,
+                        'y': cohens_d_val,
+                        'color': 'white',
+                        'edgecolor': 'black',
+                        'linewidth': max(0.5, sizing['line_width']),
+                        'size': sizing['dot_size'],
+                        'zorder': 3
+                    })
+        
+        # Add null hypothesis line (d=0)
+        ax.axhline(y=0, color='darkgray', linestyle='--', alpha=0.7, linewidth=2, zorder=2)
+        
+        # Set x-axis
+        all_constraints = df_all_params['core_b_constraints_count'].unique()
+        x_min, x_max = 0, int(max(all_constraints))
+        ax.set_xlim(-0.5, x_max + 0.5)
+        ax.set_xticks(range(0, x_max + 1))
+        
+        # Format plot
+        ax.set_xlabel(f'Number of {CORE_B} Age Constraints')
+        ax.set_ylabel("Cohen's d")
+        
+        # Get display name for quality index
+        def get_quality_display_name(quality_index):
+            if quality_index == 'corr_coef':
+                return "Pearson's r"
+            elif quality_index == 'corr_coef_sect':
+                return "Pearson's r (Correlated Section)"
+            elif quality_index == 'norm_dtw':
+                return "1 - Normalized DTW Cost" if invert_norm_dtw else "Normalized DTW Cost"
+            elif quality_index == 'norm_dtw_sect':
+                return "1 - Normalized DTW Cost (Correlated Section)" if invert_norm_dtw else "Normalized DTW Cost (Correlated Section)"
+            else:
+                return quality_index
+        
+        display_name = get_quality_display_name(quality_index)
+        ax.set_title(f"{display_name}\n{CORE_A} vs {CORE_B}")
+        ax.grid(True, alpha=0.3, zorder=0)
+        
+        # Add inline text label for synthetic data line with white background box
+        # Position text inside the graph at y=0 (on the dashed line), left-aligned with x=0
+        ax.text(0, 0, 'Synthetic Data', fontsize=9, ha='left', va='center',
+               color='dimgray', style='italic', zorder=4,
+               bbox=dict(boxstyle='round,pad=0.3', facecolor='white', edgecolor='none'))
+        
+        # Store actual axis limits for GIF creation if requested  
+        if return_plot_info:
+            plot_info_dict[quality_index]['actual_plot_limits'] = {
+                'x_min': ax.get_xlim()[0],
+                'x_max': ax.get_xlim()[1], 
+                'y_min': ax.get_ylim()[0],
+                'y_max': ax.get_ylim()[1]
+            }
+            plot_info_dict[quality_index]['display_name'] = display_name
+            # Store CI data for GIF creation
+            plot_info_dict[quality_index]['ci_envelope'] = {
+                'x': ci_envelope_x,
+                'lower': ci_envelope_lower,
+                'upper': ci_envelope_upper
+            }
+            plot_info_dict[quality_index]['constraint_ci_data'] = {
+                'ci_lower': dict(constraint_d_ci_lower),
+                'ci_upper': dict(constraint_d_ci_upper)
+            }
+        
+        # Add vertical colorbar for improvement/deterioration (connection lines) on right side
+        sm = plt.cm.ScalarMappable(cmap=cmap, norm=plt.Normalize(vmin=-max_abs_score, vmax=max_abs_score))
+        sm.set_array([])
+        cbar = plt.colorbar(sm, ax=ax, orientation='vertical', shrink=0.6, aspect=20, pad=0.05)
+        # Set bold label on the left side of the colorbar
+        cbar.ax.yaxis.set_label_position('left')
+        cbar.ax.set_ylabel("Change in Cohen's d", fontweight='bold', labelpad=5, rotation=90)
+        
+        # Set colorbar ticks and labels
+        cbar.set_ticks([-max_abs_score, 0, max_abs_score])
+        cbar.set_ticklabels(['Deterioration', 'No Change', 'Improvement'])
+        
+        # Add "Better Correlation" arrow pointing to the improvement direction
+        ax_xlim = ax.get_xlim()
+        ax_ylim = ax.get_ylim()
+        
+        # Position arrow to the left of x=0
+        arrow_x = -0.35
+        arrow_y_center = (ax_ylim[0] + ax_ylim[1]) / 2
+        
+        # Determine arrow direction based on quality index
+        # When invert_norm_dtw=True, norm_dtw metrics use upward arrow (like corr_coef)
+        is_norm_dtw_metric = quality_index in ['norm_dtw', 'norm_dtw_sect']
+        use_downward_arrow = is_norm_dtw_metric and not invert_norm_dtw
+        
+        if use_downward_arrow:
+            # For norm_dtw (non-inverted), lower values are better (downward arrow)
+            arrow_y_start = arrow_y_center + 0.2 * (ax_ylim[1] - ax_ylim[0])
+            arrow_y_end = arrow_y_center - 0.2 * (ax_ylim[1] - ax_ylim[0])  
+        else:
+            # For other quality indices (or inverted norm_dtw), higher values are better (upward arrow)
+            arrow_y_start = arrow_y_center - 0.2 * (ax_ylim[1] - ax_ylim[0])
+            arrow_y_end = arrow_y_center + 0.2 * (ax_ylim[1] - ax_ylim[0]) 
+            
+        # Create gradient arrow using LineCollection
+        n_segments = 100
+        y_vals = np.linspace(arrow_y_start, arrow_y_end, n_segments + 1)
+        x_vals = np.full_like(y_vals, arrow_x)
+        
+        # Create line segments for gradient effect
+        points = np.array([x_vals[:-1], y_vals[:-1]]).T.reshape(-1, 1, 2)
+        segments = np.concatenate([points[:-1], points[1:]], axis=1)
+        
+        # Create colors for each segment
+        colors_gradient = [cmap(i / (n_segments - 1)) for i in range(n_segments - 1)]
+        
+        # Create the gradient line
+        lc_arrow = LineCollection(segments, colors=colors_gradient, linewidths=3, zorder=4)
+        ax.add_collection(lc_arrow)
+        
+        # Add arrowhead at the end
+        arrow_color = cmap(1.0)
+        arrowhead_start_y = y_vals[-2]
+        arrowhead_end_y = arrow_y_end
+        
+        ax.annotate('', 
+                   xy=(arrow_x, arrowhead_end_y), 
+                   xytext=(arrow_x, arrowhead_start_y),
+                   arrowprops=dict(arrowstyle='->', color=arrow_color, lw=4),
+                   zorder=5)
+        
+        # Add text next to the arrow
+        text_x = arrow_x + 0.1
+        text_y = arrow_y_center
+        
+        ax.text(text_x, text_y, 'Better Correlation Quality',
+               fontsize=8, ha='left', va='center',
+               rotation=90, color='black',
+               zorder=4)
+        
+        plt.tight_layout()
+        
+        # Store plot info for gif creation if requested
+        if return_plot_info:
+            # Calculate axis limits for gif consistency
+            if constraint_cohens_d:
+                all_d_values = []
+                for d_list in constraint_cohens_d.values():
+                    all_d_values.extend(d_list)
+                d_range = max(abs(min(all_d_values)), abs(max(all_d_values)))
+                y_plot_min, y_plot_max = -d_range * 1.2, d_range * 1.2
+            else:
+                y_plot_min, y_plot_max = -2, 2
+            
+            unique_constraints = sorted(df_all_params['core_b_constraints_count'].unique())
+            
+            plot_info_dict[quality_index].update({
+                'quality_index': quality_index,
+                'CORE_A': CORE_A,
+                'CORE_B': CORE_B,
+                'unique_constraints': unique_constraints,
+                'constraint_cohens_d': constraint_cohens_d,
+                'constraint_n_points': constraint_n_points,
+                'line_segments': line_segments,
+                'line_colors': line_colors,
+                'sizing': sizing,
+                'max_abs_score': max_abs_score,
+                'cmap': cmap,
+                'plot_limits': {
+                    'x_min': -0.5,
+                    'x_max': x_max + 0.5,
+                    'y_min': y_plot_min,
+                    'y_max': y_plot_max
+                }
+            })
+        
+        # Save figure
+        if output_figure_filenames and quality_index in output_figure_filenames:
+            base_filename = output_figure_filenames[quality_index]
+            cohens_d_filename_base = base_filename + '_cohens_d'
+            
+            # Create directory if needed
+            output_dir = os.path.dirname(cohens_d_filename_base)
+            if output_dir:
+                os.makedirs(output_dir, exist_ok=True)
+            
+            save_dpi = dpi if dpi is not None else 150
+            
+            # Save in all requested formats
+            for fmt in fig_format:
+                if fmt in ['png', 'jpeg', 'svg', 'pdf', 'tiff']:
+                    cohens_d_filename = f"{cohens_d_filename_base}.{fmt}"
+                    if fmt == 'jpeg':
+                        plt.savefig(cohens_d_filename, dpi=save_dpi, bbox_inches='tight', format='jpg')
+                    else:
+                        plt.savefig(cohens_d_filename, dpi=save_dpi, bbox_inches='tight')
+                    
+                    if debug:
+                        print(f"✓ Cohen's d plot saved as: {cohens_d_filename}")
+                    else:
+                        print(f"✓ Cohen's d plot saved as: {cohens_d_filename}")
+        else:
+            if debug:
+                print(f"✓ Cohen's d plot completed for {quality_index}")
+            else:
+                print(f"✓ Cohen's d plot completed for {quality_index}")
+        
+        # Display the plot - suppress when debug=True
+        if not debug:
+            plt.show()
+    
+    # Return plot info if requested
+    if return_plot_info:
+        return plot_info_dict
+    else:
+        return None
+
+
+def plot_hedges_g_vs_constraints(quality_data, target_quality_indices, output_figure_filenames,
+                                 CORE_A, CORE_B, debug=True, n_jobs=-1, batch_size=None, return_plot_info=False, 
+                                 fig_format=['png'], dpi=None, invert_norm_dtw=True, linear_g_scale=False):
+    """
+    Plot Hedges' g vs number of age constraints for each quality index.
+    Hedges' g is a bias-corrected version of Cohen's d, more appropriate for smaller samples.
+    
+    Parameters:
+    -----------
+    quality_data : dict
+        Preprocessed quality data from load_and_prepare_quality_data function
+    target_quality_indices : list
+        List of quality indices to process (e.g., ['corr_coef', 'norm_dtw', 'perc_diag'])
+    output_figure_filenames : dict
+        Dictionary mapping quality_index to output figure filename paths
+    CORE_A : str
+        Name of core A
+    CORE_B : str
+        Name of core B
+    debug : bool, default True
+        If True, only print essential messages. If False, print all detailed messages.
+    n_jobs : int, default -1
+        Number of parallel jobs to run. -1 means using all available cores.
+    batch_size : int, optional
+        Batch size for parallel processing. If None, automatically determined.
+    return_plot_info : bool, default False
+        If True, return plotting information for gif creation
+    fig_format : list, default ['png']
+        List of file formats for saved figures
+    dpi : int, optional
+        Resolution for saved figures
+    invert_norm_dtw : bool, default True
+        If True, use inverted hedges_g_inv for norm_dtw metrics
+    linear_g_scale : bool, default False
+        If False, plot with linear Hedges' g scale on left y-axis.
+        If True, rescale y-axis so Probability of Superiority (PS) is linear (0-100%),
+        with right y-axis showing PS at 20% intervals, and left y-axis showing
+        corresponding g values at each PS tick.
+    
+    Returns:
+    --------
+    dict or None
+        If return_plot_info=True, returns plotting information for gif creation
+    """
+    
+    plot_info_dict = {}
+    
+    for quality_index in target_quality_indices:
+        if quality_index not in quality_data:
+            print(f"Skipping {quality_index} - no data available")
+            continue
+            
+        data = quality_data[quality_index]
+        df_all_params = data['df_all_params']
+        combined_data = data['combined_data']
+        
+        if not debug:
+            print(f"Processing Hedges' g for {quality_index} with {len(df_all_params)} scenarios...")
+        
+        # Initialize plot_info_dict entry if needed
+        if return_plot_info:
+            plot_info_dict[quality_index] = {
+                'individual_points': [],
+                'individual_segments': []
+            }
+        
+        # Create plot
+        fig, ax = plt.subplots(figsize=(9.5, 5))
+        
+        # Prepare data for parallel processing
+        if batch_size is None:
+            batch_size = max(50, len(df_all_params) // (n_jobs if n_jobs > 0 else 4))
+        
+        # Determine if we should use inverted columns for norm_dtw metrics
+        use_inverted = invert_norm_dtw and quality_index in ['norm_dtw', 'norm_dtw_sect']
+        
+        # Organize results by constraint count - read hedges_g from dataframe
+        constraint_hedges_g = {}
+        constraint_n_points = {}
+        constraint_g_ci_lower = {}
+        constraint_g_ci_upper = {}
+        # Also read prob_superiority and PS CI bounds directly from CSV
+        constraint_prob_superiority = {}
+        constraint_ps_ci_lower = {}
+        constraint_ps_ci_upper = {}
+        
+        for idx, row in df_all_params.iterrows():
+            age_consideration = row['age_consideration']
+            core_b_constraints_count = row['core_b_constraints_count']
+            
+            if age_consideration:
+                x_value = core_b_constraints_count
+            else:
+                x_value = 0
+            
+            # Get hedges_g value from CSV (use inverted if needed)
+            if use_inverted:
+                hedges_g_val = row.get('g_inv', row.get('g', 0.0))
+                g_ci_lower = row.get('g_ci_lower_inv', row.get('g_ci_lower', np.nan))
+                g_ci_upper = row.get('g_ci_upper_inv', row.get('g_ci_upper', np.nan))
+                # Get pre-calculated PS values from CSV (inverted)
+                ps_val = row.get('ps_inv', row.get('ps', 0.5))
+                ps_ci_lower = row.get('ps_ci_lower_inv', row.get('ps_ci_lower', np.nan))
+                ps_ci_upper = row.get('ps_ci_upper_inv', row.get('ps_ci_upper', np.nan))
+            else:
+                hedges_g_val = row.get('g', 0.0)
+                g_ci_lower = row.get('g_ci_lower', np.nan)
+                g_ci_upper = row.get('g_ci_upper', np.nan)
+                # Get pre-calculated PS values from CSV
+                ps_val = row.get('ps', 0.5)
+                ps_ci_lower = row.get('ps_ci_lower', np.nan)
+                ps_ci_upper = row.get('ps_ci_upper', np.nan)
+            
+            if pd.isna(hedges_g_val):
+                hedges_g_val = 0.0
+            if pd.isna(ps_val):
+                ps_val = 0.5
+            
+            n_points = row.get('n_points', 0)
+            if pd.isna(n_points):
+                n_points = 0
+            
+            if x_value not in constraint_hedges_g:
+                constraint_hedges_g[x_value] = []
+                constraint_n_points[x_value] = []
+                constraint_g_ci_lower[x_value] = []
+                constraint_g_ci_upper[x_value] = []
+                constraint_prob_superiority[x_value] = []
+                constraint_ps_ci_lower[x_value] = []
+                constraint_ps_ci_upper[x_value] = []
+            constraint_hedges_g[x_value].append(hedges_g_val)
+            constraint_n_points[x_value].append(n_points)
+            constraint_g_ci_lower[x_value].append(g_ci_lower)
+            constraint_g_ci_upper[x_value].append(g_ci_upper)
+            constraint_prob_superiority[x_value].append(ps_val)
+            constraint_ps_ci_lower[x_value].append(ps_ci_lower)
+            constraint_ps_ci_upper[x_value].append(ps_ci_upper)
+        
+        # Define conversion functions for linear PS scale (used for axis labels)
+        def g_to_ps(g):
+            """Convert Hedges' g to Probability of Superiority (0-100%)"""
+            return stats.norm.cdf(g / np.sqrt(2)) * 100
+        
+        def ps_to_g(ps):
+            """Convert Probability of Superiority (0-100%) to Hedges' g"""
+            return stats.norm.ppf(ps / 100) * np.sqrt(2)
+        
+        # If linear_g_scale=False, use pre-calculated PS values from CSV; if True, use normal g scale
+        if not linear_g_scale:
+            # Use pre-calculated PS values from CSV (convert from 0-1 to 0-100% scale)
+            # If PS CI values are not available in CSV, compute from g CI values as fallback
+            constraint_plot_y = {}
+            constraint_plot_ci_lower = {}
+            constraint_plot_ci_upper = {}
+            for x_val in constraint_hedges_g.keys():
+                # PS values from CSV are in 0-1 scale, convert to 0-100% for plotting
+                ps_y_values = []
+                for i, ps in enumerate(constraint_prob_superiority[x_val]):
+                    if not pd.isna(ps):
+                        ps_y_values.append(ps * 100)
+                    else:
+                        # Fallback: compute from g value
+                        g_val = constraint_hedges_g[x_val][i] if i < len(constraint_hedges_g[x_val]) else 0.0
+                        ps_y_values.append(g_to_ps(g_val))
+                constraint_plot_y[x_val] = ps_y_values
+                
+                # For CI bounds, use pre-calculated PS CI if available, otherwise compute from g CI
+                plot_ci_lowers = []
+                plot_ci_uppers = []
+                for i in range(len(constraint_hedges_g[x_val])):
+                    ps_ci_low = constraint_ps_ci_lower[x_val][i] if i < len(constraint_ps_ci_lower[x_val]) else np.nan
+                    ps_ci_up = constraint_ps_ci_upper[x_val][i] if i < len(constraint_ps_ci_upper[x_val]) else np.nan
+                    g_ci_low = constraint_g_ci_lower[x_val][i] if i < len(constraint_g_ci_lower[x_val]) else np.nan
+                    g_ci_up = constraint_g_ci_upper[x_val][i] if i < len(constraint_g_ci_upper[x_val]) else np.nan
+                    
+                    # Use PS CI from CSV if available, otherwise compute from g CI
+                    if not pd.isna(ps_ci_low):
+                        plot_ci_lowers.append(ps_ci_low * 100)
+                    elif not pd.isna(g_ci_low):
+                        plot_ci_lowers.append(g_to_ps(g_ci_low))
+                    else:
+                        # Fallback to data point value if no CI available
+                        plot_ci_lowers.append(constraint_plot_y[x_val][i] if i < len(constraint_plot_y[x_val]) else 50.0)
+                    
+                    if not pd.isna(ps_ci_up):
+                        plot_ci_uppers.append(ps_ci_up * 100)
+                    elif not pd.isna(g_ci_up):
+                        plot_ci_uppers.append(g_to_ps(g_ci_up))
+                    else:
+                        # Fallback to data point value if no CI available
+                        plot_ci_uppers.append(constraint_plot_y[x_val][i] if i < len(constraint_plot_y[x_val]) else 50.0)
+                
+                constraint_plot_ci_lower[x_val] = plot_ci_lowers
+                constraint_plot_ci_upper[x_val] = plot_ci_uppers
+        else:
+            # Use original g values
+            constraint_plot_y = constraint_hedges_g
+            constraint_plot_ci_lower = constraint_g_ci_lower
+            constraint_plot_ci_upper = constraint_g_ci_upper
+        
+        # Calculate improvement scores for Hedges' g
+        sorted_constraints = sorted(constraint_hedges_g.keys())
+        
+        # Calculate improvement scores based on Hedges' g change
+        all_improvement_scores = []
+        for i in range(len(sorted_constraints) - 1):
+            current_constraint = sorted_constraints[i]
+            next_constraint = sorted_constraints[i + 1]
+            current_g_values = constraint_hedges_g[current_constraint]
+            next_g_values = constraint_hedges_g[next_constraint]
+            
+            for curr_g in current_g_values:
+                for next_g in next_g_values:
+                    g_change = next_g - curr_g
+                    # When invert_norm_dtw=True, norm_dtw metrics follow corr_coef convention
+                    is_norm_dtw_metric = quality_index in ['norm_dtw', 'norm_dtw_sect']
+                    use_negative_improvement = is_norm_dtw_metric and not invert_norm_dtw
+                    
+                    if use_negative_improvement:
+                        improvement_score = -g_change
+                    else:
+                        improvement_score = g_change
+                    all_improvement_scores.append(improvement_score)
+        
+        # Normalize improvement scores
+        if all_improvement_scores:
+            max_abs_score = max(abs(score) for score in all_improvement_scores)
+        else:
+            max_abs_score = 1.0
+        
+        # Calculate total data points and connections for dynamic sizing
+        total_points = sum(len(g_vals) for g_vals in constraint_hedges_g.values())
+        total_connections = sum(len(constraint_hedges_g[sorted_constraints[i]]) * 
+                              len(constraint_hedges_g[sorted_constraints[i+1]]) 
+                              for i in range(len(sorted_constraints)-1))
+        
+        # Get dynamic sizing parameters
+        sizing = calculate_dynamic_sizes(total_points, total_connections)
+        
+        if not debug:
+            print(f"  Drawing {total_points} points and {total_connections} connections...")
+        
+        # Create colormap for improvement/deterioration (connection lines)
+        colors_list = ['#0066CC', '#e3e3e3', '#CC0000']  # Blue -> gray -> Red
+        n_bins = 256
+        cmap = LinearSegmentedColormap.from_list('improvement', colors_list, N=n_bins)
+        
+        # Prepare all line segments and colors for vectorized drawing
+        if not debug:
+            print(f"  Preparing line segments for vectorized drawing...")
+        line_segments = []
+        line_colors = []
+        
+        # Determine if we should use negative improvement logic for norm_dtw
+        is_norm_dtw_metric = quality_index in ['norm_dtw', 'norm_dtw_sect']
+        use_negative_improvement = is_norm_dtw_metric and not invert_norm_dtw
+        
+        for i in range(len(sorted_constraints) - 1):
+            current_constraint = sorted_constraints[i]
+            next_constraint = sorted_constraints[i + 1]
+            
+            current_g_values = constraint_hedges_g[current_constraint]
+            next_g_values = constraint_hedges_g[next_constraint]
+            current_plot_values = constraint_plot_y[current_constraint]
+            next_plot_values = constraint_plot_y[next_constraint]
+            
+            for idx_curr, curr_g in enumerate(current_g_values):
+                curr_plot_y = current_plot_values[idx_curr]
+                for idx_next, next_g in enumerate(next_g_values):
+                    next_plot_y = next_plot_values[idx_next]
+                    g_change = next_g - curr_g
+                    
+                    if use_negative_improvement:
+                        improvement_score = -g_change
+                    else:
+                        improvement_score = g_change
+                    
+                    if max_abs_score > 0:
+                        normalized_score = np.clip(improvement_score / max_abs_score, -1, 1)
+                    else:
+                        normalized_score = 0
+                    
+                    color_value = (normalized_score + 1) / 2
+                    color = cmap(color_value)
+                    
+                    # Use plot y-values (transformed if linear_g_scale=True)
+                    line_segments.append([[current_constraint, curr_plot_y], [next_constraint, next_plot_y]])
+                    line_colors.append(color)
+                    
+                    if return_plot_info:
+                        plot_info_dict[quality_index]['individual_segments'].append({
+                            'segment': [[current_constraint, curr_plot_y], [next_constraint, next_plot_y]],
+                            'color': color,
+                            'alpha': sizing['alpha'],
+                            'linewidth': sizing['line_width'],
+                            'zorder': 1
+                        })
+        
+        # Draw all connections at once using LineCollection
+        if not debug:
+            print(f"  Drawing {len(line_segments)} line segments using vectorized approach...")
+        if line_segments:
+            lc = LineCollection(line_segments, colors=line_colors, alpha=sizing['alpha'], 
+                              linewidths=sizing['line_width'], zorder=1)
+            ax.add_collection(lc)
+        
+        # Draw light gray shaded area showing overall CI range across all constraint counts (zorder=0, lowest layer)
+        # At each x position, find the absolute min and max across ALL CI values (both lower and upper bounds)
+        ci_envelope_x = []
+        ci_envelope_upper = []
+        ci_envelope_lower = []
+        
+        for x_constraint in sorted(constraint_plot_y.keys()):
+            # Collect ALL CI values (both lower and upper bounds) and find the overall min/max
+            # Use transformed CI values for plotting
+            all_ci_values = []
+            for ci_low, ci_up in zip(constraint_plot_ci_lower[x_constraint], constraint_plot_ci_upper[x_constraint]):
+                if not pd.isna(ci_low):
+                    all_ci_values.append(ci_low)
+                if not pd.isna(ci_up):
+                    all_ci_values.append(ci_up)
+            
+            if all_ci_values:
+                ci_envelope_x.append(x_constraint)
+                ci_envelope_lower.append(min(all_ci_values))  # Absolute minimum of all CI values
+                ci_envelope_upper.append(max(all_ci_values))  # Absolute maximum of all CI values
+        
+        # Draw continuous shaded polygon covering the full CI range from x=0 to x=max
+        if len(ci_envelope_x) > 0:
+            ax.fill_between(ci_envelope_x, ci_envelope_lower, ci_envelope_upper, 
+                           color='lightgray', alpha=0.4, zorder=0, label='95% CI Range')
+        
+        # Draw dark gray error bars at each data point (zorder=2, under points but above shaded area)
+        for x_constraint in constraint_plot_y.keys():
+            plot_y_values = constraint_plot_y[x_constraint]
+            ci_lowers = constraint_plot_ci_lower[x_constraint]
+            ci_uppers = constraint_plot_ci_upper[x_constraint]
+            
+            for i, plot_y_val in enumerate(plot_y_values):
+                ci_low = ci_lowers[i] if i < len(ci_lowers) else np.nan
+                ci_up = ci_uppers[i] if i < len(ci_uppers) else np.nan
+                
+                if not pd.isna(ci_low) and not pd.isna(ci_up):
+                    ax.plot([x_constraint, x_constraint], [ci_low, ci_up], 
+                           color='dimgray', linewidth=1.5, alpha=0.7, zorder=2)
+                    # Add small horizontal caps at the ends
+                    cap_width = 0.08
+                    ax.plot([x_constraint - cap_width, x_constraint + cap_width], [ci_low, ci_low],
+                           color='dimgray', linewidth=1.5, alpha=0.7, zorder=2)
+                    ax.plot([x_constraint - cap_width, x_constraint + cap_width], [ci_up, ci_up],
+                           color='dimgray', linewidth=1.5, alpha=0.7, zorder=2)
+        
+        # Plot all individual points with white fill and black outline
+        for x_constraint in constraint_plot_y.keys():
+            plot_y_values = constraint_plot_y[x_constraint]
+            
+            for plot_y_val in plot_y_values:
+                ax.scatter(x_constraint, plot_y_val, color='white', edgecolor='black', 
+                          linewidth=max(0.5, sizing['line_width']), s=sizing['dot_size'], zorder=3)
+                
+                if return_plot_info:
+                    plot_info_dict[quality_index]['individual_points'].append({
+                        'x': x_constraint,
+                        'y': plot_y_val,
+                        'color': 'white',
+                        'edgecolor': 'black',
+                        'linewidth': max(0.5, sizing['line_width']),
+                        'size': sizing['dot_size'],
+                        'zorder': 3
+                    })
+        
+        # Add null hypothesis line (g=0 corresponds to PS=50%)
+        null_line_y = g_to_ps(0) if not linear_g_scale else 0
+        ax.axhline(y=null_line_y, color='darkgray', linestyle='--', alpha=0.7, linewidth=2, zorder=2)
+        
+        # Set x-axis
+        all_constraints = df_all_params['core_b_constraints_count'].unique()
+        x_min, x_max = 0, int(max(all_constraints))
+        ax.set_xlim(-0.5, x_max + 0.5)
+        ax.set_xticks(range(0, x_max + 1))
+        
+        # Format plot based on linear_g_scale
+        ax.set_xlabel(f'Number of {CORE_B} Age Constraints')
+        
+        if not linear_g_scale:
+            # Linear PS scale: y-axis is 0.25% to 99.75% (PS) to avoid -inf/inf at edges
+            ax.set_ylim(0.25, 99.75)
+            # PS ticks at 10% intervals plus 0.25% and 99.75% at the ends
+            ps_ticks = [0.25] + list(range(10, 100, 10)) + [99.75]  # [0.25, 10, 20, ..., 90, 99.75]
+            ax.set_yticks(ps_ticks)
+            # Left y-axis shows corresponding g values
+            g_tick_labels = [f"{ps_to_g(ps):.2f}" for ps in ps_ticks]
+            ax.set_yticklabels(g_tick_labels)
+            ax.set_ylabel("Hedges' g")
+        else:
+            # Original g scale
+            ax.set_ylabel("Hedges' g")
+            ax.set_ylim(-4, 4)  # Set y-axis range for Hedges' g
+            ax.set_yticks(np.arange(-4, 4.5, 1.0))  # Set y-axis ticks at every 1.0 interval
+        
+        # Get display name for quality index
+        def get_quality_display_name(quality_index):
+            if quality_index == 'corr_coef':
+                return "Pearson's r"
+            elif quality_index == 'corr_coef_sect':
+                return "Pearson's r (Correlated Section)"
+            elif quality_index == 'norm_dtw':
+                return "1 - Normalized DTW Cost" if invert_norm_dtw else "Normalized DTW Cost"
+            elif quality_index == 'norm_dtw_sect':
+                return "1 - Normalized DTW Cost (Correlated Section)" if invert_norm_dtw else "Normalized DTW Cost (Correlated Section)"
+            else:
+                return quality_index
+        
+        display_name = get_quality_display_name(quality_index)
+        ax.set_title(f"{display_name}\n{CORE_A} vs {CORE_B}")
+        ax.grid(True, alpha=0.3, zorder=0)
+        
+        # Add inline text label for synthetic data line
+        synthetic_text_y = g_to_ps(0) if not linear_g_scale else 0
+        ax.text(0, synthetic_text_y, 'Synthetic Data', fontsize=9, ha='left', va='center',
+               color='dimgray', style='italic', zorder=4,
+               bbox=dict(boxstyle='round,pad=0.3', facecolor='white', edgecolor='none'))
+        
+        # Store actual axis limits for GIF creation if requested  
+        if return_plot_info:
+            plot_info_dict[quality_index]['actual_plot_limits'] = {
+                'x_min': ax.get_xlim()[0],
+                'x_max': ax.get_xlim()[1], 
+                'y_min': ax.get_ylim()[0],
+                'y_max': ax.get_ylim()[1]
+            }
+            plot_info_dict[quality_index]['display_name'] = display_name
+            # Store CI data for GIF creation
+            plot_info_dict[quality_index]['ci_envelope'] = {
+                'x': ci_envelope_x,
+                'lower': ci_envelope_lower,
+                'upper': ci_envelope_upper
+            }
+            plot_info_dict[quality_index]['constraint_ci_data'] = {
+                'ci_lower': dict(constraint_g_ci_lower),
+                'ci_upper': dict(constraint_g_ci_upper)
+            }
+        
+        # Add vertical colorbar for improvement/deterioration on right side
+        sm = plt.cm.ScalarMappable(cmap=cmap, norm=plt.Normalize(vmin=-max_abs_score, vmax=max_abs_score))
+        sm.set_array([])
+        cbar = plt.colorbar(sm, ax=ax, orientation='vertical', shrink=0.6, aspect=20, pad=0.14)
+        cbar.ax.yaxis.set_label_position('left')
+        cbar.ax.set_ylabel("Change in Hedges' g", fontweight='bold', labelpad=5, rotation=90)
+        
+        cbar.set_ticks([-max_abs_score, 0, max_abs_score])
+        cbar.set_ticklabels(['Deterioration', 'No Change', 'Improvement'])
+        
+        # Add secondary y-axis for Probability of Superiority (as %)
+        # PS = Φ(g / √2) where Φ is the standard normal CDF
+        ax2 = ax.twinx()
+        ax2.set_ylim(ax.get_ylim())  # Match the primary y-axis limits
+        
+        if not linear_g_scale:
+            # For linear PS scale: right y-axis shows PS% directly at 10% intervals plus ends
+            ps_ticks = [0.25] + list(range(10, 100, 10)) + [99.75]  # [0.25, 10, 20, ..., 90, 99.75]
+            ax2.set_yticks(ps_ticks)
+            # Format tick labels: show decimal for end ticks, whole number for middle ticks
+            ps_labels = []
+            for ps in ps_ticks:
+                if ps == 0.25 or ps == 99.75:
+                    ps_labels.append(f'{ps:.2f}%')
+                else:
+                    ps_labels.append(f'{ps:.0f}%')
+            ax2.set_yticklabels(ps_labels)
+            ax2.set_ylabel('Probability of Superiority', fontsize=10)
+        else:
+            # Original: Get the primary y-axis ticks and convert to PS values
+            primary_ticks = ax.get_yticks()
+            # Filter ticks to those within the axis limits
+            y_min, y_max = ax.get_ylim()
+            valid_ticks = [t for t in primary_ticks if y_min <= t <= y_max]
+            
+            # Calculate corresponding PS values for each g tick (as percentage)
+            ps_values = [stats.norm.cdf(g / np.sqrt(2)) * 100 for g in valid_ticks]
+            
+            # Set secondary axis ticks at the same positions as primary
+            ax2.set_yticks(valid_ticks)
+            ax2.set_yticklabels([f'{ps:.0f}%' for ps in ps_values])
+            ax2.set_ylabel('Probability of Superiority', fontsize=10)
+        
+        # Move the secondary y-axis spine inward so it doesn't overlap with colorbar
+        ax2.spines['right'].set_position(('outward', 0))
+        
+        # Add "Better Correlation" arrow
+        ax_xlim = ax.get_xlim()
+        ax_ylim = ax.get_ylim()
+        
+        arrow_x = -0.35
+        arrow_y_center = (ax_ylim[0] + ax_ylim[1]) / 2
+        
+        is_norm_dtw_metric = quality_index in ['norm_dtw', 'norm_dtw_sect']
+        use_downward_arrow = is_norm_dtw_metric and not invert_norm_dtw
+        
+        if use_downward_arrow:
+            arrow_y_start = arrow_y_center + 0.2 * (ax_ylim[1] - ax_ylim[0])
+            arrow_y_end = arrow_y_center - 0.2 * (ax_ylim[1] - ax_ylim[0])  
+        else:
+            arrow_y_start = arrow_y_center - 0.2 * (ax_ylim[1] - ax_ylim[0])
+            arrow_y_end = arrow_y_center + 0.2 * (ax_ylim[1] - ax_ylim[0]) 
+            
+        n_segments = 100
+        y_vals = np.linspace(arrow_y_start, arrow_y_end, n_segments + 1)
+        x_vals = np.full_like(y_vals, arrow_x)
+        
+        points = np.array([x_vals[:-1], y_vals[:-1]]).T.reshape(-1, 1, 2)
+        segments = np.concatenate([points[:-1], points[1:]], axis=1)
+        
+        colors_gradient = [cmap(i / (n_segments - 1)) for i in range(n_segments - 1)]
+        
+        lc_arrow = LineCollection(segments, colors=colors_gradient, linewidths=3, zorder=4)
+        ax.add_collection(lc_arrow)
+        
+        arrow_color = cmap(1.0)
+        arrowhead_start_y = y_vals[-2]
+        arrowhead_end_y = arrow_y_end
+        
+        ax.annotate('', 
+                   xy=(arrow_x, arrowhead_end_y), 
+                   xytext=(arrow_x, arrowhead_start_y),
+                   arrowprops=dict(arrowstyle='->', color=arrow_color, lw=4),
+                   zorder=5)
+        
+        text_x = arrow_x + 0.1
+        text_y = arrow_y_center
+        
+        ax.text(text_x, text_y, 'Better Correlation Quality',
+               fontsize=8, ha='left', va='center',
+               rotation=90, color='black',
+               zorder=4)
+        
+        plt.tight_layout()
+        
+        # Store plot info for gif creation if requested
+        if return_plot_info:
+            if constraint_hedges_g:
+                all_g_values = []
+                for g_list in constraint_hedges_g.values():
+                    all_g_values.extend(g_list)
+                g_range = max(abs(min(all_g_values)), abs(max(all_g_values)))
+                y_plot_min, y_plot_max = -g_range * 1.2, g_range * 1.2
+            else:
+                y_plot_min, y_plot_max = -2, 2
+            
+            unique_constraints = sorted(df_all_params['core_b_constraints_count'].unique())
+            
+            plot_info_dict[quality_index].update({
+                'quality_index': quality_index,
+                'CORE_A': CORE_A,
+                'CORE_B': CORE_B,
+                'unique_constraints': unique_constraints,
+                'constraint_hedges_g': constraint_hedges_g,
+                'constraint_n_points': constraint_n_points,
+                'line_segments': line_segments,
+                'line_colors': line_colors,
+                'sizing': sizing,
+                'max_abs_score': max_abs_score,
+                'cmap': cmap,
+                'plot_limits': {
+                    'x_min': -0.5,
+                    'x_max': x_max + 0.5,
+                    'y_min': y_plot_min,
+                    'y_max': y_plot_max
+                }
+            })
+        
+        # Save figure
+        if output_figure_filenames and quality_index in output_figure_filenames:
+            base_filename = output_figure_filenames[quality_index]
+            hedges_g_filename_base = base_filename + '_hedges_g'
+            
+            output_dir = os.path.dirname(hedges_g_filename_base)
+            if output_dir:
+                os.makedirs(output_dir, exist_ok=True)
+            
+            save_dpi = dpi if dpi is not None else 150
+            
+            for fmt in fig_format:
+                if fmt in ['png', 'jpeg', 'svg', 'pdf', 'tiff']:
+                    hedges_g_filename = f"{hedges_g_filename_base}.{fmt}"
+                    if fmt == 'jpeg':
+                        plt.savefig(hedges_g_filename, dpi=save_dpi, bbox_inches='tight', format='jpg')
+                    else:
+                        plt.savefig(hedges_g_filename, dpi=save_dpi, bbox_inches='tight')
+                    
+                    if debug:
+                        print(f"✓ Hedges' g plot saved as: {hedges_g_filename}")
+                    else:
+                        print(f"✓ Hedges' g plot saved as: {hedges_g_filename}")
+        else:
+            if debug:
+                print(f"✓ Hedges' g plot completed for {quality_index}")
+            else:
+                print(f"✓ Hedges' g plot completed for {quality_index}")
+        
+        if not debug:
+            plt.show()
+    
+    if return_plot_info:
+        return plot_info_dict
+    else:
+        return None
+
+
+def _compute_effect_size_ci(t_obs, n1, n2, alpha=0.05):
+    """
+    Compute 95% confidence intervals for Cohen's d, Hedges' g, and t-statistic
+    using SE-based normal approximation.
+    
+    Parameters:
+    -----------
+    t_obs : float
+        Observed t-statistic from two-sample t-test
+    n1 : int
+        Sample size of group 1
+    n2 : int
+        Sample size of group 2
+    alpha : float
+        Significance level (default 0.05 for 95% CI)
+        
+    Returns:
+    --------
+    dict
+        Dictionary containing:
+        - d_ci_lower, d_ci_upper: 95% CI for Cohen's d
+        - g_ci_lower, g_ci_upper: 95% CI for Hedges' g
+        - t_ci_lower, t_ci_upper: 95% CI for t-statistic
+    """
+    df = n1 + n2 - 2
+    
+    if df <= 0 or n1 <= 0 or n2 <= 0:
+        return {
+            'd_ci_lower': np.nan, 'd_ci_upper': np.nan,
+            'g_ci_lower': np.nan, 'g_ci_upper': np.nan,
+            't_ci_lower': np.nan, 't_ci_upper': np.nan
+        }
+    
+    ncp_to_d_factor = np.sqrt(n1 * n2 / (n1 + n2))
+    
+    if n1 + n2 > 2:
+        g_correction = 1 - 3 / (4 * (n1 + n2) - 9)
+    else:
+        g_correction = 1.0
+    
+    # Convert t to d
+    d_obs = t_obs / ncp_to_d_factor
+    g_obs = d_obs * g_correction
+    
+    z = stats.norm.ppf(1 - alpha/2)
+    
+    # SE for Cohen's d
+    se_d = np.sqrt((n1 + n2) / (n1 * n2) + d_obs**2 / (2 * df))
+    se_g = se_d * g_correction
+    se_t = np.sqrt(1 + t_obs**2 / (2 * df))
+    
+    d_lower = d_obs - z * se_d
+    d_upper = d_obs + z * se_d
+    
+    g_lower = g_obs - z * se_g
+    g_upper = g_obs + z * se_g
+    
+    t_lower = t_obs - z * se_t
+    t_upper = t_obs + z * se_t
+    
+    return {
+        'd_ci_lower': d_lower,
+        'd_ci_upper': d_upper,
+        'g_ci_lower': g_lower,
+        'g_ci_upper': g_upper,
+        't_ci_lower': t_lower,
+        't_ci_upper': t_upper
+    }
+
 
 def calculate_quality_comparison_t_statistics(target_quality_indices, 
                                                output_csv_directory,
@@ -3506,6 +4776,33 @@ def calculate_quality_comparison_t_statistics(target_quality_indices,
                 print(f"✗ Error loading master CSV {master_csv_filename}: {str(e)}")
             continue
         
+        # Remove existing stat columns if present (will be recomputed)
+        # Includes both new short names and legacy long names for backward compatibility
+        stat_cols_to_remove = [
+            't', 't_ci_lower', 't_ci_upper', 't_se',
+            'd', 'd_ci_lower', 'd_ci_upper', 'd_se',
+            'g', 'g_ci_lower', 'g_ci_upper', 'g_se',
+            'ps', 'ps_ci_lower', 'ps_ci_upper', 'ps_se',
+            'effect_size',
+            't_inv', 't_ci_lower_inv', 't_ci_upper_inv', 't_se_inv',
+            'd_inv', 'd_ci_lower_inv', 'd_ci_upper_inv', 'd_se_inv',
+            'g_inv', 'g_ci_lower_inv', 'g_ci_upper_inv', 'g_se_inv',
+            'ps_inv', 'ps_ci_lower_inv', 'ps_ci_upper_inv', 'ps_se_inv',
+            # Legacy column names
+            't_statistic', 't_statistic_inv',
+            'cohens_d', 'cohens_d_inv', 'cohens_d_ci_lower', 'cohens_d_ci_upper',
+            'cohens_d_ci_lower_inv', 'cohens_d_ci_upper_inv',
+            'hedges_g', 'hedges_g_inv', 'hedges_g_ci_lower', 'hedges_g_ci_upper',
+            'hedges_g_ci_lower_inv', 'hedges_g_ci_upper_inv',
+            'prob_superiority', 'prob_superiority_inv',
+            'prob_superiority_ci_lower', 'prob_superiority_ci_upper',
+            'prob_superiority_ci_lower_inv', 'prob_superiority_ci_upper_inv',
+            'effect_size_category',
+        ]
+        existing_stat_cols = [c for c in stat_cols_to_remove if c in df_master.columns]
+        if existing_stat_cols:
+            df_master = df_master.drop(columns=existing_stat_cols)
+        
         # Apply same filters as load_and_prepare_quality_data
         mask = pd.Series([True] * len(df_master))
         for column, values in load_filters.items():
@@ -3554,6 +4851,45 @@ def calculate_quality_comparison_t_statistics(target_quality_indices,
         t_statistics = []
         cohens_d_values = []
         effect_size_categories = []
+        hedges_g_values = []
+        prob_superiority_values = []
+        
+        # Initialize 95% CI and SE columns
+        cohens_d_ci_lower_values = []
+        cohens_d_ci_upper_values = []
+        cohens_d_se_values = []
+        hedges_g_ci_lower_values = []
+        hedges_g_ci_upper_values = []
+        hedges_g_se_values = []
+        t_ci_lower_values = []
+        t_ci_upper_values = []
+        t_se_values = []
+        prob_superiority_ci_lower_values = []
+        prob_superiority_ci_upper_values = []
+        prob_superiority_se_values = []
+        
+        # For norm_dtw and norm_dtw_sect, also compute inverted metrics (1 - value)
+        # This makes higher values = better, consistent with corr_coef interpretation
+        is_norm_dtw = quality_index in ['norm_dtw', 'norm_dtw_sect']
+        if is_norm_dtw:
+            t_statistics_inv = []
+            cohens_d_values_inv = []
+            hedges_g_values_inv = []
+            prob_superiority_values_inv = []
+            cohens_d_ci_lower_values_inv = []
+            cohens_d_ci_upper_values_inv = []
+            cohens_d_se_values_inv = []
+            hedges_g_ci_lower_values_inv = []
+            hedges_g_ci_upper_values_inv = []
+            hedges_g_se_values_inv = []
+            t_ci_lower_values_inv = []
+            t_ci_upper_values_inv = []
+            t_se_values_inv = []
+            prob_superiority_ci_lower_values_inv = []
+            prob_superiority_ci_upper_values_inv = []
+            prob_superiority_se_values_inv = []
+            # Transform synthetic data for inverted calculation
+            combined_data_inv = 1 - combined_data
         
         # Calculate statistics for each row
         iterator = tqdm(df_filtered.iterrows(), total=len(df_filtered), 
@@ -3580,10 +4916,13 @@ def calculate_quality_comparison_t_statistics(target_quality_indices,
             
             # Calculate t-statistic and Cohen's d using raw_data_points
             try:
-                if len(raw_data_points) > 1:
+                n1 = len(raw_data_points)
+                n2 = len(combined_data)
+                
+                if n1 > 1:
                     t_stat, _ = stats.ttest_ind(raw_data_points, combined_data)
                     cohens_d_value = cohens_d(raw_data_points, combined_data)
-                elif len(raw_data_points) == 1:
+                elif n1 == 1:
                     # Single point: use z-score as approximation for t-stat
                     combined_mean = np.mean(combined_data)
                     combined_std = np.std(combined_data)
@@ -3592,6 +4931,18 @@ def calculate_quality_comparison_t_statistics(target_quality_indices,
                 else:
                     t_stat = 0.0
                     cohens_d_value = 0.0
+                
+                # Calculate Hedges' g (bias-corrected Cohen's d)
+                # g = d * (1 - 3/(4*(n1+n2) - 9))
+                if n1 + n2 > 2:
+                    correction_factor = 1 - 3 / (4 * (n1 + n2) - 9)
+                    hedges_g_value = cohens_d_value * correction_factor
+                else:
+                    hedges_g_value = cohens_d_value
+                
+                # Calculate Probability of Superiority based on Hedges' g
+                # PS = Φ(g / √2) where Φ is the standard normal CDF
+                prob_superiority = stats.norm.cdf(hedges_g_value / np.sqrt(2))
                 
                 # Categorize effect size based on Cohen's d
                 abs_cohens_d = abs(cohens_d_value)
@@ -3603,31 +4954,214 @@ def calculate_quality_comparison_t_statistics(target_quality_indices,
                     effect_size_category = "medium"
                 else:
                     effect_size_category = "large"
+                
+                # Compute 95% CI for d and g using non-central t-distribution
+                if n1 >= 1 and n2 >= 1:
+                    ci_results = _compute_effect_size_ci(t_stat, n1, n2, alpha=0.05)
+                    d_ci_lower = ci_results['d_ci_lower']
+                    d_ci_upper = ci_results['d_ci_upper']
+                    g_ci_lower = ci_results['g_ci_lower']
+                    g_ci_upper = ci_results['g_ci_upper']
+                    t_ci_lower = ci_results['t_ci_lower']
+                    t_ci_upper = ci_results['t_ci_upper']
+                    ps_ci_lower = stats.norm.cdf(g_ci_lower / np.sqrt(2)) if not np.isnan(g_ci_lower) else np.nan
+                    ps_ci_upper = stats.norm.cdf(g_ci_upper / np.sqrt(2)) if not np.isnan(g_ci_upper) else np.nan
+                else:
+                    d_ci_lower, d_ci_upper = np.nan, np.nan
+                    g_ci_lower, g_ci_upper = np.nan, np.nan
+                    t_ci_lower, t_ci_upper = np.nan, np.nan
+                    ps_ci_lower, ps_ci_upper = np.nan, np.nan
+                
+                # Compute SE: SE(d) = sqrt((n1+n2)/(n1*n2) + d^2/(2*(n1+n2-2)))
+                if n1 >= 1 and n2 >= 2 and (n1 + n2) > 2:
+                    d_se = np.sqrt((n1 + n2) / (n1 * n2) + cohens_d_value**2 / (2 * (n1 + n2 - 2)))
+                    g_se = d_se * correction_factor if (n1 + n2 > 2) else d_se
+                    t_se = d_se * np.sqrt(n1 * n2 / (n1 + n2))
+                    ps_se = stats.norm.pdf(hedges_g_value / np.sqrt(2)) / np.sqrt(2) * g_se
+                else:
+                    d_se, g_se, t_se, ps_se = np.nan, np.nan, np.nan, np.nan
+                
+                # For norm_dtw/norm_dtw_sect, also compute inverted metrics (1 - value)
+                if is_norm_dtw:
+                    raw_data_points_inv = 1 - np.array(raw_data_points) if n1 > 0 else np.array([])
+                    n1_inv = len(raw_data_points_inv)
+                    
+                    if n1_inv > 1:
+                        t_stat_inv, _ = stats.ttest_ind(raw_data_points_inv, combined_data_inv)
+                        cohens_d_value_inv = cohens_d(raw_data_points_inv, combined_data_inv)
+                    elif n1_inv == 1:
+                        combined_mean_inv = np.mean(combined_data_inv)
+                        combined_std_inv = np.std(combined_data_inv)
+                        t_stat_inv = (raw_data_points_inv[0] - combined_mean_inv) / combined_std_inv if combined_std_inv > 0 else 0.0
+                        cohens_d_value_inv = cohens_d(raw_data_points_inv, combined_data_inv)
+                    else:
+                        t_stat_inv = 0.0
+                        cohens_d_value_inv = 0.0
+                    
+                    # Hedges' g for inverted
+                    if n1_inv + n2 > 2:
+                        hedges_g_value_inv = cohens_d_value_inv * correction_factor
+                    else:
+                        hedges_g_value_inv = cohens_d_value_inv
+                    
+                    # Probability of Superiority for inverted
+                    prob_superiority_inv = stats.norm.cdf(hedges_g_value_inv / np.sqrt(2))
+                    
+                    # Compute 95% CI for inverted metrics
+                    if n1_inv >= 1 and n2 >= 1:
+                        ci_results_inv = _compute_effect_size_ci(t_stat_inv, n1_inv, n2, alpha=0.05)
+                        d_ci_lower_inv = ci_results_inv['d_ci_lower']
+                        d_ci_upper_inv = ci_results_inv['d_ci_upper']
+                        g_ci_lower_inv = ci_results_inv['g_ci_lower']
+                        g_ci_upper_inv = ci_results_inv['g_ci_upper']
+                        t_ci_lower_inv = ci_results_inv['t_ci_lower']
+                        t_ci_upper_inv = ci_results_inv['t_ci_upper']
+                        ps_ci_lower_inv = stats.norm.cdf(g_ci_lower_inv / np.sqrt(2)) if not np.isnan(g_ci_lower_inv) else np.nan
+                        ps_ci_upper_inv = stats.norm.cdf(g_ci_upper_inv / np.sqrt(2)) if not np.isnan(g_ci_upper_inv) else np.nan
+                    else:
+                        d_ci_lower_inv, d_ci_upper_inv = np.nan, np.nan
+                        g_ci_lower_inv, g_ci_upper_inv = np.nan, np.nan
+                        t_ci_lower_inv, t_ci_upper_inv = np.nan, np.nan
+                        ps_ci_lower_inv, ps_ci_upper_inv = np.nan, np.nan
+                    
+                    # Compute SE for inverted metrics
+                    if n1_inv >= 1 and n2 >= 2 and (n1_inv + n2) > 2:
+                        d_se_inv = np.sqrt((n1_inv + n2) / (n1_inv * n2) + cohens_d_value_inv**2 / (2 * (n1_inv + n2 - 2)))
+                        g_se_inv = d_se_inv * correction_factor if (n1_inv + n2 > 2) else d_se_inv
+                        t_se_inv = d_se_inv * np.sqrt(n1_inv * n2 / (n1_inv + n2))
+                        ps_se_inv = stats.norm.pdf(hedges_g_value_inv / np.sqrt(2)) / np.sqrt(2) * g_se_inv
+                    else:
+                        d_se_inv, g_se_inv, t_se_inv, ps_se_inv = np.nan, np.nan, np.nan, np.nan
                     
             except Exception as e:
                 t_stat = 0.0
                 cohens_d_value = 0.0
                 effect_size_category = "negligible"
+                hedges_g_value = 0.0
+                prob_superiority = 0.5
+                d_ci_lower, d_ci_upper = np.nan, np.nan
+                g_ci_lower, g_ci_upper = np.nan, np.nan
+                t_ci_lower, t_ci_upper = np.nan, np.nan
+                ps_ci_lower, ps_ci_upper = np.nan, np.nan
+                d_se, g_se, t_se, ps_se = np.nan, np.nan, np.nan, np.nan
+                if is_norm_dtw:
+                    t_stat_inv = 0.0
+                    cohens_d_value_inv = 0.0
+                    hedges_g_value_inv = 0.0
+                    prob_superiority_inv = 0.5
+                    d_ci_lower_inv, d_ci_upper_inv = np.nan, np.nan
+                    g_ci_lower_inv, g_ci_upper_inv = np.nan, np.nan
+                    t_ci_lower_inv, t_ci_upper_inv = np.nan, np.nan
+                    ps_ci_lower_inv, ps_ci_upper_inv = np.nan, np.nan
+                    d_se_inv, g_se_inv, t_se_inv, ps_se_inv = np.nan, np.nan, np.nan, np.nan
             
             t_statistics.append(t_stat)
             cohens_d_values.append(cohens_d_value)
             effect_size_categories.append(effect_size_category)
+            hedges_g_values.append(hedges_g_value)
+            prob_superiority_values.append(prob_superiority)
+            
+            # Append CI and SE values
+            cohens_d_ci_lower_values.append(d_ci_lower)
+            cohens_d_ci_upper_values.append(d_ci_upper)
+            cohens_d_se_values.append(d_se)
+            hedges_g_ci_lower_values.append(g_ci_lower)
+            hedges_g_ci_upper_values.append(g_ci_upper)
+            hedges_g_se_values.append(g_se)
+            t_ci_lower_values.append(t_ci_lower)
+            t_ci_upper_values.append(t_ci_upper)
+            t_se_values.append(t_se)
+            prob_superiority_ci_lower_values.append(ps_ci_lower)
+            prob_superiority_ci_upper_values.append(ps_ci_upper)
+            prob_superiority_se_values.append(ps_se)
+            
+            if is_norm_dtw:
+                t_statistics_inv.append(t_stat_inv)
+                cohens_d_values_inv.append(cohens_d_value_inv)
+                hedges_g_values_inv.append(hedges_g_value_inv)
+                prob_superiority_values_inv.append(prob_superiority_inv)
+                cohens_d_ci_lower_values_inv.append(d_ci_lower_inv)
+                cohens_d_ci_upper_values_inv.append(d_ci_upper_inv)
+                cohens_d_se_values_inv.append(d_se_inv)
+                hedges_g_ci_lower_values_inv.append(g_ci_lower_inv)
+                hedges_g_ci_upper_values_inv.append(g_ci_upper_inv)
+                hedges_g_se_values_inv.append(g_se_inv)
+                t_ci_lower_values_inv.append(t_ci_lower_inv)
+                t_ci_upper_values_inv.append(t_ci_upper_inv)
+                t_se_values_inv.append(t_se_inv)
+                prob_superiority_ci_lower_values_inv.append(ps_ci_lower_inv)
+                prob_superiority_ci_upper_values_inv.append(ps_ci_upper_inv)
+                prob_superiority_se_values_inv.append(ps_se_inv)
         
-        # Add new columns to the filtered dataframe
-        df_filtered['t_statistic'] = t_statistics
-        df_filtered['cohens_d'] = cohens_d_values
-        df_filtered['effect_size_category'] = effect_size_categories
+        # Add new columns to the filtered dataframe in the specified order
+        df_filtered['t'] = t_statistics
+        df_filtered['t_ci_lower'] = t_ci_lower_values
+        df_filtered['t_ci_upper'] = t_ci_upper_values
+        df_filtered['t_se'] = t_se_values
+        df_filtered['d'] = cohens_d_values
+        df_filtered['d_ci_lower'] = cohens_d_ci_lower_values
+        df_filtered['d_ci_upper'] = cohens_d_ci_upper_values
+        df_filtered['d_se'] = cohens_d_se_values
+        df_filtered['g'] = hedges_g_values
+        df_filtered['g_ci_lower'] = hedges_g_ci_lower_values
+        df_filtered['g_ci_upper'] = hedges_g_ci_upper_values
+        df_filtered['g_se'] = hedges_g_se_values
+        df_filtered['ps'] = prob_superiority_values
+        df_filtered['ps_ci_lower'] = prob_superiority_ci_lower_values
+        df_filtered['ps_ci_upper'] = prob_superiority_ci_upper_values
+        df_filtered['ps_se'] = prob_superiority_se_values
+        df_filtered['effect_size'] = effect_size_categories
+        
+        if is_norm_dtw:
+            df_filtered['t_inv'] = t_statistics_inv
+            df_filtered['t_ci_lower_inv'] = t_ci_lower_values_inv
+            df_filtered['t_ci_upper_inv'] = t_ci_upper_values_inv
+            df_filtered['t_se_inv'] = t_se_values_inv
+            df_filtered['d_inv'] = cohens_d_values_inv
+            df_filtered['d_ci_lower_inv'] = cohens_d_ci_lower_values_inv
+            df_filtered['d_ci_upper_inv'] = cohens_d_ci_upper_values_inv
+            df_filtered['d_se_inv'] = cohens_d_se_values_inv
+            df_filtered['g_inv'] = hedges_g_values_inv
+            df_filtered['g_ci_lower_inv'] = hedges_g_ci_lower_values_inv
+            df_filtered['g_ci_upper_inv'] = hedges_g_ci_upper_values_inv
+            df_filtered['g_se_inv'] = hedges_g_se_values_inv
+            df_filtered['ps_inv'] = prob_superiority_values_inv
+            df_filtered['ps_ci_lower_inv'] = prob_superiority_ci_lower_values_inv
+            df_filtered['ps_ci_upper_inv'] = prob_superiority_ci_upper_values_inv
+            df_filtered['ps_se_inv'] = prob_superiority_se_values_inv
         
         # For rows not in filtered data, add default values
         df_master_with_stats = df_master.copy()
-        df_master_with_stats['t_statistic'] = 0.0
-        df_master_with_stats['cohens_d'] = 0.0
-        df_master_with_stats['effect_size_category'] = "negligible"
+        
+        # Define stat columns with defaults in the specified order
+        stat_defaults = [
+            ('t', 0.0), ('t_ci_lower', np.nan), ('t_ci_upper', np.nan), ('t_se', np.nan),
+            ('d', 0.0), ('d_ci_lower', np.nan), ('d_ci_upper', np.nan), ('d_se', np.nan),
+            ('g', 0.0), ('g_ci_lower', np.nan), ('g_ci_upper', np.nan), ('g_se', np.nan),
+            ('ps', 0.5), ('ps_ci_lower', np.nan), ('ps_ci_upper', np.nan), ('ps_se', np.nan),
+            ('effect_size', 'negligible'),
+        ]
+        inv_stat_defaults = [
+            ('t_inv', 0.0), ('t_ci_lower_inv', np.nan), ('t_ci_upper_inv', np.nan), ('t_se_inv', np.nan),
+            ('d_inv', 0.0), ('d_ci_lower_inv', np.nan), ('d_ci_upper_inv', np.nan), ('d_se_inv', np.nan),
+            ('g_inv', 0.0), ('g_ci_lower_inv', np.nan), ('g_ci_upper_inv', np.nan), ('g_se_inv', np.nan),
+            ('ps_inv', 0.5), ('ps_ci_lower_inv', np.nan), ('ps_ci_upper_inv', np.nan), ('ps_se_inv', np.nan),
+        ]
+        
+        for col, default in stat_defaults:
+            df_master_with_stats[col] = default
+        if is_norm_dtw:
+            for col, default in inv_stat_defaults:
+                df_master_with_stats[col] = default
         
         # Update the filtered rows with calculated statistics
-        df_master_with_stats.loc[df_filtered.index, 't_statistic'] = df_filtered['t_statistic']
-        df_master_with_stats.loc[df_filtered.index, 'cohens_d'] = df_filtered['cohens_d']
-        df_master_with_stats.loc[df_filtered.index, 'effect_size_category'] = df_filtered['effect_size_category']
+        all_stat_cols = [col for col, _ in stat_defaults]
+        if is_norm_dtw:
+            all_stat_cols += [col for col, _ in inv_stat_defaults]
+        
+        for col in all_stat_cols:
+            if col in df_filtered.columns:
+                df_master_with_stats.loc[df_filtered.index, col] = df_filtered[col]
         
         # Save modified CSV
         output_filename = master_csv_filename
@@ -3657,14 +5191,21 @@ def plot_quality_comparison_t_statistics(target_quality_indices,
                                         plot_real_data_histogram=False, 
                                         plot_age_removal_step_pdf=False,
                                         show_best_datum_match=True, 
-                                        sequential_mappings_csv=None):
+                                        sequential_mappings_csv=None,
+                                        skip_age_removal_graph=False,
+                                        skip_pdf_graph=False,
+                                        show_t_graph=False,
+                                        show_d_graph=False,
+                                        show_g_graph=True,
+                                        linear_g_scale=False,
+                                        invert_norm_dtw=True):
     """
     Plot quality index distributions comparing real data vs synthetic null hypothesis
-    AND t-statistics vs age constraints using pre-calculated statistics from CSV files.
+    AND t-statistics/Cohen's d vs age constraints using pre-calculated statistics from CSV files.
     
     Brief summary: This function loads pre-calculated t-statistics from modified CSV files
-    and creates distribution plots and t-statistics plots for quality indices.
-    Each quality index shows its distribution plot followed immediately by its t-statistics plot.
+    and creates distribution plots and t-statistics/Cohen's d plots for quality indices.
+    Each quality index shows its distribution plot followed immediately by its statistics plots.
     
     Parameters:
     -----------
@@ -3720,6 +5261,32 @@ def plot_quality_comparison_t_statistics(target_quality_indices,
         - str: Single CSV file path containing all quality indices as columns
         - dict: Dictionary mapping quality_index to CSV file paths for per-index files
         Only used when show_best_datum_match=True.
+    skip_age_removal_graph : bool, default False
+        If True, skip plotting the t-statistic vs number of age constraints remaining graph
+        (both static figures and GIF animations). Only the distribution graph will be plotted.
+    skip_pdf_graph : bool, default False
+        If True, skip plotting the distribution graph (both static figures and GIF animations).
+        Only the t-statistic vs age constraints graph will be plotted.
+    show_t_graph : bool, default False
+        If True, show t-statistic graph alongside other effect size graphs.
+        If False, skip t-statistic graph.
+    show_d_graph : bool, default False
+        If True, show Cohen's d graph alongside Hedges' g graph.
+        If False, skip Cohen's d graph and only show Hedges' g graph.
+    show_g_graph : bool, default True
+        If True, show Hedges' g graph (default behavior).
+        If False, skip plotting Hedges' g graph.
+    linear_g_scale : bool, default False
+        If False, plot Hedges' g graph with linear g scale on left y-axis.
+        If True, rescale y-axis so Probability of Superiority (PS) is linear (0-100%),
+        with right y-axis showing PS at 20% intervals, and left y-axis showing
+        corresponding g values at each PS tick.
+    invert_norm_dtw : bool, default True
+        If True, for norm_dtw and norm_dtw_sect metrics:
+        - Distribution graphs plot (1 - norm_dtw) with x-axis 0 to 1, arrow pointing right (like corr_coef)
+        - Effect size graphs use inverted columns (t_statistic_inv, cohens_d_inv, hedges_g_inv)
+        - Improvement/deterioration calculation follows corr_coef convention (higher = better)
+        If False, plot original norm_dtw values with arrow pointing left (lower = better).
         
     Returns:
     --------
@@ -3790,7 +5357,7 @@ def plot_quality_comparison_t_statistics(target_quality_indices,
         csv_to_check = master_csv_filenames[quality_index]
         try:
             temp_df = pd.read_csv(csv_to_check)
-            if not {'t_statistic', 'cohens_d', 'effect_size_category'}.issubset(temp_df.columns):
+            if not {'t', 'd', 'effect_size'}.issubset(temp_df.columns):
                 error_msg = (f"Required statistics columns not found in {csv_to_check}. "
                             f"Please run calculate_quality_comparison_t_statistics first.")
                 if mute_mode:
@@ -3959,56 +5526,116 @@ def plot_quality_comparison_t_statistics(target_quality_indices,
         
         # Create static plots and optionally get plot info for gif creation
         if save_gif and output_gif_filenames and quality_index in output_gif_filenames:
-            # Get plot info for gif creation while creating static plots
-            distribution_plot_info = plot_quality_distributions(
-                quality_data, [quality_index], output_figure_filenames if save_fig else {}, 
-                CORE_A, CORE_B, debug=debug_param, return_plot_info=True,
-                plot_real_data_histogram=plot_real_data_histogram, plot_age_removal_step_pdf=plot_age_removal_step_pdf,
-                synthetic_csv_filenames=synthetic_csv_filenames,
-                best_datum_values=best_datum_values,
-                fig_format=fig_format, dpi=dpi
-            )
-            
-            # Only create t-statistics plots if valid age constraints exist
-            if has_valid_age_constraints:
-                tstat_plot_info = plot_t_statistics_vs_constraints(
-                    quality_data, [quality_index], output_figure_filenames if save_fig else {},
+            # Get plot info for gif creation while creating static plots (only if not skipping pdf graph)
+            if not skip_pdf_graph:
+                distribution_plot_info = plot_quality_distributions(
+                    quality_data, [quality_index], output_figure_filenames if save_fig else {}, 
                     CORE_A, CORE_B, debug=debug_param, return_plot_info=True,
-                    fig_format=fig_format, dpi=dpi
+                    plot_real_data_histogram=plot_real_data_histogram, plot_age_removal_step_pdf=plot_age_removal_step_pdf,
+                    synthetic_csv_filenames=synthetic_csv_filenames,
+                    best_datum_values=best_datum_values,
+                    fig_format=fig_format, dpi=dpi,
+                    invert_norm_dtw=invert_norm_dtw
                 )
+            
+            # Only create plots if valid age constraints exist and not skipping age removal graph
+            if has_valid_age_constraints and not skip_age_removal_graph:
+                # Create t-statistics plot only if show_t_graph is True
+                if show_t_graph:
+                    tstat_plot_info = plot_t_statistics_vs_constraints(
+                        quality_data, [quality_index], output_figure_filenames if save_fig else {},
+                        CORE_A, CORE_B, debug=debug_param, return_plot_info=True,
+                        fig_format=fig_format, dpi=dpi,
+                        invert_norm_dtw=invert_norm_dtw
+                    )
+                
+                # Create Cohen's d plot only if show_d_graph is True
+                if show_d_graph:
+                    cohens_d_plot_info = plot_cohens_d_vs_constraints(
+                        quality_data, [quality_index], output_figure_filenames if save_fig else {},
+                        CORE_A, CORE_B, debug=debug_param, return_plot_info=True,
+                        fig_format=fig_format, dpi=dpi,
+                        invert_norm_dtw=invert_norm_dtw
+                    )
+                
+                # Create Hedges' g plot if show_g_graph is True
+                if show_g_graph:
+                    hedges_g_plot_info = plot_hedges_g_vs_constraints(
+                        quality_data, [quality_index], output_figure_filenames if save_fig else {},
+                        CORE_A, CORE_B, debug=debug_param, return_plot_info=True,
+                        fig_format=fig_format, dpi=dpi,
+                        invert_norm_dtw=invert_norm_dtw, linear_g_scale=linear_g_scale
+                    )
             
             # Create gifs using the plot info
             distribution_gif_filename = output_gif_filenames[quality_index]
             
-            # Create distribution gif
-            _create_distribution_gif(distribution_plot_info[quality_index], distribution_gif_filename, mute_mode, max_frames, best_datum_values)
-
-            # Create t-statistics gif only if valid age constraints exist
-            if has_valid_age_constraints:
-                tstat_gif_filename = distribution_gif_filename.replace('.gif', '_tstat.gif')
-                _create_tstat_gif(tstat_plot_info[quality_index], tstat_gif_filename, mute_mode, max_frames)
-                created_gifs.extend([distribution_gif_filename, tstat_gif_filename])
-            else:
+            # Create distribution gif (only if not skipping pdf graph)
+            if not skip_pdf_graph:
+                _create_distribution_gif(distribution_plot_info[quality_index], distribution_gif_filename, mute_mode, max_frames, best_datum_values, invert_norm_dtw=invert_norm_dtw)
                 created_gifs.append(distribution_gif_filename)
+
+            # Create gifs only if valid age constraints exist and not skipping age removal graph
+            if has_valid_age_constraints and not skip_age_removal_graph:
+                # Create t-statistics gif only if show_t_graph is True
+                if show_t_graph:
+                    tstat_gif_filename = distribution_gif_filename.replace('.gif', '_tstat.gif')
+                    _create_tstat_gif(tstat_plot_info[quality_index], tstat_gif_filename, mute_mode, max_frames, invert_norm_dtw=invert_norm_dtw)
+                    created_gifs.append(tstat_gif_filename)
+                
+                # Create Cohen's d gif only if show_d_graph is True
+                if show_d_graph:
+                    cohens_d_gif_filename = distribution_gif_filename.replace('.gif', '_cohens_d.gif')
+                    _create_cohens_d_gif(cohens_d_plot_info[quality_index], cohens_d_gif_filename, mute_mode, max_frames, invert_norm_dtw=invert_norm_dtw)
+                    created_gifs.append(cohens_d_gif_filename)
+                
+                # Create Hedges' g gif if show_g_graph is True
+                if show_g_graph:
+                    hedges_g_gif_filename = distribution_gif_filename.replace('.gif', '_hedges_g.gif')
+                    _create_hedges_g_gif(hedges_g_plot_info[quality_index], hedges_g_gif_filename, mute_mode, max_frames, invert_norm_dtw=invert_norm_dtw)
+                    created_gifs.append(hedges_g_gif_filename)
             
         else:
-            # Just create static plots
-            plot_quality_distributions(
-                quality_data, [quality_index], output_figure_filenames if save_fig else {}, 
-                CORE_A, CORE_B, debug=debug_param, return_plot_info=False,
-                plot_real_data_histogram=plot_real_data_histogram, plot_age_removal_step_pdf=plot_age_removal_step_pdf,
-                synthetic_csv_filenames=synthetic_csv_filenames,
-                best_datum_values=best_datum_values,
-                fig_format=fig_format, dpi=dpi
-            )
-            
-            # Only create t-statistics plots if valid age constraints exist
-            if has_valid_age_constraints:
-                plot_t_statistics_vs_constraints(
-                    quality_data, [quality_index], output_figure_filenames if save_fig else {},
+            # Just create static plots (only if not skipping pdf graph)
+            if not skip_pdf_graph:
+                plot_quality_distributions(
+                    quality_data, [quality_index], output_figure_filenames if save_fig else {}, 
                     CORE_A, CORE_B, debug=debug_param, return_plot_info=False,
-                    fig_format=fig_format, dpi=dpi
+                    plot_real_data_histogram=plot_real_data_histogram, plot_age_removal_step_pdf=plot_age_removal_step_pdf,
+                    synthetic_csv_filenames=synthetic_csv_filenames,
+                    best_datum_values=best_datum_values,
+                    fig_format=fig_format, dpi=dpi,
+                    invert_norm_dtw=invert_norm_dtw
                 )
+            
+            # Only create plots if valid age constraints exist and not skipping age removal graph
+            if has_valid_age_constraints and not skip_age_removal_graph:
+                # Create t-statistics plot only if show_t_graph is True
+                if show_t_graph:
+                    plot_t_statistics_vs_constraints(
+                        quality_data, [quality_index], output_figure_filenames if save_fig else {},
+                        CORE_A, CORE_B, debug=debug_param, return_plot_info=False,
+                        fig_format=fig_format, dpi=dpi,
+                        invert_norm_dtw=invert_norm_dtw
+                    )
+                
+                # Create Cohen's d plot only if show_d_graph is True
+                if show_d_graph:
+                    plot_cohens_d_vs_constraints(
+                        quality_data, [quality_index], output_figure_filenames if save_fig else {},
+                        CORE_A, CORE_B, debug=debug_param, return_plot_info=False,
+                        fig_format=fig_format, dpi=dpi,
+                        invert_norm_dtw=invert_norm_dtw
+                    )
+                
+                # Create Hedges' g plot if show_g_graph is True
+                if show_g_graph:
+                    plot_hedges_g_vs_constraints(
+                        quality_data, [quality_index], output_figure_filenames if save_fig else {},
+                        CORE_A, CORE_B, debug=debug_param, return_plot_info=False,
+                        fig_format=fig_format, dpi=dpi,
+                        invert_norm_dtw=invert_norm_dtw, linear_g_scale=linear_g_scale
+                    )
     
     # Display all created GIFs at the end when save_gif=True
     if save_gif and created_gifs:
@@ -4028,7 +5655,7 @@ def plot_quality_comparison_t_statistics(target_quality_indices,
     # Skip verbose completion message when mute_mode=True
 
 
-def _create_distribution_gif(plot_info, gif_filename, mute_mode, max_frames=50, best_datum_values=None):
+def _create_distribution_gif(plot_info, gif_filename, mute_mode, max_frames=50, best_datum_values=None, invert_norm_dtw=True):
     """
     Create distribution comparison gif using plot info from plot_quality_distributions.
     """
@@ -4062,6 +5689,8 @@ def _create_distribution_gif(plot_info, gif_filename, mute_mode, max_frames=50, 
             # Sectional metrics use the same x-axis range as their non-sectional counterparts
             if quality_index in ['corr_coef', 'corr_coef_sect']:
                 ax.set_xlim(0, 1.0)
+            elif quality_index in ['norm_dtw', 'norm_dtw_sect']:
+                ax.set_xlim(0.7, 1.0)
             else:
                 ax.set_xlim(plot_info['plot_limits']['x_min'], plot_info['plot_limits']['x_max'])
                 ax.set_ylim(plot_info['plot_limits']['y_min'], plot_info['plot_limits']['y_max'])
@@ -4073,9 +5702,9 @@ def _create_distribution_gif(plot_info, gif_filename, mute_mode, max_frames=50, 
             elif quality_index == 'corr_coef_sect':
                 display_name = "Pearson's r (Correlated Section)"
             elif quality_index == 'norm_dtw':
-                display_name = "Normalized DTW Cost"
+                display_name = "1 - Normalized DTW Cost" if invert_norm_dtw else "Normalized DTW Cost"
             elif quality_index == 'norm_dtw_sect':
-                display_name = "Normalized DTW Cost (Correlated Section)"
+                display_name = "1 - Normalized DTW Cost (Correlated Section)" if invert_norm_dtw else "Normalized DTW Cost (Correlated Section)"
             else:
                 display_name = quality_index
         
@@ -4149,14 +5778,17 @@ def _create_distribution_gif(plot_info, gif_filename, mute_mode, max_frames=50, 
         
         # Determine arrow direction and position based on quality index
         quality_index = plot_info['quality_index']
-        # Sectional metrics use the same arrow direction as their non-sectional counterparts
-        if quality_index in ['norm_dtw', 'norm_dtw_sect']:
-            # For norm_dtw, lower values are better (arrow points left) - position in upper right
+        # When invert_norm_dtw=True, norm_dtw metrics use right-pointing arrow (like corr_coef)
+        is_norm_dtw_metric = quality_index in ['norm_dtw', 'norm_dtw_sect']
+        use_left_arrow = is_norm_dtw_metric and not invert_norm_dtw
+        
+        if use_left_arrow:
+            # For norm_dtw (non-inverted), lower values are better (arrow points left) - position in upper right
             arrow_start_x = ax_xlim[0] + 0.99 * (ax_xlim[1] - ax_xlim[0])  # Start 99% from left (far right)
             arrow_end_x = ax_xlim[0] + 0.82 * (ax_xlim[1] - ax_xlim[0])    # End 82% from left  
             text_x = ax_xlim[0] + 0.905 * (ax_xlim[1] - ax_xlim[0])        # Text centered between 82% and 99%
         else:
-            # For corr_coef and other indices, higher values are better (arrow points right) - position in upper left
+            # For corr_coef and other indices (or inverted norm_dtw), higher values are better (arrow points right) - position in upper left
             arrow_start_x = ax_xlim[0] + 0.07 * (ax_xlim[1] - ax_xlim[0])  # Start 7% from left
             arrow_end_x = ax_xlim[0] + 0.24 * (ax_xlim[1] - ax_xlim[0])    # End 24% from left
             text_x = ax_xlim[0] + 0.155 * (ax_xlim[1] - ax_xlim[0])        # Text centered under arrow
@@ -4257,6 +5889,8 @@ def _create_distribution_gif(plot_info, gif_filename, mute_mode, max_frames=50, 
                     # Sectional metrics use the same x-axis range as their non-sectional counterparts
                     if quality_index in ['corr_coef', 'corr_coef_sect']:
                         ax.set_xlim(0, 1.0)
+                    elif quality_index in ['norm_dtw', 'norm_dtw_sect']:
+                        ax.set_xlim(0.5, 1.0)
                     else:
                         ax.set_xlim(plot_info['plot_limits']['x_min'], plot_info['plot_limits']['x_max'])
                         ax.set_ylim(plot_info['plot_limits']['y_min'], plot_info['plot_limits']['y_max'])
@@ -4329,18 +5963,21 @@ def _create_distribution_gif(plot_info, gif_filename, mute_mode, max_frames=50, 
                 arrow_y = ax_ylim[0] + 0.92 * (ax_ylim[1] - ax_ylim[0])  # 92% up from bottom
                 
                 # Determine arrow direction and position based on quality index
-                # Sectional metrics use the same arrow direction as their non-sectional counterparts
+                # When invert_norm_dtw=True, norm_dtw metrics use right-pointing arrow (like corr_coef)
                 quality_index = plot_info['quality_index']
-                if quality_index in ['norm_dtw', 'norm_dtw_sect']:
-                    # For norm_dtw, lower values are better (arrow points left) - position in upper right, moved slightly left
-                    arrow_start_x = ax_xlim[0] + 0.94 * (ax_xlim[1] - ax_xlim[0])  # Start 94% from left (moved left)
-                    arrow_end_x = ax_xlim[0] + 0.77 * (ax_xlim[1] - ax_xlim[0])    # End 77% from left  
-                    text_x = ax_xlim[0] + 0.855 * (ax_xlim[1] - ax_xlim[0])        # Text centered between 77% and 94%
+                is_norm_dtw_metric = quality_index in ['norm_dtw', 'norm_dtw_sect']
+                use_left_arrow = is_norm_dtw_metric and not invert_norm_dtw
+                
+                if use_left_arrow:
+                    # For norm_dtw (non-inverted), lower values are better (arrow points left) - position in upper right
+                    arrow_start_x = ax_xlim[0] + 0.94 * (ax_xlim[1] - ax_xlim[0])
+                    arrow_end_x = ax_xlim[0] + 0.77 * (ax_xlim[1] - ax_xlim[0])
+                    text_x = ax_xlim[0] + 0.855 * (ax_xlim[1] - ax_xlim[0])
                 else:
-                    # For corr_coef and other indices, higher values are better (arrow points right) - position in upper left
-                    arrow_start_x = ax_xlim[0] + 0.07 * (ax_xlim[1] - ax_xlim[0])  # Start 7% from left
-                    arrow_end_x = ax_xlim[0] + 0.24 * (ax_xlim[1] - ax_xlim[0])    # End 24% from left
-                    text_x = ax_xlim[0] + 0.155 * (ax_xlim[1] - ax_xlim[0])        # Text centered under arrow
+                    # For other quality indices (or inverted norm_dtw), higher values are better (arrow points right) - position in upper left
+                    arrow_start_x = ax_xlim[0] + 0.07 * (ax_xlim[1] - ax_xlim[0])
+                    arrow_end_x = ax_xlim[0] + 0.24 * (ax_xlim[1] - ax_xlim[0])
+                    text_x = ax_xlim[0] + 0.155 * (ax_xlim[1] - ax_xlim[0])
                     
                 # Add horizontal arrow
                 ax.annotate('', 
@@ -4402,8 +6039,13 @@ def _create_distribution_gif(plot_info, gif_filename, mute_mode, max_frames=50, 
                            zorder=curve['zorder'],
                            label=label)
                 
+                # Invert norm_dtw value to match the x-axis (1 - norm_dtw) when invert_norm_dtw is True
+                quality_index = plot_info['quality_index']
+                is_norm_dtw_metric = quality_index in ['norm_dtw', 'norm_dtw_sect']
+                plot_value = (1 - best_value) if (invert_norm_dtw and is_norm_dtw_metric) else best_value
+                
                 # Add best datum match vertical line in dark green with long dash and highest zorder
-                ax.axvline(best_value, color='darkgreen', linestyle='--', linewidth=2, zorder=100)
+                ax.axvline(plot_value, color='darkgreen', linestyle='--', linewidth=2, zorder=100)
                 
                 # Add text annotation next to the line
                 ax_xlim = ax.get_xlim()
@@ -4411,19 +6053,20 @@ def _create_distribution_gif(plot_info, gif_filename, mute_mode, max_frames=50, 
                 text_y = ax_ylim[0] + 0.90 * (ax_ylim[1] - ax_ylim[0])  # 90% up from bottom (higher position)
                 
                 # Position text based on arrow direction
-                # Sectional metrics use the same positioning as their non-sectional counterparts
-                quality_index = plot_info['quality_index']
-                if quality_index in ['norm_dtw', 'norm_dtw_sect']:
+                # When invert_norm_dtw=True, norm_dtw metrics use right-pointing arrows (like corr_coef)
+                use_left_arrow = is_norm_dtw_metric and not invert_norm_dtw
+                
+                if use_left_arrow:
                     # For left-pointing arrows, put text on left side of line
-                    text_x = best_value - 0.01 * (ax_xlim[1] - ax_xlim[0])
+                    text_x = plot_value - 0.01 * (ax_xlim[1] - ax_xlim[0])
                     ha = 'right'
                 else:
                     # For right-pointing arrows, put text on right side of line
-                    text_x = best_value + 0.01 * (ax_xlim[1] - ax_xlim[0])
+                    text_x = plot_value + 0.01 * (ax_xlim[1] - ax_xlim[0])
                     ha = 'left'
                 
                 ax.text(text_x, text_y, 
-                       f'Best\nDatum\nMatch\n({best_value:.3f})', 
+                       f'Best\nDatum\nMatch\n({plot_value:.3f})', 
                        color='darkgreen', fontweight='bold', fontsize='x-small',
                        ha=ha, va='center', zorder=101)
                 
@@ -4438,6 +6081,8 @@ def _create_distribution_gif(plot_info, gif_filename, mute_mode, max_frames=50, 
                     # Sectional metrics use the same x-axis range as their non-sectional counterparts
                     if quality_index in ['corr_coef', 'corr_coef_sect']:
                         ax.set_xlim(0, 1.0)
+                    elif quality_index in ['norm_dtw', 'norm_dtw_sect']:
+                        ax.set_xlim(0.5, 1.0)
                     else:
                         ax.set_xlim(plot_info['plot_limits']['x_min'], plot_info['plot_limits']['x_max'])
                         ax.set_ylim(plot_info['plot_limits']['y_min'], plot_info['plot_limits']['y_max'])
@@ -4509,18 +6154,21 @@ def _create_distribution_gif(plot_info, gif_filename, mute_mode, max_frames=50, 
                 arrow_y = ax_ylim[0] + 0.92 * (ax_ylim[1] - ax_ylim[0])  # 92% up from bottom
                 
                 # Determine arrow direction and position based on quality index
-                # Sectional metrics use the same arrow direction as their non-sectional counterparts
+                # When invert_norm_dtw=True, norm_dtw metrics use right-pointing arrow (like corr_coef)
                 quality_index = plot_info['quality_index']
-                if quality_index in ['norm_dtw', 'norm_dtw_sect']:
-                    # For norm_dtw, lower values are better (arrow points left) - position in upper right, moved slightly left
-                    arrow_start_x = ax_xlim[0] + 0.94 * (ax_xlim[1] - ax_xlim[0])  # Start 94% from left (moved left)
-                    arrow_end_x = ax_xlim[0] + 0.77 * (ax_xlim[1] - ax_xlim[0])    # End 77% from left  
-                    text_x = ax_xlim[0] + 0.855 * (ax_xlim[1] - ax_xlim[0])        # Text centered between 77% and 94%
+                is_norm_dtw_metric = quality_index in ['norm_dtw', 'norm_dtw_sect']
+                use_left_arrow = is_norm_dtw_metric and not invert_norm_dtw
+                
+                if use_left_arrow:
+                    # For norm_dtw (non-inverted), lower values are better (arrow points left) - position in upper right
+                    arrow_start_x = ax_xlim[0] + 0.94 * (ax_xlim[1] - ax_xlim[0])
+                    arrow_end_x = ax_xlim[0] + 0.77 * (ax_xlim[1] - ax_xlim[0])
+                    text_x = ax_xlim[0] + 0.855 * (ax_xlim[1] - ax_xlim[0])
                 else:
-                    # For corr_coef and other indices, higher values are better (arrow points right) - position in upper left
-                    arrow_start_x = ax_xlim[0] + 0.07 * (ax_xlim[1] - ax_xlim[0])  # Start 7% from left
-                    arrow_end_x = ax_xlim[0] + 0.24 * (ax_xlim[1] - ax_xlim[0])    # End 24% from left
-                    text_x = ax_xlim[0] + 0.155 * (ax_xlim[1] - ax_xlim[0])        # Text centered under arrow
+                    # For other quality indices (or inverted norm_dtw), higher values are better (arrow points right) - position in upper left
+                    arrow_start_x = ax_xlim[0] + 0.07 * (ax_xlim[1] - ax_xlim[0])
+                    arrow_end_x = ax_xlim[0] + 0.24 * (ax_xlim[1] - ax_xlim[0])
+                    text_x = ax_xlim[0] + 0.155 * (ax_xlim[1] - ax_xlim[0])
                     
                 # Add horizontal arrow
                 ax.annotate('', 
@@ -4588,7 +6236,7 @@ def _create_distribution_gif(plot_info, gif_filename, mute_mode, max_frames=50, 
         shutil.rmtree(temp_dir, ignore_errors=True)
 
 
-def _create_tstat_gif(plot_info, gif_filename, mute_mode, max_frames=50):
+def _create_tstat_gif(plot_info, gif_filename, mute_mode, max_frames=50, invert_norm_dtw=True):
     """
     Create t-statistics gif using plot info from plot_t_statistics_vs_constraints.
     """
@@ -4604,8 +6252,7 @@ def _create_tstat_gif(plot_info, gif_filename, mute_mode, max_frames=50):
         fig, ax = plt.subplots(figsize=(9.5, 5))
         
         # Add null hypothesis line (same as static plot)
-        ax.axhline(y=0, color='darkgray', linestyle='--', alpha=0.7, linewidth=2, 
-                  label='Synthetic Data (t=0)', zorder=2)
+        ax.axhline(y=0, color='darkgray', linestyle='--', alpha=0.7, linewidth=2, zorder=2)
         
         # Set fixed axis ranges for all frames (use actual limits from static plot)
         if 'actual_plot_limits' in plot_info:
@@ -4628,50 +6275,27 @@ def _create_tstat_gif(plot_info, gif_filename, mute_mode, max_frames=50):
             elif quality_index == 'corr_coef_sect':
                 display_name = "Pearson's r (Correlated Section)"
             elif quality_index == 'norm_dtw':
-                display_name = "Normalized DTW Cost"
+                display_name = "1 - Normalized DTW Cost" if invert_norm_dtw else "Normalized DTW Cost"
             elif quality_index == 'norm_dtw_sect':
-                display_name = "Normalized DTW Cost (Correlated Section)"
+                display_name = "1 - Normalized DTW Cost (Correlated Section)" if invert_norm_dtw else "Normalized DTW Cost (Correlated Section)"
             else:
                 display_name = quality_index
         
         ax.set_title(f'{display_name}\n{plot_info["CORE_A"]} vs {plot_info["CORE_B"]}')
         ax.grid(True, alpha=0.3, zorder=0)
         
-        # Create complete legend (same as static plot)
-        legend_elements = [
-            ax.plot([], [], color='darkgray', linestyle='--', alpha=0.7, linewidth=2)[0],
-        ]
-        legend_labels = [
-            'Synthetic Data (t=0)', 
-        ]
+        # Add inline text label for synthetic data line with white background box
+        ax.text(0, 0, 'Synthetic Data', fontsize=9, ha='left', va='center',
+               color='dimgray', style='italic', zorder=4,
+               bbox=dict(boxstyle='round,pad=0.3', facecolor='white', edgecolor='none'))
         
-        # Add effect size legend elements with Cohen's d ranges
-        effect_size_info = [
-            ('negligible', '|d| < 0.2'),
-            ('small', '0.2 ≤ |d| < 0.5'),
-            ('medium', '0.5 ≤ |d| < 0.8'),
-            ('large', '|d| ≥ 0.8')
-        ]
-        
-        for category, d_range in effect_size_info:
-            color = get_effect_size_color(category)
-            legend_elements.append(
-                ax.scatter([], [], color=color, edgecolor='black', 
-                          linewidth=max(0.5, plot_info['sizing']['line_width']), s=plot_info['sizing']['dot_size'])
-            )
-            legend_labels.append(f'{category.capitalize()} effect ({d_range})')
-        
-        legend = ax.legend(legend_elements, legend_labels, bbox_to_anchor=(1.02, 0.5), loc='center left')
-        
-        # Make legend text smaller
-        for text in legend.get_texts():
-            text.set_fontsize(9)
-        
-        # Add colorbar (same as static plot)
+        # Add vertical colorbar for improvement/deterioration on right side
         sm = plt.cm.ScalarMappable(cmap=plot_info['cmap'], norm=plt.Normalize(vmin=-plot_info['max_abs_score'], vmax=plot_info['max_abs_score']))
         sm.set_array([])
-        cbar = plt.colorbar(sm, ax=ax, orientation='horizontal', shrink=0.6, aspect=20, pad=0.12)
-        cbar.set_label('Change in Correlation Quality', labelpad=10)
+        cbar = plt.colorbar(sm, ax=ax, orientation='vertical', shrink=0.6, aspect=20, pad=0.05)
+        # Set bold label on the left side of the colorbar
+        cbar.ax.yaxis.set_label_position('left')
+        cbar.ax.set_ylabel('Change in t-statistic', fontweight='bold', labelpad=5, rotation=90)
         cbar.set_ticks([-plot_info['max_abs_score'], 0, plot_info['max_abs_score']])
         cbar.set_ticklabels(['Deterioration', 'No Change', 'Improvement'])
         
@@ -4684,14 +6308,17 @@ def _create_tstat_gif(plot_info, gif_filename, mute_mode, max_frames=50):
         arrow_y_center = (ax_ylim[0] + ax_ylim[1]) / 2  # Center vertically
         
         # Determine arrow direction based on quality index
-        # Sectional metrics use the same arrow direction as their non-sectional counterparts
+        # When invert_norm_dtw=True, norm_dtw metrics use upward arrow (like corr_coef)
         quality_index = plot_info['quality_index']
-        if quality_index in ['norm_dtw', 'norm_dtw_sect']:
-            # For norm_dtw, lower values are better (downward arrow)
+        is_norm_dtw_metric = quality_index in ['norm_dtw', 'norm_dtw_sect']
+        use_downward_arrow = is_norm_dtw_metric and not invert_norm_dtw
+        
+        if use_downward_arrow:
+            # For norm_dtw (non-inverted), lower values are better (downward arrow)
             arrow_y_start = arrow_y_center + 0.2 * (ax_ylim[1] - ax_ylim[0])
             arrow_y_end = arrow_y_center - 0.2 * (ax_ylim[1] - ax_ylim[0])  
         else:
-            # For other quality indices, higher values are better (upward arrow)
+            # For other quality indices (or inverted norm_dtw), higher values are better (upward arrow)
             arrow_y_start = arrow_y_center - 0.2 * (ax_ylim[1] - ax_ylim[0])
             arrow_y_end = arrow_y_center + 0.2 * (ax_ylim[1] - ax_ylim[0]) 
             
@@ -4711,20 +6338,10 @@ def _create_tstat_gif(plot_info, gif_filename, mute_mode, max_frames=50):
         lc = LineCollection(segments, colors=colors_gradient, linewidths=3, zorder=4)
         ax.add_collection(lc)
         
-        # Add arrowhead at the end, positioned to start from where the colored bar ends
-        # Sectional metrics use the same arrow direction as their non-sectional counterparts
-        if quality_index in ['norm_dtw', 'norm_dtw_sect']:
-            # Downward arrow, use color from end of gradient
-            arrow_color = plot_info['cmap'](1.0)
-            # Position arrowhead to start where the gradient line ends
-            arrowhead_start_y = y_vals[-2]  # Second to last point of the gradient
-            arrowhead_end_y = arrow_y_end
-        else:
-            # Upward arrow, use color from end of gradient
-            arrow_color = plot_info['cmap'](1.0)
-            # Position arrowhead to start where the gradient line ends
-            arrowhead_start_y = y_vals[-2]  # Second to last point of the gradient
-            arrowhead_end_y = arrow_y_end
+        # Add arrowhead at the end
+        arrow_color = plot_info['cmap'](1.0)
+        arrowhead_start_y = y_vals[-2]
+        arrowhead_end_y = arrow_y_end
         
         # Add just the arrowhead
         ax.annotate('', 
@@ -4800,16 +6417,15 @@ def _create_tstat_gif(plot_info, gif_filename, mute_mode, max_frames=50):
                 fig, ax = plt.subplots(figsize=(9.5, 5))
                 
                 # Add null hypothesis line (same as static plot)
-                ax.axhline(y=0, color='darkgray', linestyle='--', alpha=0.7, linewidth=2, 
-                          label='Synthetic Data (t=0)', zorder=2)
+                ax.axhline(y=0, color='darkgray', linestyle='--', alpha=0.7, linewidth=2, zorder=2)
                 
-                # Plot all points up to current frame
+                # Plot all points up to current frame with white fill
                 shown_points = set()
                 for i in range(points_to_show):
                     original_idx, point = ordered_points[i]
                     ax.scatter(point['x'], point['y'], 
-                             color=point['color'], 
-                             edgecolor=point['edgecolor'],
+                             color='white', 
+                             edgecolor='black',
                              linewidth=point['linewidth'], 
                              s=point['size'], 
                              zorder=point['zorder'])
@@ -4852,41 +6468,18 @@ def _create_tstat_gif(plot_info, gif_filename, mute_mode, max_frames=50):
                 ax.set_title(f'{display_name}\n{plot_info["CORE_A"]} vs {plot_info["CORE_B"]}')
                 ax.grid(True, alpha=0.3, zorder=0)
                 
-                # Create legend for static elements and effect sizes
-                legend_elements = [
-                    ax.plot([], [], color='darkgray', linestyle='--', alpha=0.7, linewidth=2)[0],
-                ]
-                legend_labels = [
-                    'Synthetic Data (t=0)', 
-                ]
+                # Add inline text label for synthetic data line with white background box
+                ax.text(0, 0, 'Synthetic Data', fontsize=9, ha='left', va='center',
+                       color='dimgray', style='italic', zorder=4,
+                       bbox=dict(boxstyle='round,pad=0.3', facecolor='white', edgecolor='none'))
                 
-                # Add effect size legend elements with Cohen's d ranges
-                effect_size_info = [
-                    ('negligible', '|d| < 0.2'),
-                    ('small', '0.2 ≤ |d| < 0.5'),
-                    ('medium', '0.5 ≤ |d| < 0.8'),
-                    ('large', '|d| ≥ 0.8')
-                ]
-                
-                for category, d_range in effect_size_info:
-                    color = get_effect_size_color(category)
-                    legend_elements.append(
-                        ax.scatter([], [], color=color, edgecolor='black', 
-                                  linewidth=max(0.5, plot_info['sizing']['line_width']), s=plot_info['sizing']['dot_size'])
-                    )
-                    legend_labels.append(f'{category.capitalize()} effect ({d_range})')
-                
-                legend = ax.legend(legend_elements, legend_labels, bbox_to_anchor=(1.02, 0.5), loc='center left')
-                
-                # Make legend text smaller
-                for text in legend.get_texts():
-                    text.set_fontsize(9)
-                
-                # Add horizontal colorbar for improvement/deterioration
+                # Add vertical colorbar for improvement/deterioration on right side
                 sm = plt.cm.ScalarMappable(cmap=plot_info['cmap'], norm=plt.Normalize(vmin=-plot_info['max_abs_score'], vmax=plot_info['max_abs_score']))
                 sm.set_array([])
-                cbar = plt.colorbar(sm, ax=ax, orientation='horizontal', shrink=0.6, aspect=20, pad=0.12)
-                cbar.set_label('Change in Correlation Quality', labelpad=10)
+                cbar = plt.colorbar(sm, ax=ax, orientation='vertical', shrink=0.6, aspect=20, pad=0.05)
+                # Set bold label on the left side of the colorbar
+                cbar.ax.yaxis.set_label_position('left')
+                cbar.ax.set_ylabel('Change in t-statistic', fontweight='bold', labelpad=5, rotation=90)
                 cbar.set_ticks([-plot_info['max_abs_score'], 0, plot_info['max_abs_score']])
                 cbar.set_ticklabels(['Deterioration', 'No Change', 'Improvement'])
                 
@@ -4899,14 +6492,17 @@ def _create_tstat_gif(plot_info, gif_filename, mute_mode, max_frames=50):
                 arrow_y_center = (ax_ylim[0] + ax_ylim[1]) / 2  # Center vertically
                 
                 # Determine arrow direction based on quality index
-                # Sectional metrics use the same arrow direction as their non-sectional counterparts
+                # When invert_norm_dtw=True, norm_dtw metrics use upward arrow (like corr_coef)
                 quality_index = plot_info['quality_index']
-                if quality_index in ['norm_dtw', 'norm_dtw_sect']:
-                    # For norm_dtw, lower values are better (downward arrow)
+                is_norm_dtw_metric = quality_index in ['norm_dtw', 'norm_dtw_sect']
+                use_downward_arrow = is_norm_dtw_metric and not invert_norm_dtw
+                
+                if use_downward_arrow:
+                    # For norm_dtw (non-inverted), lower values are better (downward arrow)
                     arrow_y_start = arrow_y_center + 0.2 * (ax_ylim[1] - ax_ylim[0])
                     arrow_y_end = arrow_y_center - 0.2 * (ax_ylim[1] - ax_ylim[0])  
                 else:
-                    # For other quality indices, higher values are better (upward arrow)
+                    # For other quality indices (or inverted norm_dtw), higher values are better (upward arrow)
                     arrow_y_start = arrow_y_center - 0.2 * (ax_ylim[1] - ax_ylim[0])
                     arrow_y_end = arrow_y_center + 0.2 * (ax_ylim[1] - ax_ylim[0]) 
                     
@@ -4926,20 +6522,10 @@ def _create_tstat_gif(plot_info, gif_filename, mute_mode, max_frames=50):
                 lc = LineCollection(segments, colors=colors_gradient, linewidths=3, zorder=4)
                 ax.add_collection(lc)
                 
-                # Add arrowhead at the end, positioned to start from where the colored bar ends
-                # Sectional metrics use the same arrow direction as their non-sectional counterparts
-                if quality_index in ['norm_dtw', 'norm_dtw_sect']:
-                    # Downward arrow, use color from end of gradient
-                    arrow_color = plot_info['cmap'](1.0)
-                    # Position arrowhead to start where the gradient line ends
-                    arrowhead_start_y = y_vals[-2]  # Second to last point of the gradient
-                    arrowhead_end_y = arrow_y_end
-                else:
-                    # Upward arrow, use color from end of gradient
-                    arrow_color = plot_info['cmap'](1.0)
-                    # Position arrowhead to start where the gradient line ends
-                    arrowhead_start_y = y_vals[-2]  # Second to last point of the gradient
-                    arrowhead_end_y = arrow_y_end
+                # Add arrowhead at the end
+                arrow_color = plot_info['cmap'](1.0)
+                arrowhead_start_y = y_vals[-2]
+                arrowhead_end_y = arrow_y_end
                 
                 # Add just the arrowhead
                 ax.annotate('', 
@@ -5008,6 +6594,644 @@ def _create_tstat_gif(plot_info, gif_filename, mute_mode, max_frames=50):
         else:
             # Skip verbose error message
             pass
+    
+    finally:
+        shutil.rmtree(temp_dir, ignore_errors=True)
+
+
+def _create_cohens_d_gif(plot_info, gif_filename, mute_mode, max_frames=50, invert_norm_dtw=True):
+    """
+    Create Cohen's d gif using plot info from plot_cohens_d_vs_constraints.
+    """
+    
+    unique_constraints = plot_info['unique_constraints']
+    
+    # Create temporary directory for frame images
+    temp_dir = tempfile.mkdtemp()
+    frame_files = []
+    
+    try:
+        # Frame 0: Empty Cohen's d plot (match static plot exactly)
+        fig, ax = plt.subplots(figsize=(9.5, 5))
+        
+        # Add null hypothesis line (d=0)
+        ax.axhline(y=0, color='darkgray', linestyle='--', alpha=0.7, linewidth=2, zorder=2)
+        
+        # Set fixed axis ranges for all frames (use actual limits from static plot)
+        if 'actual_plot_limits' in plot_info:
+            ax.set_xlim(plot_info['actual_plot_limits']['x_min'], plot_info['actual_plot_limits']['x_max'])
+            ax.set_ylim(plot_info['actual_plot_limits']['y_min'], plot_info['actual_plot_limits']['y_max'])
+        else:
+            ax.set_xlim(plot_info['plot_limits']['x_min'], plot_info['plot_limits']['x_max'])
+            ax.set_ylim(plot_info['plot_limits']['y_min'], plot_info['plot_limits']['y_max'])
+        ax.set_xticks(range(0, int(plot_info['plot_limits']['x_max']) + 1))
+        
+        # Format plot (same as static plot)
+        ax.set_xlabel(f'Number of {plot_info["CORE_B"]} Age Constraints')
+        ax.set_ylabel("Cohen's d")
+        
+        # Get display name from plot_info or create it
+        quality_index = plot_info['quality_index']
+        display_name = plot_info.get('display_name', quality_index)
+        if not display_name or display_name == quality_index:
+            if quality_index == 'corr_coef':
+                display_name = "Pearson's r"
+            elif quality_index == 'corr_coef_sect':
+                display_name = "Pearson's r (Correlated Section)"
+            elif quality_index == 'norm_dtw':
+                display_name = "1 - Normalized DTW Cost" if invert_norm_dtw else "Normalized DTW Cost"
+            elif quality_index == 'norm_dtw_sect':
+                display_name = "1 - Normalized DTW Cost (Correlated Section)" if invert_norm_dtw else "Normalized DTW Cost (Correlated Section)"
+            else:
+                display_name = quality_index
+        
+        ax.set_title(f"{display_name}\n{plot_info['CORE_A']} vs {plot_info['CORE_B']}")
+        ax.grid(True, alpha=0.3, zorder=0)
+        
+        # Add inline text label for synthetic data line with white background box
+        x_max = int(plot_info['plot_limits']['x_max'])
+        ax.text(0, 0, 'Synthetic Data', fontsize=9, ha='left', va='center',
+               color='dimgray', style='italic', zorder=4,
+               bbox=dict(boxstyle='round,pad=0.3', facecolor='white', edgecolor='none'))
+        
+        # Add vertical colorbar for improvement/deterioration on right side
+        sm = plt.cm.ScalarMappable(cmap=plot_info['cmap'], norm=plt.Normalize(vmin=-plot_info['max_abs_score'], vmax=plot_info['max_abs_score']))
+        sm.set_array([])
+        cbar = plt.colorbar(sm, ax=ax, orientation='vertical', shrink=0.6, aspect=20, pad=0.05)
+        # Set bold label on the left side of the colorbar
+        cbar.ax.yaxis.set_label_position('left')
+        cbar.ax.set_ylabel("Change in Cohen's d", fontweight='bold', labelpad=5, rotation=90)
+        cbar.set_ticks([-plot_info['max_abs_score'], 0, plot_info['max_abs_score']])
+        cbar.set_ticklabels(['Deterioration', 'No Change', 'Improvement'])
+        
+        # Add "Better Correlation Quality" arrow (same as static plot)
+        ax_xlim = ax.get_xlim()
+        ax_ylim = ax.get_ylim()
+        
+        arrow_x = -0.35
+        arrow_y_center = (ax_ylim[0] + ax_ylim[1]) / 2
+        
+        # When invert_norm_dtw=True, norm_dtw metrics use upward arrow (like corr_coef)
+        is_norm_dtw_metric = quality_index in ['norm_dtw', 'norm_dtw_sect']
+        use_downward_arrow = is_norm_dtw_metric and not invert_norm_dtw
+        
+        if use_downward_arrow:
+            arrow_y_start = arrow_y_center + 0.2 * (ax_ylim[1] - ax_ylim[0])
+            arrow_y_end = arrow_y_center - 0.2 * (ax_ylim[1] - ax_ylim[0])  
+        else:
+            arrow_y_start = arrow_y_center - 0.2 * (ax_ylim[1] - ax_ylim[0])
+            arrow_y_end = arrow_y_center + 0.2 * (ax_ylim[1] - ax_ylim[0]) 
+            
+        n_segments = 100
+        y_vals = np.linspace(arrow_y_start, arrow_y_end, n_segments + 1)
+        x_vals = np.full_like(y_vals, arrow_x)
+        
+        points = np.array([x_vals[:-1], y_vals[:-1]]).T.reshape(-1, 1, 2)
+        segments = np.concatenate([points[:-1], points[1:]], axis=1)
+        
+        colors_gradient = [plot_info['cmap'](i / (n_segments - 1)) for i in range(n_segments - 1)]
+        
+        lc = LineCollection(segments, colors=colors_gradient, linewidths=3, zorder=4)
+        ax.add_collection(lc)
+        
+        arrow_color = plot_info['cmap'](1.0)
+        arrowhead_start_y = y_vals[-2]
+        arrowhead_end_y = arrow_y_end
+        
+        ax.annotate('', 
+                   xy=(arrow_x, arrowhead_end_y), 
+                   xytext=(arrow_x, arrowhead_start_y),
+                   arrowprops=dict(arrowstyle='->', color=arrow_color, lw=4),
+                   zorder=5)
+        
+        text_x = arrow_x + 0.1
+        text_y = arrow_y_center
+        
+        ax.text(text_x, text_y, 'Better Correlation Quality',
+               fontsize=8, ha='left', va='center',
+               rotation=90, color='black',
+               zorder=4)
+        
+        frame_file = os.path.join(temp_dir, f'frame_000.png')
+        plt.tight_layout()
+        plt.savefig(frame_file, dpi=100, bbox_inches='tight', facecolor='white')
+        plt.close()
+        frame_files.append(frame_file)
+        
+        # Progressive frames: Add points by constraint level
+        individual_points = plot_info.get('individual_points', [])
+        individual_segments = plot_info.get('individual_segments', [])
+        
+        if not individual_points:
+            return
+        
+        # Group points by constraint level
+        points_by_constraint = {}
+        for i, point in enumerate(individual_points):
+            constraint_level = point['x']
+            if constraint_level not in points_by_constraint:
+                points_by_constraint[constraint_level] = []
+            points_by_constraint[constraint_level].append((i, point))
+        
+        sorted_constraint_levels = sorted(points_by_constraint.keys())
+        
+        ordered_points = []
+        for constraint_level in sorted_constraint_levels:
+            for original_idx, point in points_by_constraint[constraint_level]:
+                ordered_points.append((original_idx, point))
+        
+        total_points = len(ordered_points)
+        target_animation_frames = max_frames
+        
+        if total_points <= target_animation_frames:
+            points_per_frame = 1
+            num_frames = total_points
+        else:
+            points_per_frame = math.ceil(total_points / target_animation_frames)
+            num_frames = math.ceil(total_points / points_per_frame)
+        
+        with tqdm(total=num_frames, desc="  Creating Cohen's d GIF frames", disable=mute_mode) as pbar:
+            for frame_idx in range(num_frames):
+                points_to_show = min((frame_idx + 1) * points_per_frame, total_points)
+                fig, ax = plt.subplots(figsize=(9.5, 5))
+                
+                ax.axhline(y=0, color='darkgray', linestyle='--', alpha=0.7, linewidth=2, zorder=2)
+                
+                shown_points = set()
+                for i in range(points_to_show):
+                    original_idx, point = ordered_points[i]
+                    ax.scatter(point['x'], point['y'], 
+                             color=point['color'], 
+                             edgecolor=point['edgecolor'],
+                             linewidth=point['linewidth'], 
+                             s=point['size'], 
+                             zorder=point['zorder'])
+                    shown_points.add((point['x'], point['y']))
+                
+                frame_segments = []
+                frame_colors = []
+                
+                for segment in individual_segments:
+                    seg_data = segment['segment']
+                    start_x, start_y = seg_data[0]
+                    end_x, end_y = seg_data[1]
+                    
+                    if (start_x, start_y) in shown_points and (end_x, end_y) in shown_points:
+                        frame_segments.append(seg_data)
+                        frame_colors.append(segment['color'])
+                
+                if frame_segments:
+                    lc = LineCollection(frame_segments, colors=frame_colors, 
+                                      alpha=individual_segments[0]['alpha'] if individual_segments else 0.8, 
+                                      linewidths=individual_segments[0]['linewidth'] if individual_segments else 1, 
+                                      zorder=1)
+                    ax.add_collection(lc)
+            
+                if 'actual_plot_limits' in plot_info:
+                    ax.set_xlim(plot_info['actual_plot_limits']['x_min'], plot_info['actual_plot_limits']['x_max'])
+                    ax.set_ylim(plot_info['actual_plot_limits']['y_min'], plot_info['actual_plot_limits']['y_max'])
+                else:
+                    ax.set_xlim(plot_info['plot_limits']['x_min'], plot_info['plot_limits']['x_max'])
+                    ax.set_ylim(plot_info['plot_limits']['y_min'], plot_info['plot_limits']['y_max'])
+                ax.set_xticks(range(0, int(plot_info['plot_limits']['x_max']) + 1))
+                
+                ax.set_xlabel(f'Number of {plot_info["CORE_B"]} Age Constraints')
+                ax.set_ylabel("Cohen's d")
+                ax.set_title(f"{display_name}\n{plot_info['CORE_A']} vs {plot_info['CORE_B']}")
+                ax.grid(True, alpha=0.3, zorder=0)
+                
+                # Add inline text label for synthetic data line with white background box
+                ax.text(0, 0, 'Synthetic Data', fontsize=9, ha='left', va='center',
+                       color='dimgray', style='italic', zorder=4,
+                       bbox=dict(boxstyle='round,pad=0.3', facecolor='white', edgecolor='none'))
+                
+                # Add vertical colorbar for improvement/deterioration on right side
+                sm = plt.cm.ScalarMappable(cmap=plot_info['cmap'], norm=plt.Normalize(vmin=-plot_info['max_abs_score'], vmax=plot_info['max_abs_score']))
+                sm.set_array([])
+                cbar = plt.colorbar(sm, ax=ax, orientation='vertical', shrink=0.6, aspect=20, pad=0.05)
+                # Set bold label on the left side of the colorbar
+                cbar.ax.yaxis.set_label_position('left')
+                cbar.ax.set_ylabel("Change in Cohen's d", fontweight='bold', labelpad=5, rotation=90)
+                cbar.set_ticks([-plot_info['max_abs_score'], 0, plot_info['max_abs_score']])
+                cbar.set_ticklabels(['Deterioration', 'No Change', 'Improvement'])
+                
+                # Add arrow
+                ax_xlim = ax.get_xlim()
+                ax_ylim = ax.get_ylim()
+                
+                arrow_x = -0.35
+                arrow_y_center = (ax_ylim[0] + ax_ylim[1]) / 2
+                
+                # When invert_norm_dtw=True, norm_dtw metrics use upward arrow (like corr_coef)
+                is_norm_dtw_metric = quality_index in ['norm_dtw', 'norm_dtw_sect']
+                use_downward_arrow = is_norm_dtw_metric and not invert_norm_dtw
+                
+                if use_downward_arrow:
+                    arrow_y_start = arrow_y_center + 0.2 * (ax_ylim[1] - ax_ylim[0])
+                    arrow_y_end = arrow_y_center - 0.2 * (ax_ylim[1] - ax_ylim[0])  
+                else:
+                    arrow_y_start = arrow_y_center - 0.2 * (ax_ylim[1] - ax_ylim[0])
+                    arrow_y_end = arrow_y_center + 0.2 * (ax_ylim[1] - ax_ylim[0]) 
+                    
+                n_segments = 100
+                y_vals = np.linspace(arrow_y_start, arrow_y_end, n_segments + 1)
+                x_vals = np.full_like(y_vals, arrow_x)
+                
+                points_arr = np.array([x_vals[:-1], y_vals[:-1]]).T.reshape(-1, 1, 2)
+                segments_arr = np.concatenate([points_arr[:-1], points_arr[1:]], axis=1)
+                
+                colors_gradient = [plot_info['cmap'](i / (n_segments - 1)) for i in range(n_segments - 1)]
+                
+                lc_arrow = LineCollection(segments_arr, colors=colors_gradient, linewidths=3, zorder=4)
+                ax.add_collection(lc_arrow)
+                
+                arrow_color = plot_info['cmap'](1.0)
+                arrowhead_start_y = y_vals[-2]
+                arrowhead_end_y = arrow_y_end
+                
+                ax.annotate('', 
+                           xy=(arrow_x, arrowhead_end_y), 
+                           xytext=(arrow_x, arrowhead_start_y),
+                           arrowprops=dict(arrowstyle='->', color=arrow_color, lw=4),
+                           zorder=5)
+                
+                text_x = arrow_x + 0.1
+                text_y = arrow_y_center
+                
+                ax.text(text_x, text_y, 'Better Correlation Quality',
+                       fontsize=8, ha='left', va='center',
+                       rotation=90, color='black',
+                       zorder=4)
+                
+                frame_file = os.path.join(temp_dir, f'frame_{frame_idx + 1:03d}.png')
+                plt.tight_layout()
+                plt.savefig(frame_file, dpi=100, bbox_inches='tight', facecolor='white')
+                plt.close()
+                frame_files.append(frame_file)
+                
+                pbar.update(1)
+        
+        # Create gif from frames
+        if frame_files:
+            images = []
+            target_size = None
+            
+            for frame_file in frame_files:
+                img = imageio.imread(frame_file)
+                if target_size is None:
+                    target_size = img.shape[:2]
+                elif img.shape[:2] != target_size:
+                    pil_img = Image.fromarray(img)
+                    pil_img = pil_img.resize((target_size[1], target_size[0]), Image.Resampling.LANCZOS)
+                    img = np.array(pil_img)
+                images.append(img)
+            
+            if images:
+                final_frame = images[-1]
+                fps = 10
+                frames_for_2_seconds = fps * 2
+                for _ in range(frames_for_2_seconds):
+                    images.append(final_frame)
+            
+            output_dir = os.path.dirname(gif_filename)
+            if output_dir:
+                os.makedirs(output_dir, exist_ok=True)
+            
+            imageio.mimsave(gif_filename, images, fps=fps, loop=3)
+            
+            if mute_mode:
+                print(f"✓ Cohen's d gif saved as: {gif_filename}")
+            else:
+                print(f"✓ Cohen's d gif saved as: {gif_filename}")
+    
+    finally:
+        shutil.rmtree(temp_dir, ignore_errors=True)
+
+
+def _create_hedges_g_gif(plot_info, gif_filename, mute_mode, max_frames=50, invert_norm_dtw=True):
+    """
+    Create Hedges' g gif using plot info from plot_hedges_g_vs_constraints.
+    """
+    
+    unique_constraints = plot_info['unique_constraints']
+    
+    # Create temporary directory for frame images
+    temp_dir = tempfile.mkdtemp()
+    frame_files = []
+    
+    try:
+        # Frame 0: Empty Hedges' g plot (match static plot exactly)
+        fig, ax = plt.subplots(figsize=(9.5, 5))
+        
+        # Add null hypothesis line (g=0)
+        ax.axhline(y=0, color='darkgray', linestyle='--', alpha=0.7, linewidth=2, zorder=2)
+        
+        # Set fixed axis ranges for all frames (use actual limits from static plot)
+        if 'actual_plot_limits' in plot_info:
+            ax.set_xlim(plot_info['actual_plot_limits']['x_min'], plot_info['actual_plot_limits']['x_max'])
+            ax.set_ylim(plot_info['actual_plot_limits']['y_min'], plot_info['actual_plot_limits']['y_max'])
+        else:
+            ax.set_xlim(plot_info['plot_limits']['x_min'], plot_info['plot_limits']['x_max'])
+            ax.set_ylim(plot_info['plot_limits']['y_min'], plot_info['plot_limits']['y_max'])
+        ax.set_xticks(range(0, int(plot_info['plot_limits']['x_max']) + 1))
+        
+        # Format plot (same as static plot)
+        ax.set_xlabel(f'Number of {plot_info["CORE_B"]} Age Constraints')
+        ax.set_ylabel("Hedges' g")
+        ax.set_ylim(-4, 4)  # Set y-axis range for Hedges' g
+        ax.set_yticks(np.arange(-4, 4.5, 1.0))  # Set y-axis ticks at every 1.0 interval
+        
+        # Get display name from plot_info or create it
+        quality_index = plot_info['quality_index']
+        display_name = plot_info.get('display_name', quality_index)
+        if not display_name or display_name == quality_index:
+            if quality_index == 'corr_coef':
+                display_name = "Pearson's r"
+            elif quality_index == 'corr_coef_sect':
+                display_name = "Pearson's r (Correlated Section)"
+            elif quality_index == 'norm_dtw':
+                display_name = "1 - Normalized DTW Cost" if invert_norm_dtw else "Normalized DTW Cost"
+            elif quality_index == 'norm_dtw_sect':
+                display_name = "1 - Normalized DTW Cost (Correlated Section)" if invert_norm_dtw else "Normalized DTW Cost (Correlated Section)"
+            else:
+                display_name = quality_index
+        
+        ax.set_title(f"{display_name}\n{plot_info['CORE_A']} vs {plot_info['CORE_B']}")
+        ax.grid(True, alpha=0.3, zorder=0)
+        
+        # Add inline text label for synthetic data line
+        ax.text(0, 0, 'Synthetic Data', fontsize=9, ha='left', va='center',
+               color='dimgray', style='italic', zorder=4,
+               bbox=dict(boxstyle='round,pad=0.3', facecolor='white', edgecolor='none'))
+        
+        # Add vertical colorbar
+        sm = plt.cm.ScalarMappable(cmap=plot_info['cmap'], norm=plt.Normalize(vmin=-plot_info['max_abs_score'], vmax=plot_info['max_abs_score']))
+        sm.set_array([])
+        cbar = plt.colorbar(sm, ax=ax, orientation='vertical', shrink=0.6, aspect=20, pad=0.14)
+        cbar.ax.yaxis.set_label_position('left')
+        cbar.ax.set_ylabel("Change in Hedges' g", fontweight='bold', labelpad=5, rotation=90)
+        cbar.set_ticks([-plot_info['max_abs_score'], 0, plot_info['max_abs_score']])
+        cbar.set_ticklabels(['Deterioration', 'No Change', 'Improvement'])
+        
+        # Add secondary y-axis for Probability of Superiority (as %)
+        ax2 = ax.twinx()
+        ax2.set_ylim(ax.get_ylim())
+        primary_ticks = ax.get_yticks()
+        y_min, y_max = ax.get_ylim()
+        valid_ticks = [t for t in primary_ticks if y_min <= t <= y_max]
+        ps_values = [stats.norm.cdf(g / np.sqrt(2)) * 100 for g in valid_ticks]
+        ax2.set_yticks(valid_ticks)
+        ax2.set_yticklabels([f'{ps:.0f}%' for ps in ps_values])
+        ax2.set_ylabel('Probability of Superiority', fontsize=10)
+        ax2.spines['right'].set_position(('outward', 0))
+        
+        # Add arrow
+        ax_xlim = ax.get_xlim()
+        ax_ylim = ax.get_ylim()
+        
+        arrow_x = -0.35
+        arrow_y_center = (ax_ylim[0] + ax_ylim[1]) / 2
+        
+        is_norm_dtw_metric = quality_index in ['norm_dtw', 'norm_dtw_sect']
+        use_downward_arrow = is_norm_dtw_metric and not invert_norm_dtw
+        
+        if use_downward_arrow:
+            arrow_y_start = arrow_y_center + 0.2 * (ax_ylim[1] - ax_ylim[0])
+            arrow_y_end = arrow_y_center - 0.2 * (ax_ylim[1] - ax_ylim[0])  
+        else:
+            arrow_y_start = arrow_y_center - 0.2 * (ax_ylim[1] - ax_ylim[0])
+            arrow_y_end = arrow_y_center + 0.2 * (ax_ylim[1] - ax_ylim[0]) 
+            
+        n_segments = 100
+        y_vals = np.linspace(arrow_y_start, arrow_y_end, n_segments + 1)
+        x_vals = np.full_like(y_vals, arrow_x)
+        
+        points = np.array([x_vals[:-1], y_vals[:-1]]).T.reshape(-1, 1, 2)
+        segments = np.concatenate([points[:-1], points[1:]], axis=1)
+        
+        colors_gradient = [plot_info['cmap'](i / (n_segments - 1)) for i in range(n_segments - 1)]
+        
+        lc = LineCollection(segments, colors=colors_gradient, linewidths=3, zorder=4)
+        ax.add_collection(lc)
+        
+        arrow_color = plot_info['cmap'](1.0)
+        arrowhead_start_y = y_vals[-2]
+        arrowhead_end_y = arrow_y_end
+        
+        ax.annotate('', 
+                   xy=(arrow_x, arrowhead_end_y), 
+                   xytext=(arrow_x, arrowhead_start_y),
+                   arrowprops=dict(arrowstyle='->', color=arrow_color, lw=4),
+                   zorder=5)
+        
+        text_x = arrow_x + 0.1
+        text_y = arrow_y_center
+        
+        ax.text(text_x, text_y, 'Better Correlation Quality',
+               fontsize=8, ha='left', va='center',
+               rotation=90, color='black',
+               zorder=4)
+        
+        frame_file = os.path.join(temp_dir, f'frame_000.png')
+        plt.tight_layout()
+        plt.savefig(frame_file, dpi=100, bbox_inches='tight', facecolor='white')
+        plt.close()
+        frame_files.append(frame_file)
+        
+        # Progressive frames: Add points by constraint level
+        individual_points = plot_info.get('individual_points', [])
+        individual_segments = plot_info.get('individual_segments', [])
+        
+        if not individual_points:
+            return
+        
+        # Group points by constraint level
+        points_by_constraint = {}
+        for i, point in enumerate(individual_points):
+            constraint_level = point['x']
+            if constraint_level not in points_by_constraint:
+                points_by_constraint[constraint_level] = []
+            points_by_constraint[constraint_level].append((i, point))
+        
+        sorted_constraint_levels = sorted(points_by_constraint.keys())
+        
+        ordered_points = []
+        for constraint_level in sorted_constraint_levels:
+            for original_idx, point in points_by_constraint[constraint_level]:
+                ordered_points.append((original_idx, point))
+        
+        total_points = len(ordered_points)
+        target_animation_frames = max_frames
+        
+        if total_points <= target_animation_frames:
+            points_per_frame = 1
+            num_frames = total_points
+        else:
+            points_per_frame = math.ceil(total_points / target_animation_frames)
+            num_frames = math.ceil(total_points / points_per_frame)
+        
+        with tqdm(total=num_frames, desc="  Creating Hedges' g GIF frames", disable=mute_mode) as pbar:
+            for frame_idx in range(num_frames):
+                points_to_show = min((frame_idx + 1) * points_per_frame, total_points)
+                fig, ax = plt.subplots(figsize=(9.5, 5))
+                
+                ax.axhline(y=0, color='darkgray', linestyle='--', alpha=0.7, linewidth=2, zorder=2)
+                
+                shown_points = set()
+                for i in range(points_to_show):
+                    original_idx, point = ordered_points[i]
+                    ax.scatter(point['x'], point['y'], 
+                             color=point['color'], 
+                             edgecolor=point['edgecolor'],
+                             linewidth=point['linewidth'], 
+                             s=point['size'], 
+                             zorder=point['zorder'])
+                    shown_points.add((point['x'], point['y']))
+                
+                frame_segments = []
+                frame_colors = []
+                
+                for segment in individual_segments:
+                    seg_data = segment['segment']
+                    start_x, start_y = seg_data[0]
+                    end_x, end_y = seg_data[1]
+                    
+                    if (start_x, start_y) in shown_points and (end_x, end_y) in shown_points:
+                        frame_segments.append(seg_data)
+                        frame_colors.append(segment['color'])
+                
+                if frame_segments:
+                    lc = LineCollection(frame_segments, colors=frame_colors, 
+                                      alpha=individual_segments[0]['alpha'] if individual_segments else 0.8, 
+                                      linewidths=individual_segments[0]['linewidth'] if individual_segments else 1, 
+                                      zorder=1)
+                    ax.add_collection(lc)
+            
+                if 'actual_plot_limits' in plot_info:
+                    ax.set_xlim(plot_info['actual_plot_limits']['x_min'], plot_info['actual_plot_limits']['x_max'])
+                    ax.set_ylim(plot_info['actual_plot_limits']['y_min'], plot_info['actual_plot_limits']['y_max'])
+                else:
+                    ax.set_xlim(plot_info['plot_limits']['x_min'], plot_info['plot_limits']['x_max'])
+                    ax.set_ylim(plot_info['plot_limits']['y_min'], plot_info['plot_limits']['y_max'])
+                ax.set_xticks(range(0, int(plot_info['plot_limits']['x_max']) + 1))
+                
+                ax.set_xlabel(f'Number of {plot_info["CORE_B"]} Age Constraints')
+                ax.set_ylabel("Hedges' g")
+                ax.set_ylim(-4, 4)  # Set y-axis range for Hedges' g
+                ax.set_yticks(np.arange(-4, 4.5, 1.0))  # Set y-axis ticks at every 1.0 interval
+                ax.set_title(f"{display_name}\n{plot_info['CORE_A']} vs {plot_info['CORE_B']}")
+                ax.grid(True, alpha=0.3, zorder=0)
+                
+                ax.text(0, 0, 'Synthetic Data', fontsize=9, ha='left', va='center',
+                       color='dimgray', style='italic', zorder=4,
+                       bbox=dict(boxstyle='round,pad=0.3', facecolor='white', edgecolor='none'))
+                
+                sm = plt.cm.ScalarMappable(cmap=plot_info['cmap'], norm=plt.Normalize(vmin=-plot_info['max_abs_score'], vmax=plot_info['max_abs_score']))
+                sm.set_array([])
+                cbar = plt.colorbar(sm, ax=ax, orientation='vertical', shrink=0.6, aspect=20, pad=0.14)
+                cbar.ax.yaxis.set_label_position('left')
+                cbar.ax.set_ylabel("Change in Hedges' g", fontweight='bold', labelpad=5, rotation=90)
+                cbar.set_ticks([-plot_info['max_abs_score'], 0, plot_info['max_abs_score']])
+                cbar.set_ticklabels(['Deterioration', 'No Change', 'Improvement'])
+                
+                # Add secondary y-axis for Probability of Superiority (as %)
+                ax2 = ax.twinx()
+                ax2.set_ylim(ax.get_ylim())
+                primary_ticks = ax.get_yticks()
+                y_min_frame, y_max_frame = ax.get_ylim()
+                valid_ticks_frame = [t for t in primary_ticks if y_min_frame <= t <= y_max_frame]
+                ps_values_frame = [stats.norm.cdf(g / np.sqrt(2)) * 100 for g in valid_ticks_frame]
+                ax2.set_yticks(valid_ticks_frame)
+                ax2.set_yticklabels([f'{ps:.0f}%' for ps in ps_values_frame])
+                ax2.set_ylabel('Probability of Superiority', fontsize=10)
+                ax2.spines['right'].set_position(('outward', 0))
+                
+                ax_xlim = ax.get_xlim()
+                ax_ylim = ax.get_ylim()
+                
+                arrow_x = -0.35
+                arrow_y_center = (ax_ylim[0] + ax_ylim[1]) / 2
+                
+                is_norm_dtw_metric = quality_index in ['norm_dtw', 'norm_dtw_sect']
+                use_downward_arrow = is_norm_dtw_metric and not invert_norm_dtw
+                
+                if use_downward_arrow:
+                    arrow_y_start = arrow_y_center + 0.2 * (ax_ylim[1] - ax_ylim[0])
+                    arrow_y_end = arrow_y_center - 0.2 * (ax_ylim[1] - ax_ylim[0])  
+                else:
+                    arrow_y_start = arrow_y_center - 0.2 * (ax_ylim[1] - ax_ylim[0])
+                    arrow_y_end = arrow_y_center + 0.2 * (ax_ylim[1] - ax_ylim[0]) 
+                    
+                n_segments = 100
+                y_vals = np.linspace(arrow_y_start, arrow_y_end, n_segments + 1)
+                x_vals = np.full_like(y_vals, arrow_x)
+                
+                points_arr = np.array([x_vals[:-1], y_vals[:-1]]).T.reshape(-1, 1, 2)
+                segments_arr = np.concatenate([points_arr[:-1], points_arr[1:]], axis=1)
+                
+                colors_gradient = [plot_info['cmap'](i / (n_segments - 1)) for i in range(n_segments - 1)]
+                
+                lc_arrow = LineCollection(segments_arr, colors=colors_gradient, linewidths=3, zorder=4)
+                ax.add_collection(lc_arrow)
+                
+                arrow_color = plot_info['cmap'](1.0)
+                arrowhead_start_y = y_vals[-2]
+                arrowhead_end_y = arrow_y_end
+                
+                ax.annotate('', 
+                           xy=(arrow_x, arrowhead_end_y), 
+                           xytext=(arrow_x, arrowhead_start_y),
+                           arrowprops=dict(arrowstyle='->', color=arrow_color, lw=4),
+                           zorder=5)
+                
+                text_x = arrow_x + 0.1
+                text_y = arrow_y_center
+                
+                ax.text(text_x, text_y, 'Better Correlation Quality',
+                       fontsize=8, ha='left', va='center',
+                       rotation=90, color='black',
+                       zorder=4)
+                
+                frame_file = os.path.join(temp_dir, f'frame_{frame_idx + 1:03d}.png')
+                plt.tight_layout()
+                plt.savefig(frame_file, dpi=100, bbox_inches='tight', facecolor='white')
+                plt.close()
+                frame_files.append(frame_file)
+                
+                pbar.update(1)
+        
+        # Create gif from frames
+        if frame_files:
+            images = []
+            target_size = None
+            
+            for frame_file in frame_files:
+                img = imageio.imread(frame_file)
+                if target_size is None:
+                    target_size = img.shape[:2]
+                elif img.shape[:2] != target_size:
+                    pil_img = Image.fromarray(img)
+                    pil_img = pil_img.resize((target_size[1], target_size[0]), Image.Resampling.LANCZOS)
+                    img = np.array(pil_img)
+                images.append(img)
+            
+            if images:
+                final_frame = images[-1]
+                fps = 10
+                frames_for_2_seconds = fps * 2
+                for _ in range(frames_for_2_seconds):
+                    images.append(final_frame)
+            
+            output_dir = os.path.dirname(gif_filename)
+            if output_dir:
+                os.makedirs(output_dir, exist_ok=True)
+            
+            imageio.mimsave(gif_filename, images, fps=fps, loop=3)
+            
+            if mute_mode:
+                print(f"✓ Hedges' g gif saved as: {gif_filename}")
+            else:
+                print(f"✓ Hedges' g gif saved as: {gif_filename}")
     
     finally:
         shutil.rmtree(temp_dir, ignore_errors=True)

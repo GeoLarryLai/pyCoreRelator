@@ -60,7 +60,14 @@ from .syn_strat import (
     synthetic_correlation_quality,
     plot_synthetic_correlation_quality,
     generate_constraint_subsets,
-    run_multi_parameter_analysis
+    run_multi_parameter_analysis,
+    # Markov Chain functions
+    train_markov_model,
+    find_optimal_k,
+    build_transition_matrix,
+    build_higher_order_transitions,
+    build_vom_transitions,
+    build_fp_transitions
 )
 
 from .syn_strat_plot import (
@@ -103,6 +110,13 @@ __all__ = [
     'plot_synthetic_correlation_quality',
     'generate_constraint_subsets',
     'run_multi_parameter_analysis',
-    'create_and_plot_synthetic_core_pair'
+    'create_and_plot_synthetic_core_pair',
+    # Markov Chain functions
+    'train_markov_model',
+    'find_optimal_k',
+    'build_transition_matrix',
+    'build_higher_order_transitions',
+    'build_vom_transitions',
+    'build_fp_transitions'
 ]
 
