@@ -5,7 +5,7 @@ This package provides comprehensive tools for correlating geological core data u
 advanced dynamic time warping algorithms, segment analysis, and quality assessment.
 """
 
-__version__ = "0.1.2"
+__version__ = "0.0.3"
 
 # Core functionality - Data loading and basic operations
 from .utils.data_loader import (
@@ -62,7 +62,14 @@ from .analysis.syn_strat import (
     synthetic_correlation_quality,
     plot_synthetic_correlation_quality,
     generate_constraint_subsets,
-    run_multi_parameter_analysis
+    run_multi_parameter_analysis,
+    # Markov Chain functions
+    train_markov_model,
+    find_optimal_k,
+    build_transition_matrix,
+    build_higher_order_transitions,
+    build_vom_transitions,
+    build_fp_transitions
 )
 
 from .analysis.syn_strat_plot import (
@@ -88,6 +95,7 @@ from .utils.plotting import (
     plot_quality_comparison_t_statistics,         
     calculate_quality_comparison_t_statistics,    
     plot_t_statistics_vs_constraints,
+    plot_cohens_d_vs_constraints,
     plot_quality_distributions     
 )
 
@@ -188,6 +196,13 @@ __all__ = [
     'plot_synthetic_correlation_quality',
     'generate_constraint_subsets',
     'run_multi_parameter_analysis',
+    # Markov Chain functions
+    'train_markov_model',
+    'find_optimal_k',
+    'build_transition_matrix',
+    'build_higher_order_transitions',
+    'build_vom_transitions',
+    'build_fp_transitions',
     
     # Visualization functions
     'visualize_combined_segments',
@@ -197,6 +212,7 @@ __all__ = [
     'calculate_quality_comparison_t_statistics',  
     'plot_quality_comparison_t_statistics',   
     'plot_t_statistics_vs_constraints',
+    'plot_cohens_d_vs_constraints',
     'plot_quality_distributions',
     
     # Segment operations
