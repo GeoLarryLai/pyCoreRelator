@@ -13,6 +13,13 @@
 !/requirements.txt
 !/pyCoreRelator_logo.png
 !/pyCoreRelator_logo_ani.gif
+!/Fig00-flowchart.png
+!/Fig01-DAGexplain.png
+!/Fig02-DTWvsDAGexplain.png
+!/Fig03-Solution_Puring_and_Ranking.png
+!/Fig04-DelannyEstimate.png
+!/Fig05-kmean_MC.png
+!/Fig06-effectsize_g.png
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
