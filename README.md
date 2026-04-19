@@ -2,7 +2,7 @@
 [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.17847259.svg)](https://doi.org/10.5281/zenodo.17847259)  [![PyPI version](https://img.shields.io/pypi/v/pycorerelator.svg)](https://pypi.org/project/pycorerelator/) [![Conda Version](https://img.shields.io/conda/vn/conda-forge/pycorerelator.svg)](https://anaconda.org/conda-forge/pycorerelator) [![Conda Downloads](https://img.shields.io/conda/dn/conda-forge/pycorerelator.svg)](https://anaconda.org/conda-forge/pycorerelator) 
 
 <div align="center">
-  <img src="pyCoreRelator_logo.png" alt="pyCoreRelator Logo" width="200"/>
+  <img src="explain_fig/pyCoreRelator_logo.png" alt="pyCoreRelator Logo" width="300"/>
 </div>
 
 **pyCoreRelator** is a Python package designed for quantitative stratigraphic correlation across geological core and physical log data. The package performs segment-based (i.e., unit-based or bed-to-bed) correlation analysis by applying Dynamic Time Warping (DTW) algorithms for automated signal alignment, while honoring fundamental stratigraphic principles (e.g., superposition, age succession, pinchouts). The main tool computes multiple measures for assessing correlation quality, under the assumption that higher signal similarity indicates stronger correlation. These quality metrics can also be used to identify optimal correlation solutions. In addition, the package provides utility functions for preprocessing log data (e.g., cleaning, gap filling) and core image data (e.g., image stitching, clipping, converting color profiles or scans into digital logs) for use in correlation assessment.
@@ -42,6 +42,10 @@ For questions, feedback, or collaboration opportunities, please contact Larry La
 
 ## Key Features
 
+<div align="center">
+  <img src="explain_fig/Fig00-flowchart.png" alt="flowchart"/>
+</div>
+
 - **Segment-Based DTW Correlation**: Divide cores into analyzable segments using user-picked or machine-learning based (future feature) depth boundaries, enabling controls on the stratigraphic pinchouts or forced correlation datums
 - **Interactive Core Datum Picking**: Manual stratigraphic boundary picking with real-time visualization, category-based classification, and CSV export for quality control
 - **Age Constraints Integration**: Apply chronostratigraphic constraints to search the optimal correlation solutions
@@ -53,13 +57,37 @@ For questions, feedback, or collaboration opportunities, please contact Larry La
 - **Multi-dimensional Log Support**: Handle multiple log types (MS, CT, RGB, density) simultaneously with dependent or independent multi-dimentiaonl DTW approach
 - **Visualizations**: DTW cost matrix and paths, segment-wise core correlations, animated sequences, and statistical analysis for the correlation solutions
 
+## Exploring Inter-Unit Correlations via Directed Acyclic Graph (DAG) 
+
+<div align="center">
+  <img src="explain_fig/Fig01-DAGexplain.png" alt="DAG_explain"/>
+</div>
+
+**pyCoreRelator** employs demonstrates Directed Acyclic Graph (DAG) in exploring inter-unit correlation possibilities. Above figure demonstrates an example indexing (i, j) for all available unit pairs between Site 1 (3 units) and Site 2 (2 units). **(a)** Even indices represent extant units, while odd indices denote phantom units (zero thickness) at where pinch-outs would occur. White cells indicate extant-to-extant correlations; gray cells indicate pinch-outs. **(b)** DAG representing all plausible correlation successions. The total number of available trajectories from the start to end vertices defines the set of valid correlations.
+
+
+<div align="center">
+  <img src="explain_fig/Fig02-DTWvsDAGexplain.png" alt="DTW_versus_DAG_explain"/>
+</div>
+
+Following above example, here we showcase how **pyCoreRelator** builds composite dynamic time wrapping (DTW) path for every inter-unit correlation possibility found through DAG. 
+Circles are the same DAG vertex indices (i, j), corresponding gray dashed lines representing options of warping trajectories in the DTW cost matrix, where horizontal and vertical options are chosen when pinch-outs occur. Each red solid line portrays a unique composite warping path, corresponding to one DAG trajectory and a valid correlation among these units.
+
+
+<div align="center">
+  <img src="explain_fig/Fig03-Solution_Puring_and_Ranking.png" alt="Solution_finding"/>
+</div>
+
+Above figure shows **pyCoreRelator**'s strategy for finding optimal inter-unit correlations, following the same example aligning a 3-unit log with a 2-unit log. **(a)** All unique composite warping paths fround via integrated DAG and DTW approach. **(b)** Exclusion of warping paths incompatible with age constraints (⍺ < β < γ). (c) Visualization of age-valid correlations, where brighter colors indicate larger average aligned log values. (d) Comparison of algorithmic solutions against human-interpreted markers. (e) Identification of the optimal correlation using similarity metrics (r, 〖"nDTW" 〗_c) and its consensus with human interpretations
+
+
 ## Correlation Quality Metrics
 
 The package computes comprehensive quality indicators for each correlation with enhanced statistical analysis:
 
 ### Available Metrics
 - **Correlation Coefficient**: [Default] Pearson's r between DTW aligned sequences
-- **Normalized DTW Distance**:  [Default] Normalized DTW cost per alignment
+- **Normalized DTW Distance**:  [Default] Complimentary Normalized DTW cost per alignment
 - **DTW Warping Ratio**: DTW distance relative to Euclidean distance
 - **DTW Warping Efficiency**: Efficiency measure combining DTW path length and alignment quality
 - **Diagonality Percentage**: 100% = perfect diagonal alignment in the DTW matrix
