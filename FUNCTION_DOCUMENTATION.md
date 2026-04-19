@@ -119,7 +119,7 @@ Handles DTW computation when both logs contain only a single data point each.
 - `wp` (np.ndarray): Warping path as single index pair (0,0)
 - `QIdx` (dict, optional): Quality indicators if QualityIndex=True
 
-#### `custom_dtw(log1, log2, subseq=False, exponent=1, QualityIndex=False, independent_dtw=False, available_columns=None)`
+#### `custom_dtw(log1, log2, subseq=False, exponent=1, QualityIndex=False, independent_dtw=False, available_columns=None, pca_for_dependent_dtw=False, sakoe_chiba=False)`
 
 Custom implementation of Dynamic Time Warping for well log correlation that handles all edge cases including single points, multidimensional data, and independent processing of each dimension.
 
@@ -130,6 +130,8 @@ Custom implementation of Dynamic Time Warping for well log correlation that hand
 - `QualityIndex` (bool, default=False): Whether to compute and return quality indicators
 - `independent_dtw` (bool, default=False): Whether to process each dimension separately for multidimensional data
 - `available_columns` (list, default=None): Column names for logging when independent_dtw=True
+- `pca_for_dependent_dtw` (bool, default=False): When dependent multidimensional DTW is used, if True apply PCA-style projection before correlation-based quality metrics; if False use conventional multidimensional alignment
+- `sakoe_chiba` (bool, default=False): If True, apply a Sakoe–Chiba band (see source for band width); if False, unconstrained DTW
 
 **Returns:**
 - `D` (np.ndarray): Accumulated cost matrix where D[i,j] contains minimum cumulative cost to reach point (i,j)
@@ -138,7 +140,7 @@ Custom implementation of Dynamic Time Warping for well log correlation that hand
 
 ### Quality Metrics (`quality.py`)
 
-#### `compute_quality_indicators(log1, log2, p, q, D)`
+#### `compute_quality_indicators(log1, log2, p, q, D, pca_for_dependent_dtw=False)`
 
 Computes comprehensive quality indicators for DTW alignment including normalized distance, correlation, and path characteristics.
 
@@ -146,6 +148,7 @@ Computes comprehensive quality indicators for DTW alignment including normalized
 - `log1, log2` (array-like): Original log arrays being compared
 - `p, q` (array-like): Warping path indices for log1 and log2 respectively
 - `D` (np.ndarray): Accumulated cost matrix from DTW computation
+- `pca_for_dependent_dtw` (bool, default=False): For dependent multidimensional logs, whether to use the PCA-based correlation treatment when computing correlation-related metrics
 
 **Returns:**
 - `dict`: Quality indicators including:
@@ -189,6 +192,18 @@ Finds the best DTW mappings based on multiple quality metrics with configurable 
   - `top_mapping_pairs` (list): List of segment pair combinations for each mapping
   - `top_mappings_df` (pandas.DataFrame): DataFrame containing top mappings with scores
 
+#### `find_nearest_index(depth_array, depth_value)`
+
+Returns the index of the element in `depth_array` closest to `depth_value` (implemented in `quality.py`; also used across plotting utilities).
+
+**Returns:** `int` index.
+
+#### `cohens_d(x, y)`
+
+Computes Cohen's d effect size between two samples `x` and `y` (1D array-like). Used in statistical comparison workflows alongside Hedges' g plots.
+
+**Returns:** `float` effect size.
+
 **Example:**
 ```python
 # Standard mode - find best mappings by quality metrics
@@ -213,7 +228,7 @@ top_ids, top_pairs, top_df = find_best_mappings(
 
 ### Age Models (`age_models.py`)
 
-#### `calculate_interpolated_ages(picked_datum, age_data=None, **kwargs)`
+#### `calculate_interpolated_ages(picked_datum, age_constraints_depths=None, age_constraints_ages=None, age_constraints_pos_errors=None, age_constraints_neg_errors=None, age_constraint_source_core=None, age_constraints_in_sequence_flags=None, age_data=None, top_bottom=True, top_age=0, top_age_pos_error=0, top_age_neg_error=0, top_depth=0.0, bottom_depth=None, uncertainty_method='MonteCarlo', n_monte_carlo=10000, show_plot=True, save_plot=False, plot_filename=None, core_name=None, export_csv=True, csv_filename=None, print_ages=True, mute_mode=False)`
 
 **ENHANCED** - Calculates interpolated or extrapolated ages for picked depths based on age constraints using various uncertainty propagation methods. Supports both simplified `age_data` parameter and legacy individual parameters.
 
@@ -229,7 +244,8 @@ top_ids, top_pairs, top_df = find_best_mappings(
 - `n_monte_carlo` (int, default=10000): Number of Monte Carlo iterations for uncertainty estimation
 - `top_age, top_age_pos_error, top_age_neg_error` (float): Age and uncertainties at top depth
 - `bottom_depth` (float, optional): Depth at the bottom of the core in cm
-- `show_plot` (bool, default=False): Whether to display age-depth model plot
+- `top_bottom` (bool, default=True): Include top/bottom depths and ages in outputs when applicable
+- `show_plot` (bool, default=True): Whether to display age-depth model plot
 - `export_csv` (bool, default=True): Whether to export results to CSV file
 - `csv_filename` (str, optional): Full path for output CSV file
 - `print_ages` (bool, default=True): If True, print age constraint data and estimated ages information. If False, suppress printing
@@ -326,7 +342,7 @@ Diagnoses connectivity issues in segment chains by identifying missing connectio
 **Returns:**
 - `dict`: Diagnostic information including missing connections, isolated segments, and connectivity statistics
 
-#### `compute_total_complete_paths(valid_dtw_pairs, detailed_pairs, max_depth_a, max_depth_b)`
+#### `compute_total_complete_paths(valid_dtw_pairs, detailed_pairs, max_depth_a, max_depth_b, mute_mode=False)`
 
 Computes the total number of complete paths connecting top and bottom segments for pathway complexity assessment.
 
@@ -334,6 +350,7 @@ Computes the total number of complete paths connecting top and bottom segments f
 - `valid_dtw_pairs` (set): Set of valid segment pairs
 - `detailed_pairs` (dict): Dictionary containing segment depth details
 - `max_depth_a, max_depth_b` (float): Maximum depths for cores A and B
+- `mute_mode` (bool, default=False): If True, suppress diagnostic print output
 
 **Returns:**
 - `int`: Total count of complete paths from top to bottom segments
@@ -376,7 +393,7 @@ Removes dead end and orphan segment pairs from the valid set to improve path con
 
 ### Path Combining (`path_combining.py`)
 
-#### `combine_segment_dtw_results(dtw_results, segment_pairs, segments_a, segments_b, depth_boundaries_a, depth_boundaries_b, log_a, log_b)`
+#### `combine_segment_dtw_results(dtw_results, segment_pairs, segments_a, segments_b, depth_boundaries_a, depth_boundaries_b, log_a, log_b, dtw_distance_matrix_full, pca_for_dependent_dtw=False)`
 
 Combines DTW results from multiple segment pairs into a unified correlation result by concatenating warping paths and averaging quality metrics.
 
@@ -386,12 +403,14 @@ Combines DTW results from multiple segment pairs into a unified correlation resu
 - `segments_a, segments_b` (list): Segment definitions for each core
 - `depth_boundaries_a, depth_boundaries_b` (list): Depth boundary indices
 - `log_a, log_b` (array-like): Original log data for quality assessment
+- `dtw_distance_matrix_full` (np.ndarray): Full DTW distance matrix from `run_comprehensive_dtw_analysis()` (used when recomputing combined-path metrics)
+- `pca_for_dependent_dtw` (bool, default=False): Passed through to combined-path quality computation
 
 **Returns:**
 - `combined_wp` (np.ndarray): Combined warping path spanning all selected segments
-- `combined_quality` (dict): Averaged quality metrics across all segments
+- `combined_quality` (dict): Averaged quality metrics across all segments (or `None` if no valid paths). On error or empty input the function may return three `None` values for consistency with internal early exits
 
-#### `compute_combined_path_metrics(combined_wp, log_a, log_b, segment_quality_indicators, age_overlap_values=None)`
+#### `compute_combined_path_metrics(combined_wp, log_a, log_b, segment_quality_indicators, dtw_distance_matrix_full, age_overlap_values=None, pca_for_dependent_dtw=False, segment_wps=None, path_segment_pairs=None, segments_a=None, segments_b=None, depth_boundaries_a=None, depth_boundaries_b=None, metrics_to_compute=None)`
 
 Computes quality metrics for combined correlation paths by aggregating segment-level indicators.
 
@@ -399,7 +418,11 @@ Computes quality metrics for combined correlation paths by aggregating segment-l
 - `combined_wp` (np.ndarray): Combined warping path
 - `log_a, log_b` (array-like): Original log data
 - `segment_quality_indicators` (list): List of quality indicator dictionaries from segments
+- `dtw_distance_matrix_full` (np.ndarray): Full DTW distance matrix
 - `age_overlap_values` (list, optional): Age overlap percentages for each segment
+- `pca_for_dependent_dtw` (bool, default=False): Passed to `compute_quality_indicators` where applicable
+- `segment_wps`, `path_segment_pairs`, `segments_a`, `segments_b`, `depth_boundaries_a`, `depth_boundaries_b` (optional): When provided, enable sectional metrics (`norm_dtw_sect`, `corr_coef_sect`, etc.) along segment boundaries
+- `metrics_to_compute` (list or str, optional): Subset of metrics to compute; `None` uses defaults, `'ALL'` requests all supported metrics (see `find_complete_core_paths` docstring in source for the canonical list)
 
 **Returns:**
 - `dict`: Combined quality metrics including normalized DTW, correlation, and age overlap
@@ -560,6 +583,35 @@ Build transition probability matrix from cluster sequences.
 **Returns:**
 - `transition_matrix` (ndarray): 2D array of shape (n_clusters, n_clusters) where [i,j] is P(cluster j | cluster i)
 - `stationary_dist` (ndarray): 1D array of stationary distribution
+
+#### `build_higher_order_transitions(cluster_labels, unit_sequence_per_core, n_clusters, order)`
+
+Build higher-order (n-gram) transition counts/probabilities for fixed Markov order `order` (used internally and for advanced Markov-chain synthetic runs).
+
+**Parameters:**
+- `cluster_labels`, `unit_sequence_per_core`, `n_clusters`: Same as `build_transition_matrix`
+- `order` (int): Markov order (context length)
+
+**Returns:**
+- `tuple`: Transition structure used by downstream builders (see source for exact layout)
+
+#### `build_vom_transitions(cluster_labels, unit_sequence_per_core, n_clusters, max_order)`
+
+Build variable-order Markov (VOM) transition structures up to `max_order` with backoff from longest to shortest context (see `train_markov_model` outputs).
+
+**Parameters:**
+- `cluster_labels`, `unit_sequence_per_core`, `n_clusters`: Same as `build_transition_matrix`
+- `max_order` (int): Maximum context length to tabulate
+
+**Returns:**
+- `tuple`: VOM dictionaries and metadata (see `syn_strat.py` for fields)
+
+#### `build_fp_transitions(cluster_labels, unit_sequence_per_core, n_clusters, order)`
+
+Build fixed-order transition tables at the requested `order` for fingerprint-style sequence modeling (see source).
+
+**Returns:**
+- `tuple`: Transition structure for the given order
 
 #### `create_synthetic_core_pair(core_a_length, core_b_length, seg_logs, seg_depths, log_columns, repetition=False, plot_results=True, save_plot=False, plot_filename=None)`
 
@@ -918,7 +970,7 @@ Extracts 2D slice from 3D volume along specified axis for viewing different orie
 **Returns:**
 - `array-like`: 2D numpy array of extracted slice
 
-#### `get_brightness_trace(slice_data, axis=0, width_start_pct=0.25, width_end_pct=0.75)`
+#### `get_brightness_trace(slice_data, axis=1, width_start_pct=0.25, width_end_pct=0.75)`
 
 Calculates brightness trace along specified axis within central strip of slice, excluding edge artifacts.
 
@@ -1100,44 +1152,6 @@ Preprocesses core data by cleaning and scaling depth values using configurable p
 **Returns:**
 - None (saves cleaned data files to the specified output directory)
 
-#### `plot_core_logs(data_config, file_type='clean', title=None, pickeddepth_csv=None, save_fig=False, output_dir=None, fig_format=['png'], dpi=None)`
-
-Plot core logs using fully configurable parameters from data_config. Creates subplot panels for different types of core data (images and logs) based on the configuration provided.
-
-**Parameters:**
-- `data_config` (dict): Configuration dictionary containing:
-  - `column_configs`: Dictionary of data type configurations with depth_col
-  - `clean_file_paths` or `filled_file_paths`: Dictionary of file paths by data type
-  - `core_length`: Core length for y-axis limits
-  - `core_name`: Core name for title
-- `file_type` (str, default='clean'): Type of data files to plot ('clean' or 'filled')
-- `title` (str, optional): Custom title for the plot. If None, generates default title
-- `pickeddepth_csv` (str, optional): Path to CSV file containing picked datum depths for visualization
-- `save_fig` (bool, default=False): Whether to save the figure to disk
-- `output_dir` (str, optional): Directory to save figures (required if save_fig=True)
-- `fig_format` (list, default=['png']): List of file formats to save (options: 'png', 'jpg', 'svg', 'pdf')
-- `dpi` (int, optional): Resolution in dots per inch for saved figures
-
-**Returns:**
-- None (displays the plot and optionally saves figures)
-
-#### `plot_filled_data(target_log, original_data, filled_data, data_config, ML_type='ML')`
-
-Plot original and ML-filled data for a given log using configurable parameters. Creates a horizontal plot showing the original data overlaid with ML-filled gaps, including uncertainty shading if available.
-
-**Parameters:**
-- `target_log` (str): Name of the log to plot
-- `original_data` (pandas.DataFrame): Original data containing the log with gaps
-- `filled_data` (pandas.DataFrame): Data with ML-filled gaps
-- `data_config` (dict): Configuration containing:
-  - `column_configs`: Dictionary of data type configurations with depth_col and plot labels
-  - `core_length`: Core length for x-axis limits
-  - `core_name`: Core name for title
-- `ML_type` (str, default='ML'): Type of ML method used for title
-
-**Returns:**
-- None (displays the plot directly)
-
 #### `fill_gaps_with_ml(target_log, All_logs, data_config, output_csv=True, merge_tolerance=3.0, ml_method='xgblgbm')`
 
 Fill gaps in target data using specified ML method. Prepares feature data, applies the specified machine learning method, and fills gaps in the target log data.
@@ -1189,47 +1203,56 @@ Process and fill gaps in log data using ML methods with fully configurable param
 - For interactive use with plots: use n_jobs=1 or n_jobs=-1 with show_plots=True
 - For fastest batch processing without plots: use n_jobs=-1 and show_plots=False
 
-#### Helper Functions
+#### `prepare_feature_data(target_log, All_logs, merge_tolerance, data_config)`
 
-**`prepare_feature_data(target_log, All_logs, merge_tolerance, data_config)`**
-- Prepares merged feature data for ML training using configurable parameters
-
-**`apply_feature_weights(X, data_config)`**
-- Applies feature weights using configurable parameters from data_config
-
-**`adjust_gap_predictions(df, gap_mask, ml_preds, target_log, data_config)`**
-- Adjusts ML predictions for gap rows to blend with linear interpolation between boundaries
-
-**`train_model(model)`**
-- Helper function for parallel model training
-
-### Gap Filling Plots (`gap_filling_plots.py`)
-
-#### `plot_core_logs(data_config, file_type='clean', title=None)`
-
-Plot core logs using fully configurable parameters from data_config.
+Prepares merged training/prediction matrices from multiple logs for the target column (used by `fill_gaps_with_ml`).
 
 **Parameters:**
-- `data_config` (dict): Configuration dictionary containing plotting parameters
-- `file_type` (str, default='clean'): Type of data files to plot ('clean' or 'filled')
-- `title` (str, optional): Custom title for the plot
+- `target_log` (str): Column name to predict
+- `All_logs` (dict): DataFrames keyed by log/column name
+- `merge_tolerance` (float): Maximum depth difference for row alignment
+- `data_config` (dict): Same configuration pattern as other gap-filling functions
 
 **Returns:**
-- `tuple`: (fig, axes) - matplotlib figure and axes objects
+- `tuple`: (`target_data`, `merged_data`, `features`) — target DataFrame, merged feature DataFrame, list of feature column names
+
+#### `apply_feature_weights(X, data_config)`
+
+Applies per-feature weights from `data_config` to design matrix `X`.
+
+**Returns:** `pandas.DataFrame` weighted copy of `X`.
+
+#### `adjust_gap_predictions(df, gap_mask, ml_preds, target_log, data_config)`
+
+Blends ML predictions at gap rows with local trends so fills stay geologically plausible at segment boundaries.
+
+**Returns:** `numpy.ndarray` of adjusted predictions for gap rows.
+
+#### `train_model(model)`
+
+Builds a small training wrapper `(X_train, y_train, X_pred) -> predictions` around a scikit-learn–style estimator (used with `joblib` in parallel gap filling).
+
+**Returns:** `callable` wrapper function.
+
+### Gap filling plots (`gap_filling_plots.py`)
+
+#### `plot_core_logs(data_config, file_type='clean', title=None, pickeddepth_csv=None, save_fig=False, output_dir=None, fig_format=['png'], dpi=None)`
+
+Plots multi-panel core summaries (images + curves) from paths in `data_config` (`clean_file_paths` or `filled_file_paths` depending on `file_type`).
+
+**Parameters:**
+- `data_config` (dict): Must include `column_configs`, file paths, `core_length`, `core_name`, etc.
+- `file_type` (str, default='clean'): `'clean'` or `'filled'` (filled view overlays cleaned traces when applicable)
+- `title`, `pickeddepth_csv`, `save_fig`, `output_dir`, `fig_format`, `dpi`: Optional title, optional picked-depth CSV for markers, save toggles and formats
+
+**Returns:**
+- None (displays figure; saves when `save_fig=True`)
 
 #### `plot_filled_data(target_log, original_data, filled_data, data_config, ML_type='ML')`
 
-Plot original and ML-filled data for a given log.
+Horizontal comparison of original vs ML-filled series for one target log.
 
-**Parameters:**
-- `target_log` (str): Name of the log to plot
-- `original_data` (pandas.DataFrame): Original data containing the log with gaps
-- `filled_data` (pandas.DataFrame): Data with ML-filled gaps
-- `data_config` (dict): Configuration containing all parameters
-- `ML_type` (str, default='ML'): Type of ML method used for title
-
-**Returns:**
-- None (displays the plot)
+**Returns:** None (displays figure).
 
 ### Datum Picker (`datum_picker.py`)
 
@@ -1422,6 +1445,44 @@ Loads age constraint data from CSV files with flexible column mapping.
 **Returns:**
 - `dict`: Age constraint data with keys: 'depths', 'ages', 'pos_errors', 'neg_errors', 'core', 'in_sequence_flags', 'interpreted_bed'
 
+#### `load_age_constraints_from_csv(csv_file_path, data_columns, mute_mode=False)`
+
+Loads a single age-constraint CSV using the same column-mapping convention as `load_core_age_constraints`.
+
+**Parameters:**
+- `csv_file_path` (str): Path to CSV
+- `data_columns` (dict, **required**): Maps logical names (`age`, `pos_error`, `neg_error`, `min_depth`, `max_depth`, `in_sequence`, `core`, `interpreted_bed`) to file column names
+- `mute_mode` (bool, default=False): Reduce console noise
+
+**Returns:** `dict` with standardized lists/Series fields (may be empty if file missing).
+
+#### `combine_age_constraints(age_constraint_list)`
+
+Concatenates and depth-sorts multiple outputs from `load_age_constraints_from_csv`.
+
+**Parameters:**
+- `age_constraint_list` (list of dict): Individual age dictionaries
+
+**Returns:** Combined `dict` in the same schema.
+
+#### `load_pickeddepth_ages_from_csv(pickeddepth_age_csv)`
+
+Loads depth–age–uncertainty pairs from a four-column CSV (depth, age, positive uncertainty, negative uncertainty).
+
+**Returns:** `dict` with keys `depths`, `ages`, `pos_uncertainties`, `neg_uncertainties`.
+
+#### `reconstruct_raw_data_from_histogram(bins, hist_percentages, n_points)`
+
+Monte-Carlo–style reconstruction of raw metric samples from stored histogram bin edges and counts/percentages (used when rebuilding null distributions from CSV archives).
+
+**Returns:** `numpy.ndarray` of synthetic sample values.
+
+#### `load_and_prepare_quality_data(target_quality_indices, master_csv_filenames, synthetic_csv_filenames, CORE_A, CORE_B, debug=True)`
+
+Loads filtered master-parameter tables plus synthetic histogram metadata for each `quality_index`, preparing the structure consumed by `plot_quality_distributions`, `plot_t_statistics_vs_constraints`, `plot_cohens_d_vs_constraints`, and `plot_hedges_g_vs_constraints`.
+
+**Returns:** `dict` keyed by quality index, each value containing `df_all_params`, `combined_data`, fitted moments, and constraint-count summaries.
+
 #### `resample_datasets(datasets, target_resolution_factor=2)`
 
 Resamples multiple datasets to a common depth scale with improved resolution for consistent analysis.
@@ -1494,6 +1555,13 @@ Creates comprehensive visualization of DTW correlation between log segments with
 **Returns:**
 - `matplotlib.figure.Figure`: Complete correlation visualization figure
 
+#### `plot_multilog_segment_pair_correlation(log_a, log_b, md_a, md_b, wp, a_start, a_end, b_start, b_end, step=5, quality_indicators=None, available_columns=None, rgb_img_a=None, ct_img_a=None, rgb_img_b=None, ct_img_b=None, picked_datum_a=None, picked_datum_b=None, picked_categories_a=None, picked_categories_b=None, category_colors=None, title=None, show_quality_indicators=False, invert_colormap=None)`
+
+Multidimensional segment correlation figure with optional RGB/CT panels, category-colored picked datums, and per-column colormap inversion flags (same role as `plot_segment_pair_correlation` for multilog + imagery workflows).
+
+**Returns:**
+- `matplotlib.figure.Figure`
+
 #### `visualize_combined_segments(dtw_result, log_a, log_b, md_a, md_b, segment_pairs_to_combine, **kwargs)`
 
 Display segment correlations overlaid on log plots with optional age constraint visualization.
@@ -1538,7 +1606,7 @@ combined_wp, combined_quality = visualize_combined_segments(
 # Figures are automatically saved to the specified paths
 ```
 
-#### `plot_correlation_distribution(mapping_csv, target_mapping_id=None, quality_index=None, save_png=True, png_filename=None, core_a_name=None, core_b_name=None, bin_width=None, pdf_method='normal', kde_bandwidth=0.05, mute_mode=False, targeted_binsize=None, dpi=None)`
+#### `plot_correlation_distribution(mapping_csv, target_mapping_id=None, quality_index=None, save_png=True, png_filename=None, core_a_name=None, core_b_name=None, bin_width=None, pdf_method='normal', kde_bandwidth=0.05, mute_mode=False, targeted_binsize=None, dpi=None, invert_norm_dtw=True, fig_format=None)`
 
 Visualize and statistically analyze the distributions of the correlation quality metrics.
 
@@ -1555,9 +1623,29 @@ Visualize and statistically analyze the distributions of the correlation quality
 - `mute_mode` (bool, default=False): If True, suppress all print statements
 - `targeted_binsize` (tuple, optional): (synthetic_bins, bin_width) for consistent bin sizing with synthetic data
 - `dpi` (int, default=None): Resolution for saved figures in dots per inch. If None, uses default (150)
+- `invert_norm_dtw` (bool, default=True): When `quality_index` is `norm_dtw`, plot (1 - norm_dtw) as a higher-is-better similarity on 0–1 axes
+- `fig_format` (list or None, default=None): Extra save formats forwarded to the figure saver; `None` uses internal defaults
 
 **Returns:**
 - `fit_params` (dict): Dictionary containing distribution statistics including histogram data, PDF parameters, bin information, and percentile data when target_mapping_id is specified
+
+#### `plot_quality_distributions(quality_data, target_quality_indices, output_figure_filenames, CORE_A, CORE_B, debug=True, return_plot_info=False, plot_real_data_histogram=True, plot_age_removal_step_pdf=True, synthetic_csv_filenames=None, best_datum_values=None, fig_format=['png'], dpi=None, invert_norm_dtw=True)`
+
+Plots real vs synthetic null distributions for each quality index (used inside `plot_quality_comparison_t_statistics` and for static multi-panel exports).
+
+**Returns:** `dict` plot info if `return_plot_info=True`, else `None`.
+
+#### `plot_t_statistics_vs_constraints(quality_data, target_quality_indices, output_figure_filenames, CORE_A, CORE_B, debug=True, n_jobs=-1, batch_size=None, return_plot_info=False, fig_format=['png'], dpi=None, invert_norm_dtw=True)`
+
+t-statistic vs remaining age-constraint count for each quality metric (parallel-friendly).
+
+**Returns:** `dict` or `None` (same pattern as `plot_quality_distributions`).
+
+#### `plot_cohens_d_vs_constraints(quality_data, target_quality_indices, output_figure_filenames, CORE_A, CORE_B, debug=True, n_jobs=-1, batch_size=None, return_plot_info=False, fig_format=['png'], dpi=None, invert_norm_dtw=True)`
+
+Cohen's d vs constraint count with sample-size-based coloring.
+
+**Returns:** `dict` or `None`.
 
 #### `calculate_quality_comparison_t_statistics(target_quality_indices, output_csv_directory, input_syntheticPDF_directory, core_a_name, core_b_name, log_columns=None, mute_mode=False)`
 
@@ -1573,7 +1661,7 @@ Calculate t-statistics for quality metric comparisons between real core correlat
 - `mute_mode` (bool, default=False): If True, suppress console output
 
 **Returns:**
-- None: Updates CSV files in-place with statistical columns (t_statistic, cohens_d, effect_size_category)
+- None: Updates CSV files in-place with statistical columns (e.g., t-statistics, Cohen's d, Hedges' g, inverted variants for norm_dtw metrics, effect-size categories—see implementation for the full set written per quality index)
 
 #### `plot_quality_comparison_t_statistics(target_quality_indices, output_csv_directory, input_syntheticPDF_directory, core_a_name, core_b_name, log_columns=None, mute_mode=False, save_fig=False, output_figure_directory=None, fig_format=['png'], dpi=150, save_gif=False, output_gif_directory=None, max_frames=50, plot_real_data_histogram=False, plot_age_removal_step_pdf=False, show_best_datum_match=True, sequential_mappings_csv=None, skip_age_removal_graph=False, skip_pdf_graph=False, show_t_graph=False, show_d_graph=False, show_g_graph=True, linear_g_scale=False, invert_norm_dtw=True)`
 
@@ -1726,15 +1814,4 @@ visualize_dtw_results_from_csv(
 # GIFs are automatically displayed after creation
 ```
 
-### Helpers (`helpers.py`)
-
-#### `find_nearest_index(depth_array, depth_value)`
-
-Finds the index in a depth array that corresponds to the closest depth value to a target depth.
-
-**Parameters:**
-- `depth_array` (array-like): Array of depth values to search
-- `depth_value` (float): Target depth value to find
-
-**Returns:**
-- `int`: Index in depth_array with closest value to target depth
+Low-level figure helpers `validate_fig_formats` and `save_figure_formats` live in `pyCoreRelator.utils.helpers` and are used internally by plotting save paths; they are not part of the public `__all__` API.
