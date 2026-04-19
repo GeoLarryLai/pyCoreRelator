@@ -57,7 +57,10 @@ def plot_segment_pair_correlation(log_a, log_b, md_a, md_b,
                                   single_segment_mode=None,
                                   available_columns_a=None, available_columns_b=None,
                                   rgb_img_a=None, ct_img_a=None, rgb_img_b=None, ct_img_b=None,
-                                  color_style_map=None, dpi=None):
+                                  color_style_map=None, dpi=None,
+                                  fig_format=None, correlation_figsize=None,
+                                  show_quality_indicators=False,
+                                  invert_colormap=None):
     """
     Enhanced unified function to plot correlation between log segments for both single and multiple segment pairs.
     Supports both single logs and multilogs with RGB and CT images.
@@ -124,6 +127,13 @@ def plot_segment_pair_correlation(log_a, log_b, md_a, md_b,
         Dictionary mapping log column names to colors and styles
     dpi : int, optional
         Resolution for saved figures in dots per inch. If None, uses default (150)
+    fig_format : list of str, optional
+        Output figure formats (e.g. ['png'], ['png', 'svg']). Accepts 'png', 'jpeg',
+        'jpg', 'svg', 'pdf'. Defaults to ['png']. Invalid entries fall back to ['png'].
+    correlation_figsize : tuple, optional
+        Figure size (width, height) for the correlation plot. Default is (6, 20).
+    show_quality_indicators : bool, default=False
+        If True, display the DTW Quality Indicators text box on the figure.
     
     Returns
     -------
@@ -219,10 +229,14 @@ def plot_segment_pair_correlation(log_a, log_b, md_a, md_b,
     img_rows_b = sum([has_rgb_b, has_ct_b])
     max_img_rows = max(img_rows_a, img_rows_b)
     
+    # Resolve correlation figure size
+    _corr_w = correlation_figsize[0] if correlation_figsize else 6
+    _corr_h = correlation_figsize[1] if correlation_figsize else 20
+
     # Create figure with appropriate size
     if max_img_rows > 0:
-        fig_height = 20 + (max_img_rows * 3)
-        fig = plt.figure(figsize=(6, fig_height))
+        fig_height = _corr_h + (max_img_rows * 3)
+        fig = plt.figure(figsize=(_corr_w, fig_height))
         gs = GridSpec(max_img_rows + 1, 2, height_ratios=[1]*max_img_rows + [3])
         
         # Create image axes
@@ -265,7 +279,7 @@ def plot_segment_pair_correlation(log_a, log_b, md_a, md_b,
         
         ax = plt.subplot(gs[-1, :])
     else:
-        fig = plt.figure(figsize=(6, 20))
+        fig = plt.figure(figsize=(_corr_w, _corr_h))
         ax = fig.add_subplot(111)
     
     # Plot log data
@@ -293,9 +307,40 @@ def plot_segment_pair_correlation(log_a, log_b, md_a, md_b,
     ax.set_xlim(0, 3)
     ax.set_ylim(0, max(np.max(md_a), np.max(md_b)))
     
-    # Prepare logs for coloring
-    log_a_inv = (np.mean(log_a, axis=1) if is_multilog_a else log_a)
-    log_b_inv = (np.mean(log_b, axis=1) if is_multilog_b else log_b)
+    # Prepare logs for coloring (invert specified dimensions before averaging)
+    if invert_colormap is not None and is_multilog_a:
+        log_a_color = log_a.copy()
+        for dim_i, inv in enumerate(invert_colormap):
+            if (inv == 'True' or inv is True) and dim_i < log_a_color.shape[1]:
+                log_a_color[:, dim_i] = 1 - log_a_color[:, dim_i]
+        log_a_inv = np.mean(log_a_color, axis=1)
+    elif is_multilog_a:
+        log_a_inv = np.mean(log_a, axis=1)
+    elif invert_colormap is not None and len(invert_colormap) > 0 and (invert_colormap[0] == 'True' or invert_colormap[0] is True):
+        log_a_inv = 1 - log_a
+    else:
+        log_a_inv = log_a
+
+    if invert_colormap is not None and is_multilog_b:
+        log_b_color = log_b.copy()
+        for dim_i, inv in enumerate(invert_colormap):
+            if (inv == 'True' or inv is True) and dim_i < log_b_color.shape[1]:
+                log_b_color[:, dim_i] = 1 - log_b_color[:, dim_i]
+        log_b_inv = np.mean(log_b_color, axis=1)
+    elif is_multilog_b:
+        log_b_inv = np.mean(log_b, axis=1)
+    elif invert_colormap is not None and len(invert_colormap) > 0 and (invert_colormap[0] == 'True' or invert_colormap[0] is True):
+        log_b_inv = 1 - log_b
+    else:
+        log_b_inv = log_b
+
+    # Rescale to [0, 1] for multi-log: averaging compressed the range
+    if is_multilog_a or is_multilog_b:
+        combined_min = min(np.nanmin(log_a_inv), np.nanmin(log_b_inv))
+        combined_max = max(np.nanmax(log_a_inv), np.nanmax(log_b_inv))
+        if combined_max > combined_min:
+            log_a_inv = (log_a_inv - combined_min) / (combined_max - combined_min)
+            log_b_inv = (log_b_inv - combined_min) / (combined_max - combined_min)
     
     # Add legend for multilogs
     if is_multilog_a or is_multilog_b:
@@ -705,8 +750,8 @@ def plot_segment_pair_correlation(log_a, log_b, md_a, md_b,
         ]
         ax.legend(handles=legend_elements, loc='lower center', fontsize=8, title="Ages (Year BP)")
     
-    # Add quality indicators
-    if quality_indicators is not None or combined_quality is not None:
+    # Add quality indicators (only when show_quality_indicators is True)
+    if show_quality_indicators and (quality_indicators is not None or combined_quality is not None):
         qi = combined_quality if multi_segment_mode else quality_indicators
         if qi:
             quality_text = (
@@ -724,14 +769,9 @@ def plot_segment_pair_correlation(log_a, log_b, md_a, md_b,
 
     # Save figure if path provided
     if save_path:
-        final_save_path = save_path
-        
-        output_dir = os.path.dirname(final_save_path)
-        if output_dir:
-            os.makedirs(output_dir, exist_ok=True)
-        
+        from .helpers import save_figure_formats
         save_dpi = dpi if dpi is not None else 150
-        plt.savefig(final_save_path, dpi=save_dpi, bbox_inches='tight')
+        save_figure_formats(fig, save_path, fig_format=fig_format, dpi=save_dpi)
     
     return fig
 
@@ -745,7 +785,9 @@ def plot_multilog_segment_pair_correlation(log_a, log_b, md_a, md_b,
                                   picked_datum_a=None, picked_datum_b=None,
                                   picked_categories_a=None, picked_categories_b=None,
                                   category_colors=None,
-                                  title=None):
+                                  title=None,
+                                  show_quality_indicators=False,
+                                  invert_colormap=None):
     """
     Plot correlation between two multilogs (multiple log curves) with RGB and CT images.
     
@@ -908,10 +950,41 @@ def plot_multilog_segment_pair_correlation(log_a, log_b, md_a, md_b,
     ax.set_xlim(0, 3)
     ax.set_ylim(min(np.min(md_a), np.min(md_b)), max(np.max(md_a), np.max(md_b)))
     
-    # Draw correlation intervals similar to Testing9 but using avg across all dimensions
-    # for coloring
-    log_a_inv = np.mean(log_a, axis=1) if log_a.ndim > 1 else 1 - log_a
-    log_b_inv = np.mean(log_b, axis=1) if log_b.ndim > 1 else 1 - log_b
+    # Draw correlation intervals using avg across all dimensions for coloring
+    # Invert specified dimensions before averaging
+    if invert_colormap is not None and log_a.ndim > 1:
+        log_a_color = log_a.copy()
+        for dim_i, inv in enumerate(invert_colormap):
+            if (inv == 'True' or inv is True) and dim_i < log_a_color.shape[1]:
+                log_a_color[:, dim_i] = 1 - log_a_color[:, dim_i]
+        log_a_inv = np.mean(log_a_color, axis=1)
+    elif log_a.ndim > 1:
+        log_a_inv = np.mean(log_a, axis=1)
+    elif invert_colormap is not None and len(invert_colormap) > 0 and (invert_colormap[0] == 'True' or invert_colormap[0] is True):
+        log_a_inv = 1 - log_a
+    else:
+        log_a_inv = 1 - log_a
+
+    if invert_colormap is not None and log_b.ndim > 1:
+        log_b_color = log_b.copy()
+        for dim_i, inv in enumerate(invert_colormap):
+            if (inv == 'True' or inv is True) and dim_i < log_b_color.shape[1]:
+                log_b_color[:, dim_i] = 1 - log_b_color[:, dim_i]
+        log_b_inv = np.mean(log_b_color, axis=1)
+    elif log_b.ndim > 1:
+        log_b_inv = np.mean(log_b, axis=1)
+    elif invert_colormap is not None and len(invert_colormap) > 0 and (invert_colormap[0] == 'True' or invert_colormap[0] is True):
+        log_b_inv = 1 - log_b
+    else:
+        log_b_inv = 1 - log_b
+
+    # Rescale to [0, 1] for multi-log: averaging compressed the range
+    if log_a.ndim > 1 or log_b.ndim > 1:
+        combined_min = min(np.nanmin(log_a_inv), np.nanmin(log_b_inv))
+        combined_max = max(np.nanmax(log_a_inv), np.nanmax(log_b_inv))
+        if combined_max > combined_min:
+            log_a_inv = (log_a_inv - combined_min) / (combined_max - combined_min)
+            log_b_inv = (log_b_inv - combined_min) / (combined_max - combined_min)
     
     # If we have a valid warping path, process it
     if wp is not None and len(wp) > 0:
@@ -993,25 +1066,8 @@ def plot_multilog_segment_pair_correlation(log_a, log_b, md_a, md_b,
             ax.text(2.9, depth, f"#{category}", fontsize=8, color=color, 
                    bbox=dict(facecolor='white', alpha=0.7, pad=1))
     
-    # Add quality indicators if provided
-    if quality_indicators is not None:
-        # Calculate combined age overlap percentage if multiple segment pairs provided
-        # if (segment_pairs is not None and dtw_results is not None and 
-        #     segments_a is not None and segments_b is not None):
-        #     # Calculate combined age overlap percentage from multiple segment pairs
-        #     age_overlap_values = []
-            
-        #     for a_idx, b_idx in segment_pairs:
-        #         if (a_idx, b_idx) in dtw_results:
-        #             paths, _, qi_list = dtw_results[(a_idx, b_idx)]
-        #             if qi_list and len(qi_list) > 0:
-        #                 qi = qi_list[0]
-        #                 age_overlap_values.append(qi['perc_age_overlap'])
-            
-        #     if age_overlap_values:
-        #         combined_age_overlap = sum(age_overlap_values) / len(age_overlap_values)
-        #         quality_indicators['perc_age_overlap'] = combined_age_overlap
-        
+    # Add quality indicators if provided (only when show_quality_indicators is True)
+    if show_quality_indicators and quality_indicators is not None:
         quality_text = (
             "DTW Quality Indicators: \n"
             f"Normalized DTW Cost: {quality_indicators.get('norm_dtw', 0):.3f} (lower is better)\n "
@@ -1066,7 +1122,12 @@ def visualize_combined_segments(dtw_result, log_a, log_b, md_a, md_b, segment_pa
                               # Bed correlation parameters
                               core_a_interpreted_beds=None,
                               core_b_interpreted_beds=None,
-                              dpi=None):
+                              dpi=None,
+                              fig_format=None,
+                              correlation_figsize=None,
+                              matrix_figsize=None,
+                              show_quality_indicators=False,
+                              invert_colormap=None):
     """
     Combine selected segment pairs and visualize the results.
     
@@ -1302,7 +1363,11 @@ def visualize_combined_segments(dtw_result, log_a, log_b, md_a, md_b, segment_pa
         all_constraint_pos_errors_b=all_constraint_pos_errors_b,
         all_constraint_neg_errors_a=all_constraint_neg_errors_a,
         all_constraint_neg_errors_b=all_constraint_neg_errors_b,
-        dpi=dpi
+        dpi=dpi,
+        fig_format=fig_format,
+        correlation_figsize=correlation_figsize,
+        show_quality_indicators=show_quality_indicators,
+        invert_colormap=invert_colormap
     )
 
     # NEW: Add bed correlation lines if conditions are met
@@ -1316,9 +1381,9 @@ def visualize_combined_segments(dtw_result, log_a, log_b, md_a, md_b, segment_pa
             draw_bed_correlations(bed_matches, ax)
             
             # Re-save the correlation figure with bed correlation lines
-            os.makedirs(os.path.dirname(correlation_save_path), exist_ok=True)
+            from .helpers import save_figure_formats
             save_dpi = dpi if dpi is not None else 150
-            correlation_fig.savefig(correlation_save_path, dpi=save_dpi, bbox_inches='tight')
+            save_figure_formats(correlation_fig, correlation_save_path, fig_format=fig_format, dpi=save_dpi)
 
     # Create DTW matrix plot
     plot_dtw_matrix_with_paths(
@@ -1340,13 +1405,15 @@ def visualize_combined_segments(dtw_result, log_a, log_b, md_a, md_b, segment_pa
         md_b=md_b,
         core_a_name=core_a_name,
         core_b_name=core_b_name,
-        dpi=dpi
+        dpi=dpi,
+        fig_format=fig_format,
+        matrix_figsize=matrix_figsize
     )
 
     return combined_wp, combined_quality
 
 
-def plot_correlation_distribution(mapping_csv, target_mapping_id=None, quality_index=None, save_png=True, png_filename=None, core_a_name=None, core_b_name=None, bin_width=None, pdf_method='normal', kde_bandwidth=0.05, mute_mode=False, targeted_binsize=None, dpi=None, invert_norm_dtw=True):
+def plot_correlation_distribution(mapping_csv, target_mapping_id=None, quality_index=None, save_png=True, png_filename=None, core_a_name=None, core_b_name=None, bin_width=None, pdf_method='normal', kde_bandwidth=0.05, mute_mode=False, targeted_binsize=None, dpi=None, invert_norm_dtw=True, fig_format=None):
     """
     UPDATED: Handle new CSV format with different column structure.
     Plot distribution of a specified quality index.
@@ -1658,17 +1725,10 @@ def plot_correlation_distribution(mapping_csv, target_mapping_id=None, quality_i
         if save_png:
             if png_filename is None:
                 png_filename = f'{quality_index}_distribution_{pdf_method.lower()}.png'
-            
-            # Use the provided filename directly
-            final_png_path = png_filename
-            
-            # Create directory if needed
-            output_dir = os.path.dirname(final_png_path)
-            if output_dir:
-                os.makedirs(output_dir, exist_ok=True)
-            
+
+            from .helpers import save_figure_formats
             save_dpi = dpi if dpi is not None else 150
-            plt.savefig(final_png_path, dpi=save_dpi, bbox_inches='tight')
+            save_figure_formats(plt.gcf(), png_filename, fig_format=fig_format, dpi=save_dpi)
         
         # Show the plot
         plt.tight_layout()
@@ -2902,28 +2962,12 @@ def plot_quality_distributions(quality_data, target_quality_indices, output_figu
         # Save figure if output filename is provided
         if output_figure_filenames and quality_index in output_figure_filenames:
             output_filename_base = output_figure_filenames[quality_index]
-            # Create directory if needed
-            output_dir = os.path.dirname(output_filename_base)
-            if output_dir:
-                os.makedirs(output_dir, exist_ok=True)
-            
+
+            from .helpers import save_figure_formats
             save_dpi = dpi if dpi is not None else 150
-            
-            # Save in all requested formats
-            for fmt in fig_format:
-                if fmt in ['png', 'jpeg', 'svg', 'pdf', 'tiff']:
-                    output_filename = f"{output_filename_base}.{fmt}"
-                    if fmt == 'jpeg':
-                        plt.savefig(output_filename, dpi=save_dpi, bbox_inches='tight', format='jpg')
-                    else:
-                        plt.savefig(output_filename, dpi=save_dpi, bbox_inches='tight')
-                    
-                    if debug:  # debug=True means mute_mode=True, show essential info only
-                        print(f"✓ Distribution plot saved as: {output_filename}")
-                    else:  # debug=False means mute_mode=False, show detailed info
-                        print(f"✓ Distribution plot saved as: {output_filename}")
-            
-            if not debug:  # debug=False means mute_mode=False, show detailed info
+            save_figure_formats(plt.gcf(), output_filename_base, fig_format=fig_format, dpi=save_dpi)
+
+            if not debug:
                 print(f"✓ Analysis complete for {quality_index}!")
         else:
             if debug:  # debug=True means mute_mode=True, show essential info only
@@ -3445,34 +3489,15 @@ def plot_t_statistics_vs_constraints(quality_data, target_quality_indices, outpu
         
         # Save figure
         if output_figure_filenames and quality_index in output_figure_filenames:
-            base_filename = output_figure_filenames[quality_index]
-            # base_filename is now without extension
-            t_stat_filename_base = base_filename + '_tstat'
-            
-            # Create directory if needed
-            output_dir = os.path.dirname(t_stat_filename_base)
-            if output_dir:
-                os.makedirs(output_dir, exist_ok=True)
-            
+            t_stat_filename_base = output_figure_filenames[quality_index] + '_tstat'
+
+            from .helpers import save_figure_formats
             save_dpi = dpi if dpi is not None else 150
-            
-            # Save in all requested formats
-            for fmt in fig_format:
-                if fmt in ['png', 'jpeg', 'svg', 'pdf', 'tiff']:
-                    t_stat_filename = f"{t_stat_filename_base}.{fmt}"
-                    if fmt == 'jpeg':
-                        plt.savefig(t_stat_filename, dpi=save_dpi, bbox_inches='tight', format='jpg')
-                    else:
-                        plt.savefig(t_stat_filename, dpi=save_dpi, bbox_inches='tight')
-                    
-                    if debug:  # debug=True means mute_mode=True, show essential info only
-                        print(f"✓ t-statistics plot saved as: {t_stat_filename}")
-                    else:  # debug=False means mute_mode=False, show detailed info
-                        print(f"✓ t-statistics plot saved as: {t_stat_filename}")
+            save_figure_formats(plt.gcf(), t_stat_filename_base, fig_format=fig_format, dpi=save_dpi)
         else:
-            if debug:  # debug=True means mute_mode=True, show essential info only
+            if debug:
                 print(f"✓ t-statistics plot completed for {quality_index}")
-            else:  # debug=False means mute_mode=False, show detailed info
+            else:
                 print(f"✓ t-statistics plot completed for {quality_index}")
         
         # Display the plot - suppress when debug=True (i.e., mute_mode=True)
@@ -3958,25 +3983,9 @@ def plot_cohens_d_vs_constraints(quality_data, target_quality_indices, output_fi
             cohens_d_filename_base = base_filename + '_cohens_d'
             
             # Create directory if needed
-            output_dir = os.path.dirname(cohens_d_filename_base)
-            if output_dir:
-                os.makedirs(output_dir, exist_ok=True)
-            
+            from .helpers import save_figure_formats
             save_dpi = dpi if dpi is not None else 150
-            
-            # Save in all requested formats
-            for fmt in fig_format:
-                if fmt in ['png', 'jpeg', 'svg', 'pdf', 'tiff']:
-                    cohens_d_filename = f"{cohens_d_filename_base}.{fmt}"
-                    if fmt == 'jpeg':
-                        plt.savefig(cohens_d_filename, dpi=save_dpi, bbox_inches='tight', format='jpg')
-                    else:
-                        plt.savefig(cohens_d_filename, dpi=save_dpi, bbox_inches='tight')
-                    
-                    if debug:
-                        print(f"✓ Cohen's d plot saved as: {cohens_d_filename}")
-                    else:
-                        print(f"✓ Cohen's d plot saved as: {cohens_d_filename}")
+            save_figure_formats(plt.gcf(), cohens_d_filename_base, fig_format=fig_format, dpi=save_dpi)
         else:
             if debug:
                 print(f"✓ Cohen's d plot completed for {quality_index}")
@@ -4567,27 +4576,11 @@ def plot_hedges_g_vs_constraints(quality_data, target_quality_indices, output_fi
         
         # Save figure
         if output_figure_filenames and quality_index in output_figure_filenames:
-            base_filename = output_figure_filenames[quality_index]
-            hedges_g_filename_base = base_filename + '_hedges_g'
-            
-            output_dir = os.path.dirname(hedges_g_filename_base)
-            if output_dir:
-                os.makedirs(output_dir, exist_ok=True)
-            
+            hedges_g_filename_base = output_figure_filenames[quality_index] + '_hedges_g'
+
+            from .helpers import save_figure_formats
             save_dpi = dpi if dpi is not None else 150
-            
-            for fmt in fig_format:
-                if fmt in ['png', 'jpeg', 'svg', 'pdf', 'tiff']:
-                    hedges_g_filename = f"{hedges_g_filename_base}.{fmt}"
-                    if fmt == 'jpeg':
-                        plt.savefig(hedges_g_filename, dpi=save_dpi, bbox_inches='tight', format='jpg')
-                    else:
-                        plt.savefig(hedges_g_filename, dpi=save_dpi, bbox_inches='tight')
-                    
-                    if debug:
-                        print(f"✓ Hedges' g plot saved as: {hedges_g_filename}")
-                    else:
-                        print(f"✓ Hedges' g plot saved as: {hedges_g_filename}")
+            save_figure_formats(plt.gcf(), hedges_g_filename_base, fig_format=fig_format, dpi=save_dpi)
         else:
             if debug:
                 print(f"✓ Hedges' g plot completed for {quality_index}")

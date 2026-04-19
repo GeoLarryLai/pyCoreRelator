@@ -167,11 +167,11 @@ def plot_ctimg_curves(slice_data: Optional[np.ndarray] = None,
             0, slice_dim[1] * pixel_spacing[0],
             slice_dim[0] * pixel_spacing[1], 0
         ]  # Note: y-axis inverted
-        im = ax1.imshow(slice_data, extent=extent, cmap='jet', vmin=vmin, vmax=vmax)
+        im = ax1.imshow(slice_data, extent=extent, cmap='viridis_bright', vmin=vmin, vmax=vmax)
         ax1.set_xlabel("Width (mm)", fontsize='small')
         ax1.set_ylabel("Depth (mm)", fontsize='small')
     else:
-        im = ax1.imshow(slice_data, cmap='jet', vmin=vmin, vmax=vmax)
+        im = ax1.imshow(slice_data, cmap='viridis_bright', vmin=vmin, vmax=vmax)
         ax1.set_xlabel("Width (pixels)", fontsize='small')
         ax1.set_ylabel("Depth (pixels)", fontsize='small')
     
@@ -244,9 +244,9 @@ def plot_ctimg_curves(slice_data: Optional[np.ndarray] = None,
             ax.set_axis_off()
             
             if pixel_spacing is not None:
-                im_img = plt.imshow(slice_data, extent=extent, cmap='jet', vmin=vmin, vmax=vmax, aspect='auto')
+                im_img = plt.imshow(slice_data, extent=extent, cmap='viridis_bright', vmin=vmin, vmax=vmax, aspect='auto')
             else:
-                im_img = plt.imshow(slice_data, cmap='jet', vmin=vmin, vmax=vmax, aspect='auto')
+                im_img = plt.imshow(slice_data, cmap='viridis_bright', vmin=vmin, vmax=vmax, aspect='auto')
                 
             # Ensure no padding
             plt.subplots_adjust(top=1, bottom=0, right=1, left=0, hspace=0, wspace=0)

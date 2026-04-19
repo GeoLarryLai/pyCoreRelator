@@ -38,6 +38,11 @@ This document provides detailed documentation for all functions in the pyCoreRel
 - `pca_for_dependent_dtw` (bool, default=False): Use PCA for dependent multidimensional DTW (if False, uses conventional multidimensional DTW)
 - `dpi` (int, default=None): Resolution for saved figures and GIF frames in dots per inch. If None, uses default (150)
 - `n_jobs` (int, default=-1): Number of parallel jobs for DTW computation across segment pairs. -1 means using all available cores. Set to 1 for sequential processing
+- `fig_format` (list of str, default=None): Output figure formats (e.g. `['png']`, `['png', 'svg']`). Accepts `'png'`, `'jpeg'`/`'jpg'`, `'svg'`, `'pdf'`. Defaults to `['png']`. Invalid entries fall back to `['png']`. When the user-specified output filename extension matches a format in `fig_format`, only that file is saved. If the extension differs, the user's file is saved plus additional files in each `fig_format`. GIF frames are always PNG for assembly; additional formats are saved alongside.
+- `correlation_figsize` (tuple, default=None): Figure size `(width, height)` for correlation plots. Default is `(6, 20)`.
+- `matrix_figsize` (tuple, default=None): Figure size `(width, height)` for DTW matrix plots. Default is `(10, 10)`.
+- `show_quality_indicators` (bool, default=False): If True, display the DTW Quality Indicators text box on correlation figures.
+- `invert_colormap` (list of str, default=None): List matching `LOG_COLUMNS` order indicating which logs to invert for colormap (e.g. `['False', 'False', 'True']` to invert Lumin). Logs with opposite variation trends (e.g. Lumin vs CT/MS) should be inverted so averaging across dimensions produces consistent colormap shading. Also works for single-log mode.
 
 **Returns:**
 - `dict`: Dictionary containing all DTW analysis results with the following keys:
@@ -1480,6 +1485,11 @@ Creates comprehensive visualization of DTW correlation between log segments with
 - `age_consideration` (bool, default=False): Whether to display age information
 - `rgb_img_a, ct_img_a, rgb_img_b, ct_img_b` (array-like, optional): Core images
 - `available_columns_a, available_columns_b` (list, optional): Column names for multilogs
+- `dpi` (int, default=None): Resolution for saved figures in dots per inch. If None, uses default (150)
+- `fig_format` (list of str, default=None): Output figure formats (e.g. `['png']`, `['png', 'svg']`). Defaults to `['png']`.
+- `correlation_figsize` (tuple, default=None): Figure size `(width, height)` for the correlation plot. Default is `(6, 20)`.
+- `show_quality_indicators` (bool, default=False): If True, display the DTW Quality Indicators text box on the figure.
+- `invert_colormap` (list of str, default=None): List matching log dimensions indicating which to invert for colormap before averaging. Also works for single-log mode.
 
 **Returns:**
 - `matplotlib.figure.Figure`: Complete correlation visualization figure
@@ -1499,7 +1509,11 @@ Display segment correlations overlaid on log plots with optional age constraint 
 - `correlation_save_path, matrix_save_path` (str, optional): Paths to save output figures
 - `core_a_interpreted_beds, core_b_interpreted_beds` (list, optional): Interpreted bed names for bed correlation
 - `dpi` (int, default=None): Resolution for saved figures in dots per inch. If None, uses default (150)
-- Additional kwargs for visualization options
+- `fig_format` (list of str, default=None): Output figure formats (e.g. `['png']`, `['png', 'svg']`). Defaults to `['png']`.
+- `correlation_figsize` (tuple, default=None): Figure size `(width, height)` for the correlation plot. Default is `(6, 20)`.
+- `matrix_figsize` (tuple, default=None): Figure size `(width, height)` for the DTW matrix plot. Default is `(10, 10)`.
+- `show_quality_indicators` (bool, default=False): If True, display the DTW Quality Indicators text box on correlation figures.
+- `invert_colormap` (list of str, default=None): List matching `LOG_COLUMNS` order indicating which logs to invert for colormap. Also works for single-log mode.
 
 **Returns:**
 - `tuple`: (combined_wp, combined_quality)
@@ -1637,7 +1651,8 @@ Visualize DTW cost matrices with correlation paths and optional age constraint m
 - `output_filename` (str, optional): Path to save the figure
 - `color_metric` (str, optional): Metric for coloring paths ('corr_coef', 'norm_dtw', etc.)
 - `dpi` (int, default=None): Resolution for saved figures in dots per inch. If None, uses default (150)
-- Additional kwargs for plot customization
+- `fig_format` (list of str, default=None): Output figure formats (e.g. `['png']`, `['png', 'svg']`). Defaults to `['png']`.
+- `matrix_figsize` (tuple, default=None): Figure size `(width, height)` for the DTW matrix plot. Default is `(10, 10)`.
 
 **Returns:**
 - `str or None`: Path to saved figure if output_filename provided
@@ -1684,6 +1699,11 @@ Generate animated correlation sequences from results with optional age constrain
 - `core_a_name, core_b_name` (str, optional): Core names for labels
 - `core_a_interpreted_beds, core_b_interpreted_beds` (dict, optional): Interpreted bed names for cores
 - `dpi` (int, default=None): Resolution for saved frames and GIFs in dots per inch. If None, uses default (150)
+- `fig_format` (list of str, default=None): Output figure formats (e.g. `['png']`, `['png', 'svg']`). Defaults to `['png']`.
+- `correlation_figsize` (tuple, default=None): Figure size `(width, height)` for correlation plots. Default is `(6, 20)`.
+- `matrix_figsize` (tuple, default=None): Figure size `(width, height)` for DTW matrix plots. Default is `(10, 10)`.
+- `show_quality_indicators` (bool, default=False): If True, display the DTW Quality Indicators text box on correlation figures.
+- `invert_colormap` (list of str, default=None): List matching `LOG_COLUMNS` order indicating which logs to invert for colormap. Also works for single-log mode.
 
 **Returns:**
 - None (creates, saves, and displays animations when creategif=True)

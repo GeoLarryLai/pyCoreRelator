@@ -2,7 +2,7 @@
 [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.17847259.svg)](https://doi.org/10.5281/zenodo.17847259)  [![PyPI version](https://img.shields.io/pypi/v/pycorerelator.svg)](https://pypi.org/project/pycorerelator/) [![Conda Version](https://img.shields.io/conda/vn/conda-forge/pycorerelator.svg)](https://anaconda.org/conda-forge/pycorerelator) [![Conda Downloads](https://img.shields.io/conda/dn/conda-forge/pycorerelator.svg)](https://anaconda.org/conda-forge/pycorerelator) 
 
 <div align="center">
-  <img src="pyCoreRelator_logo_ani.gif" alt="pyCoreRelator Logo" width="200"/>
+  <img src="pyCoreRelator_logo.png" alt="pyCoreRelator Logo" width="200"/>
 </div>
 
 **pyCoreRelator** is a Python package designed for quantitative stratigraphic correlation across geological core and physical log data. The package performs segment-based (i.e., unit-based or bed-to-bed) correlation analysis by applying Dynamic Time Warping (DTW) algorithms for automated signal alignment, while honoring fundamental stratigraphic principles (e.g., superposition, age succession, pinchouts). The main tool computes multiple measures for assessing correlation quality, under the assumption that higher signal similarity indicates stronger correlation. These quality metrics can also be used to identify optimal correlation solutions. In addition, the package provides utility functions for preprocessing log data (e.g., cleaning, gap filling) and core image data (e.g., image stitching, clipping, converting color profiles or scans into digital logs) for use in correlation assessment.
@@ -47,7 +47,7 @@ For questions, feedback, or collaboration opportunities, please contact Larry La
 - **Age Constraints Integration**: Apply chronostratigraphic constraints to search the optimal correlation solutions
 - **Quality Assessment**: Compute metrics for the quality of correlation and optimal solution search.
 - **Complete DTW Path Finding**: Identify correlation DTW paths spanning entire cores from top to bottom
-- **Null Hypothesis Testing**: Generate synthetic cores and test correlation significance with multi-parameter analysis
+- **Null Hypothesis Testing**: Generate synthetic cores and test correlation significance with multi-parameter analysis. Synthetic stratigraphy supports **random** or **Markov Chain (MC)** segment selection; the MC approach uses **k-means clustering** of unit features to train transition models (see [FUNCTION_DOCUMENTATION.md](FUNCTION_DOCUMENTATION.md)).
 - **Log Data Cleaning & Processing**: Convert core images (CT scans, RGB photos) to digital log data with capabilities of automated brightness/color profile extraction, image alignment & stitching
 - **Machine Learning Data Imputation**: Advanced ML-based gap filling for core log data using ensemble methods (Random Forest, XGBoost, LightGBM) with configurable feature weighting and trend constraints
 - **Multi-dimensional Log Support**: Handle multiple log types (MS, CT, RGB, density) simultaneously with dependent or independent multi-dimentiaonl DTW approach

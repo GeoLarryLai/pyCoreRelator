@@ -42,7 +42,9 @@ def plot_dtw_matrix_with_paths(dtw_distance_matrix_full,
                            md_b=None,
                            core_a_name=None,
                            core_b_name=None,
-                           dpi=None):
+                           dpi=None,
+                           fig_format=None,
+                           matrix_figsize=None):
     """
     Visualize DTW distance matrices with various path plotting options and age constraints.
     
@@ -103,6 +105,11 @@ def plot_dtw_matrix_with_paths(dtw_distance_matrix_full,
         Core names for constraint line coloring and axis labels
     dpi : int, optional
         Resolution for saved figures in dots per inch. If None, uses default (150)
+    fig_format : list of str, optional
+        Output figure formats (e.g. ['png'], ['png', 'svg']). Accepts 'png', 'jpeg',
+        'jpg', 'svg', 'pdf'. Defaults to ['png']. Invalid entries fall back to ['png'].
+    matrix_figsize : tuple, optional
+        Figure size (width, height) for the matrix plot. Default is (10, 10).
         
     Returns
     -------
@@ -409,7 +416,8 @@ def plot_dtw_matrix_with_paths(dtw_distance_matrix_full,
         return None
     
     # Create figure and plot DTW distance matrix heatmap
-    fig, ax = plt.subplots(figsize=(16, 10))
+    _matrix_fs = matrix_figsize if matrix_figsize else (10, 10)
+    fig, ax = plt.subplots(figsize=_matrix_fs)
     
     # Create a copy of the matrix for potential masking
     dtw_matrix_to_plot = dtw_distance_matrix_full.copy()
@@ -655,15 +663,10 @@ def plot_dtw_matrix_with_paths(dtw_distance_matrix_full,
     
     # Save figure if output filename provided
     if output_filename:
-        # Create directory structure if needed
-        output_dir = os.path.dirname(output_filename)
-        if output_dir:
-            os.makedirs(output_dir, exist_ok=True)
-        
+        from .helpers import save_figure_formats
         plt.tight_layout()
         save_dpi = dpi if dpi is not None else 150
-        plt.savefig(output_filename, dpi=save_dpi, bbox_inches='tight')
-        
-        return output_filename
+        primary = save_figure_formats(fig, output_filename, fig_format=fig_format, dpi=save_dpi)
+        return primary
 
     return None

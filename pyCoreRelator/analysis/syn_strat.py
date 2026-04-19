@@ -544,7 +544,8 @@ def _plot_higher_order_transition_matrix(transition_dict, n_clusters, order, sho
 
 def train_markov_model(features, unit_sequence_per_core, n_clusters=None, k_range=range(2, 11),
                        mc_order=1, mc_model='VOM', feature_names=None,
-                       show_plots=True, savefig=False, save_path=None, save_format='png'):
+                       show_plots=True, savefig=False, save_path=None, save_format='png',
+                       save_prefix='', save_dpi=150):
     """
     Train Markov model from unit features and stacking sequences.
     
@@ -588,6 +589,10 @@ def train_markov_model(features, unit_sequence_per_core, n_clusters=None, k_rang
     save_format : str or list, default='png'
         Format(s) for saved figures. Can be single format ('png') or list (['png', 'svg']).
         Supported: 'png', 'jpg', 'svg', 'pdf'
+    save_prefix : str, default=''
+        Optional prefix for saved filenames (e.g. 'combo0_' for combo0_markov_elbow_plot.png).
+    save_dpi : int, default=150
+        DPI for saved figures.
     
     Returns
     -------
@@ -638,10 +643,11 @@ def train_markov_model(features, unit_sequence_per_core, n_clusters=None, k_rang
             raise ValueError("save_path is required when savefig=True")
         os.makedirs(save_path, exist_ok=True)
         
+        name = (save_prefix or '') + filename_base
         formats = save_format if isinstance(save_format, list) else [save_format]
         for fmt in formats:
-            filepath = os.path.join(save_path, f"{filename_base}.{fmt}")
-            fig.savefig(filepath, dpi=150, bbox_inches='tight')
+            filepath = os.path.join(save_path, f"{name}.{fmt}")
+            fig.savefig(filepath, dpi=save_dpi, bbox_inches='tight')
             print(f"  Saved: {filepath}")
     
     features = np.asarray(features)

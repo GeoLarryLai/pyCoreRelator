@@ -75,7 +75,11 @@ def create_segment_dtw_animation(dtw_result, log_a, log_b, md_a, md_b,
                               all_constraint_ages_a=None, all_constraint_ages_b=None,
                               all_constraint_pos_errors_a=None, all_constraint_pos_errors_b=None,
                               all_constraint_neg_errors_a=None, all_constraint_neg_errors_b=None,
-                              dpi=None):
+                              dpi=None,
+                              fig_format=None,
+                              correlation_figsize=None,
+                              show_quality_indicators=False,
+                              invert_colormap=None):
     
     # Extract variables from unified dictionary
     dtw_results = dtw_result['dtw_correlation']
@@ -257,7 +261,10 @@ def create_segment_dtw_animation(dtw_result, log_a, log_b, md_a, md_b,
                     all_constraint_pos_errors_a=all_constraint_pos_errors_a,
                     all_constraint_pos_errors_b=all_constraint_pos_errors_b,
                     all_constraint_neg_errors_a=all_constraint_neg_errors_a,
-                    all_constraint_neg_errors_b=all_constraint_neg_errors_b
+                    all_constraint_neg_errors_b=all_constraint_neg_errors_b,
+                    correlation_figsize=correlation_figsize,
+                    show_quality_indicators=show_quality_indicators,
+                    invert_colormap=invert_colormap
                 )
 
                 # Add title with age information if available
@@ -289,9 +296,9 @@ def create_segment_dtw_animation(dtw_result, log_a, log_b, md_a, md_b,
                 
                 fig.suptitle(title, fontsize=12, y=1.02)
                 
-                # Save with full resolution
                 save_dpi = dpi if dpi is not None else 150
-                plt.savefig(frame_filename, dpi=save_dpi, bbox_inches='tight')
+                from .helpers import save_figure_formats
+                save_figure_formats(fig, frame_filename, fig_format=fig_format, dpi=save_dpi)
                 plt.close(fig)
                 
                 # Force garbage collection
@@ -405,7 +412,12 @@ def visualize_dtw_results_from_csv(dtw_result, log_a, log_b, md_a, md_b,
                                   core_b_name=None,
                                   core_a_interpreted_beds=None,
                                   core_b_interpreted_beds=None,
-                                  dpi=None):
+                                  dpi=None,
+                                  fig_format=None,
+                                  correlation_figsize=None,
+                                  matrix_figsize=None,
+                                  show_quality_indicators=False,
+                                  invert_colormap=None):
     """
     Create comprehensive DTW visualization animations from CSV mapping results.
     
@@ -596,7 +608,12 @@ def visualize_dtw_results_from_csv(dtw_result, log_a, log_b, md_a, md_b,
                 core_b_name=core_b_name,
                 core_a_interpreted_beds=core_a_interpreted_beds,
                 core_b_interpreted_beds=core_b_interpreted_beds,
-                dpi=dpi
+                dpi=dpi,
+                fig_format=fig_format,
+                correlation_figsize=correlation_figsize,
+                matrix_figsize=matrix_figsize,
+                show_quality_indicators=show_quality_indicators,
+                invert_colormap=invert_colormap
             )
             
             # Close all figures to free memory

@@ -861,7 +861,12 @@ def run_comprehensive_dtw_analysis(log_a, log_b, md_a, md_b, picked_datum_a=None
                               mute_mode=False,
                               pca_for_dependent_dtw=False,
                               dpi=None,
-                              n_jobs=-1):
+                              n_jobs=-1,
+                              fig_format=None,
+                              correlation_figsize=None,
+                              matrix_figsize=None,
+                              show_quality_indicators=False,
+                              invert_colormap=None):
     """
     Run comprehensive DTW analysis with integrated age correlation functionality.
     
@@ -942,6 +947,15 @@ def run_comprehensive_dtw_analysis(log_a, log_b, md_a, md_b, picked_datum_a=None
     n_jobs : int, default=-1
         Number of parallel jobs for DTW computation across segment pairs.
         -1 means using all available cores. Set to 1 for sequential processing.
+    fig_format : list of str, optional
+        Output figure formats (e.g. ['png'], ['png', 'svg']). Accepts 'png', 'jpeg',
+        'jpg', 'svg', 'pdf'. Defaults to ['png']. Invalid entries fall back to ['png'].
+    correlation_figsize : tuple, optional
+        Figure size (width, height) for correlation plots. Default is (6, 20).
+    matrix_figsize : tuple, optional
+        Figure size (width, height) for DTW matrix plots. Default is (10, 10).
+    show_quality_indicators : bool, default=False
+        If True, display the DTW Quality Indicators text box on correlation figures.
     
     Returns
     -------
@@ -1610,7 +1624,9 @@ def run_comprehensive_dtw_analysis(log_a, log_b, md_a, md_b, picked_datum_a=None
                                 md_b=md_b,
                                 core_a_name=core_a_name,
                                 core_b_name=core_b_name,
-                                dpi=dpi
+                                dpi=dpi,
+                                fig_format=fig_format,
+                                matrix_figsize=matrix_figsize
                             )
         if not mute_mode:
             print(f"Generated DTW matrix with paths of all segment pairs at: {dtwmatrix_output_file}")
@@ -1654,7 +1670,11 @@ def run_comprehensive_dtw_analysis(log_a, log_b, md_a, md_b, picked_datum_a=None
             all_constraint_pos_errors_b=all_constraint_pos_errors_b,
             all_constraint_neg_errors_a=all_constraint_neg_errors_a,
             all_constraint_neg_errors_b=all_constraint_neg_errors_b,
-            dpi=dpi
+            dpi=dpi,
+            fig_format=fig_format,
+            correlation_figsize=correlation_figsize,
+            show_quality_indicators=show_quality_indicators,
+            invert_colormap=invert_colormap
         )
         
         if not mute_mode:

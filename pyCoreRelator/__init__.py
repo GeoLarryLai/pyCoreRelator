@@ -272,3 +272,18 @@ __all__ = [
     'fill_gaps_with_ml',
     'process_and_fill_logs'
 ]
+
+# Register custom 'viridis_bright' colormap: viridis extended to bright yellowish-white
+import numpy as _np
+import matplotlib.pyplot as _plt
+import matplotlib.colors as _mcolors
+
+_viridis = _plt.cm.viridis
+_base_colors = _viridis(_np.linspace(0, 1, 220))
+_bright_end = _np.array([1.0, 1.0, 0.85, 1.0])
+_end_color = _base_colors[-1]
+_extra = _np.array([_end_color * (1 - t) + _bright_end * t
+                    for t in _np.linspace(0, 1, 36, endpoint=False)[1:]])
+_all_colors = _np.vstack([_base_colors, _extra])
+_cmap = _mcolors.LinearSegmentedColormap.from_list('viridis_bright', _all_colors)
+_plt.colormaps.register(cmap=_cmap, name='viridis_bright')

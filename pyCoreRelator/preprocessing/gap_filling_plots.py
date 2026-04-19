@@ -827,7 +827,7 @@ def _plot_data_panel(ax, panel, data, depth_col, core_length, clean_data=None, f
         # If show_colormap is False, should_show_colormap remains False
         
         if should_show_colormap:
-            colormap_name = config.get('colormap', 'viridis')
+            colormap_name = config.get('colormap', 'viridis_bright')
             _add_colormap_visualization(ax, values, depth_values, colormap_name, zorder=0)
     
     # Set axis labels and styling
