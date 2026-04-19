@@ -57,6 +57,18 @@ For questions, feedback, or collaboration opportunities, please contact Larry La
 - **Multi-dimensional Log Support**: Handle multiple log types (MS, CT, RGB, density) simultaneously with dependent or independent multi-dimentiaonl DTW approach
 - **Visualizations**: DTW cost matrix and paths, segment-wise core correlations, animated sequences, and statistical analysis for the correlation solutions
 
+## Correlation Quality Metrics
+
+The package computes comprehensive quality indicators for each correlation with enhanced statistical analysis:
+
+### Available Metrics
+- **Correlation Coefficient**: [Default] Pearson's r between DTW aligned sequences
+- **Normalized DTW Distance**:  [Default] Complimentary Normalized DTW cost (nDTWc) per alignment, which is the additive complement the normalized DTW cost at the end of warping path
+- **DTW Warping Ratio**: DTW distance relative to Euclidean distance
+- **DTW Warping Efficiency**: Efficiency measure combining DTW path length and alignment quality
+- **Diagonality Percentage**: 100% = perfect diagonal alignment in the DTW matrix
+- **Age Overlap Percentage**: Chronostratigraphic compatibility when age constraints applied
+
 ## Exploring Inter-Unit Correlations via Directed Acyclic Graph (DAG) 
 
 <div align="center">
@@ -70,7 +82,7 @@ For questions, feedback, or collaboration opportunities, please contact Larry La
   <img src="explain_fig/Fig02-DTWvsDAGexplain.png" alt="DTW_versus_DAG_explain"/>
 </div>
 
-Following above example, here we showcase how **pyCoreRelator** builds composite dynamic time wrapping (DTW) path for every inter-unit correlation possibility found through DAG. 
+Following above example, here I showcase how **pyCoreRelator** builds composite dynamic time wrapping (DTW) path for every inter-unit correlation possibility found through DAG. 
 Circles are the same DAG vertex indices (i, j), corresponding gray dashed lines representing options of warping trajectories in the DTW cost matrix, where horizontal and vertical options are chosen when pinch-outs occur. Each red solid line portrays a unique composite warping path, corresponding to one DAG trajectory and a valid correlation among these units.
 
 
@@ -78,20 +90,40 @@ Circles are the same DAG vertex indices (i, j), corresponding gray dashed lines 
   <img src="explain_fig/Fig03-Solution_Puring_and_Ranking.png" alt="Solution_finding"/>
 </div>
 
-Above figure shows **pyCoreRelator**'s strategy for finding optimal inter-unit correlations, following the same example aligning a 3-unit log with a 2-unit log. **(a)** All unique composite warping paths fround via integrated DAG and DTW approach. **(b)** Exclusion of warping paths incompatible with age constraints (⍺ < β < γ). (c) Visualization of age-valid correlations, where brighter colors indicate larger average aligned log values. (d) Comparison of algorithmic solutions against human-interpreted markers. (e) Identification of the optimal correlation using similarity metrics (r, 〖"nDTW" 〗_c) and its consensus with human interpretations
+Above figure shows **pyCoreRelator**'s strategy for finding optimal inter-unit correlations, following the same example aligning a 3-unit log with a 2-unit log. **(a)** All unique composite warping paths fround via integrated DAG and DTW approach. **(b)** Exclusion of warping paths incompatible with age constraints (⍺ < β < γ). **(c)** Visualization of age-valid correlations, where brighter colors indicate larger average aligned log values. **(d)** Comparison of algorithmic solutions against human-interpreted markers. **(e)** Identification of the optimal correlation using similarity metrics (Pearson's r, nDTWc) and its consensus with human interpretations
 
 
-## Correlation Quality Metrics
+<div align="center">
+  <img src="explain_fig/Fig04-DelannyEstimate.png" alt="Delanny_Estimate" width="400"/>
+</div>
 
-The package computes comprehensive quality indicators for each correlation with enhanced statistical analysis:
+The number of plausible inter-unit correlations can be estimated through the Delanny Number (D), based on the relationship the number of identified lithostratigraphic unit per core (N) and the number of geometrically plausible correlations (solution) among these units found by the DAG approach. Red dash line is prediction of the total number of solutions using the empirical formula of Delannoy number. Blue data points are actual results found during the pairwise correlation analysis for Cascadia turbidite cores ([Lai, 2026](https://doi.org/10.6084/m9.figshare.31884166)). 
 
-### Available Metrics
-- **Correlation Coefficient**: [Default] Pearson's r between DTW aligned sequences
-- **Normalized DTW Distance**:  [Default] Complimentary Normalized DTW cost per alignment
-- **DTW Warping Ratio**: DTW distance relative to Euclidean distance
-- **DTW Warping Efficiency**: Efficiency measure combining DTW path length and alignment quality
-- **Diagonality Percentage**: 100% = perfect diagonal alignment in the DTW matrix
-- **Age Overlap Percentage**: Chronostratigraphic compatibility when age constraints applied
+**Note:** Dataset: Lai, L.S.-H. (2026) Analyzed core and log data of Cascadia Subduction Zone. figshare. https://doi.org/10.6084/m9.figshare.31884166.
+
+## Statistical Evaluation for the Correlation Certainty  
+
+While metrics like nDTWc and Pearson’s r objectively evaluate correlation quality, they serve only as relative comparisons within a specific geological setting. To distinguish genuine stratigraphic relationships from this natural background noise, I created a quantitative evaluation framework by comparing the observed the similarity metric distribution against a statistical benchmark based on stratigraphic emulation representing the null probability distribution of expected similarity between successions of similar lithofacies within the studied geological setting. The goal is to provide a conservative assessment of whether the observed pairwise correlations is geologically meaningful or simply a result of natural noise embedded in the environment.
+
+The workflow begins by pooling segments of log sequences from individual units extracted from actual stratigraphic data in the study region. These pooled units are then classified into distinct facies groups via k-means clustering analysis. The algorithm automatically determines an ideal number of clusters that effectively partitions the data utilizing the standard Elbow Method paired with the Kneedle algorithm. Below figure **(a-c)** shows clustering results for Cascadia turbidite data ([Lai, 2026](https://doi.org/10.6084/m9.figshare.31884166)) using using bed thickness against the means of normalized log data of high-resolution magnetic susceptibility (MS), computed tomography (CT) number, and relative luminance.
+
+
+<div align="center">
+  <img src="explain_fig/Fig05-kmean_MC.png" alt="K-mean_Markov_Chain" width="400"/>
+</div>
+
+**pyCoreRelator** then uses Variable-Order Markov model to define the occurrence probability of the next cluster based on the underlying stacking history and build transition probability matrices, tracking up to the sixth unit context below by default to augment a unit sampled from the stochastically selected cluster (see example in above figure **(d)**). During stratigraphic emulation, the software stacks the sequence until a target thickness or unit count is reached, explicitly ensuring that each unit data segment is only used once per synthesis. This single use constraint prevents distinctive beds from repeating and artificially inflating internal similarity. Furthermore, the software computes a stationary distribution via eigenvalue decomposition to represent the long term expected frequency of each cluster type, which is subsequently used to stochastically initialize the synthetic sequences. This method is used to generate abundant pairs of synthetic stratigraphic columns, and the full inter-correlation analysis and similarity metric computation pipeline performed on each pair. This process eventually generate representative baseline null distributions of each similarity metric.
+
+By benchmarking the similarity measures from real-data correlations against these null models of expected background heterogeneity, we can evaluate whether interpreted correlations are truly unique or merely consequences of shared lithological signatures. Conceptually, if the real-data probability distribution of a similarity metric (colored in above figure) is statistically distinguishable and significantly greater than the null distribution (gray in above figure), we could argue the stratigraphic units and their succession pattern have genuine similarities that can yield geologically meaningful, unambiguous alignments. Dashed vertical and solid horizontal lines in above figure denote distribution means and standard deviations, respectively. To quantify this distinction, we use Hedges' g as the primary indicator for effect size. 
+
+
+<div align="center">
+  <img src="explain_fig/Fig06-effectsize_g.png" alt="effect_size" width="400"/>
+</div>
+
+
+Under this statistical framework, a high g value exceeding 0.8 signifies a large effect size, thereby confirming that the geophysical and lithological similarities between sequences are systematic and distinctly separate from random variation. (Figure 5a). Conversely, low or negative g values suggest coincidental correlations that are indistinguishable from background noise (Figure 5b-c). This metric also helps evaluate the impact of independent age controls. If applying age constraints yields a stable or improved g value, it reinforces confidence in both the age-depth model and the stratigraphic affinity. A significant decrease in g, however, implies the physical correlations contradict the established geochronology. Furthermore, progressively removing subsets of age constraints and tracking the variability of g tests the internal consistency of the age-depth model, helping to identify potential stratigraphic hiatuses or flag age controls requiring further validation.
+
 
 ## Example Jupyter Notebooks
 
