@@ -5,7 +5,7 @@ This package provides comprehensive tools for correlating geological core data u
 advanced dynamic time warping algorithms, segment analysis, and quality assessment.
 """
 
-__version__ = "0.0.3"
+__version__ = "1.0.0"
 
 # Core functionality - Data loading and basic operations
 from .utils.data_loader import (
