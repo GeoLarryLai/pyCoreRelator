@@ -6,7 +6,7 @@ This document provides detailed documentation for all functions in the pyCoreRel
 
 ### DTW Analysis (`dtw_core.py`)
 
-#### `run_comprehensive_dtw_analysis(log_a, log_b, md_a, md_b, **kwargs)`
+#### `run_comprehensive_dtw_analysis(log_a, log_b, md_a, md_b, picked_datum_a=None, picked_datum_b=None, top_bottom=True, top_depth=0.0, independent_dtw=False, create_dtw_matrix=False, visualize_pairs=True, visualize_segment_labels=False, dtwmatrix_output_filename='SegmentPair_DTW_matrix.png', creategif=False, gif_output_filename='SegmentPair_DTW_animation.gif', max_frames=100, debug=False, color_interval_size=10, keep_frames=True, age_consideration=False, datum_ages_a=None, datum_ages_b=None, restricted_age_correlation=True, core_a_age_data=None, core_b_age_data=None, dtw_distance_threshold=None, exclude_deadend=True, core_a_name=None, core_b_name=None, mute_mode=False, pca_for_dependent_dtw=False, dpi=None, n_jobs=-1, fig_format=None, correlation_figsize=None, matrix_figsize=None, show_quality_indicators=False, invert_colormap=None)`
 
 **ENHANCED** - Main function for segment-based DTW analysis with comprehensive age constraint integration, visualization capabilities, and performance optimizations.
 
@@ -300,7 +300,7 @@ Identifies segments in two logs using picked depths, creating consecutive bounda
 - `depth_boundaries_a, depth_boundaries_b` (list): Lists of depth boundary indices
 - `depth_values_a, depth_values_b` (list): Lists of actual depth values used as boundaries
 
-#### `find_complete_core_paths(dtw_result, log_a, log_b, **kwargs)`
+#### `find_complete_core_paths(dtw_result, log_a, log_b, output_csv="complete_core_paths.csv", debug=False, start_from_top_only=True, batch_size=1000, n_jobs=-1, shortest_path_search=True, shortest_path_level=2, max_search_path=100000, output_metric_only=False, mute_mode=False, pca_for_dependent_dtw=False, metrics_to_compute=None, max_paths_for_metrics=None, return_dataframe=False)`
 
 Finds complete correlation paths spanning entire cores by connecting valid segment pairs from top to bottom.
 
@@ -429,7 +429,7 @@ Computes quality metrics for combined correlation paths by aggregating segment-l
 
 ### Synthetic Stratigraphy (`syn_strat.py`)
 
-#### `load_segment_pool(core_names, log_data_csv, log_data_type, picked_datum, depth_column, alternative_column_names=None, boundary_category=None, neglect_topbottom=True)`
+#### `load_segment_pool(core_names, log_data_csv, log_data_type, picked_datum, depth_column, alternative_column_names=None, boundary_category=None, neglect_topbottom=True, require_valid_sequence=True)`
 
 Load segment pool data from turbidite database for synthetic core generation.
 
@@ -442,6 +442,7 @@ Load segment pool data from turbidite database for synthetic core generation.
 - `alternative_column_names` (dict, optional): Dictionary of alternative column names
 - `boundary_category` (int, default=None): Category number for turbidite boundaries. If None, uses category 1 if available, otherwise uses the lowest available category
 - `neglect_topbottom` (bool, default=True): If True, skip the first and last segments of each core
+- `require_valid_sequence` (bool, default=True): Only include segments with valid stratigraphic sequences
 
 **Returns:**
 - `tuple`: (seg_logs, seg_depths, seg_pool_metadata) containing turbidite log segments, depth segments, and loaded core metadata
@@ -519,7 +520,7 @@ syn_log_a, syn_md_a, syn_depth_a, inds_a = create_synthetic_log(
 )
 ```
 
-#### `train_markov_model(features, unit_sequence_per_core, n_clusters=None, k_range=range(2, 11), show_plots=True, savefig=False, save_path=None, save_format='png')`
+#### `train_markov_model(features, unit_sequence_per_core, n_clusters=None, k_range=range(2, 11), mc_order=1, mc_model='VOM', feature_names=None, show_plots=True, savefig=False, save_path=None, save_format='png', save_prefix='', save_dpi=150)`
 
 Train Markov model from unit features and stacking sequences for MC-based synthetic stratigraphy generation.
 
@@ -528,10 +529,15 @@ Train Markov model from unit features and stacking sequences for MC-based synthe
 - `unit_sequence_per_core` (dict): Dictionary mapping core_name -> list of unit indices (deepest to shallowest). Indices refer to positions in the features array. Used to build transition matrix from observed cluster sequences
 - `n_clusters` (int, optional): Number of clusters. If None, auto-detect using elbow method
 - `k_range` (range, default=range(2, 11)): Range of k values for elbow method
+- `mc_order` (int, default=1): Markov chain order (context length for transition probabilities)
+- `mc_model` (str, default='VOM'): Markov chain model type ('VOM' for Variable-Order Markov, 'FP' for Fixed-order with Pólya smoothing)
+- `feature_names` (list, optional): Names for each feature dimension (used in plot axis labels)
 - `show_plots` (bool, default=True): If True, display elbow plot and cluster scatter plot
 - `savefig` (bool, default=False): If True, save figures to disk
 - `save_path` (str, optional): Directory path for saving figures. Required if savefig=True
 - `save_format` (str or list, default='png'): Format(s) for saved figures. Can be single format ('png') or list (['png', 'svg']). Supported: 'png', 'jpg', 'svg', 'pdf'
+- `save_prefix` (str, default=''): Prefix for saved figure filenames
+- `save_dpi` (int, default=150): Resolution in dots per inch for saved figures
 
 **Returns:**
 - `markov_params` (dict): Dictionary containing trained model parameters:
@@ -651,7 +657,7 @@ Plot a single synthetic log with turbidite boundaries.
 **Returns:**
 - `tuple`: (fig, ax) matplotlib figure and axis objects
 
-#### `synthetic_correlation_quality(segment_logs, segment_depths, log_data_type, quality_indices=['corr_coef', 'norm_dtw'], number_of_iterations=20, max_core_a_thickness=None, max_core_b_thickness=None, max_num_units_core_a=None, max_num_units_core_b=None, repetition=False, pca_for_dependent_dtw=False, output_csv_dir=None, max_search_path=100000, mute_mode=True, append_mode=False, combination_id=None, max_paths_for_metrics=None, n_jobs=-1, method='random', markov_params=None, segment_features=None)`
+#### `synthetic_correlation_quality(segment_logs, segment_depths, log_data_type, quality_indices=['corr_coef', 'norm_dtw'], number_of_iterations=20, max_core_a_thickness=None, max_core_b_thickness=None, max_num_units_core_a=None, max_num_units_core_b=None, repetition=False, pca_for_dependent_dtw=False, output_csv_dir=None, max_search_path=10000, mute_mode=True, append_mode=False, combination_id=None, max_paths_for_metrics=None, n_jobs=-1, method='random', markov_params=None, segment_features=None)`
 
 Generate DTW correlation quality analysis for synthetic core pairs with multiple iterations. This function saves distribution parameters for each correlation quality metric across all iterations. Supports both random and MarkovChain-based segment selection.
 
@@ -668,7 +674,7 @@ Generate DTW correlation quality analysis for synthetic core pairs with multiple
 - `repetition` (bool, default=False): Allow reselecting turbidite segments
 - `pca_for_dependent_dtw` (bool, default=False): Use PCA for dependent DTW analysis
 - `output_csv_dir` (str, optional): Directory path for output CSV files. If None, saves files in current directory
-- `max_search_path` (int, default=100000): Maximum allowable search path for the path finding algorithm
+- `max_search_path` (int, default=10000): Maximum allowable search path for the path finding algorithm
 - `mute_mode` (bool, default=True): Suppress detailed output messages
 - `append_mode` (bool, default=False): If True, appends results to existing CSV files instead of overwriting
 - `combination_id` (int, optional): Optional identifier for the current combination of core lengths
@@ -902,13 +908,13 @@ plot_ctimg_curves(ct_metadata=ct_metadata, core_name='M9907-23PC_CT',
 
 ### RGB Image Processing (`rgb_processing.py`)
 
-#### `rgb_process_and_stitch(core_structure, mother_dir, stitchbuffer=10, width_start_pct=0.25, width_end_pct=0.75, save_csv=True, output_csv=None, total_length_cm=None)`
+#### `rgb_process_and_stitch(data_reading_structure, rgb_data_dir, stitchbuffer=10, width_start_pct=0.25, width_end_pct=0.75, save_csv=True, output_csv=None, total_length_cm=None)`
 
 Stitches multiple core section images by processing RGB profiles with section-specific parameters, combining results into continuous arrays, and optionally exporting to CSV.
 
 **Parameters:**
-- `core_structure` (dict or list): Core structure definition with filenames as keys and processing parameters as values
-- `mother_dir` (str): Base directory path containing image files
+- `data_reading_structure` (dict or list): Core structure definition with filenames as keys and processing parameters as values
+- `rgb_data_dir` (str): Base directory path containing image files
 - `stitchbuffer` (int, default=10): Bin rows to remove at stitching edges
 - `width_start_pct, width_end_pct` (float, default=0.25, 0.75): Analysis strip boundaries
 - `save_csv` (bool, default=True): Whether to save results to CSV file
@@ -1256,23 +1262,21 @@ Horizontal comparison of original vs ML-filled series for one target log.
 
 ### Datum Picker (`datum_picker.py`)
 
-#### `pick_stratigraphic_levels(md=None, log=None, core_img_1=None, core_img_2=None, core_name="", csv_filename=None, sort_csv=True, core_log_paths=None, log_columns=None, depth_column='SB_DEPTH_cm', rgb_img_path=None, ct_img_path=None)`
+#### `pick_stratigraphic_levels(md=None, log=None, core_img_1=None, core_img_2=None, core_name="", picked_datum_csv=None, sort_csv=True, log_data_dir=None, log_columns=None, depth_column='SB_DEPTH_cm')`
 
 Creates an interactive matplotlib environment for manually picking stratigraphic boundaries and datum levels with real-time visualization and CSV export. Supports two modes: direct data input or file-based loading.
 
 **Parameters:**
-- `md` (array-like, optional): Depth values for x-axis data. If None, will load from core_log_paths.
-- `log` (array-like, optional): Log data for y-axis data (typically normalized 0-1). If None, will load from core_log_paths.
-- `core_img_1` (numpy.ndarray, optional): First core image data (e.g., RGB image). If None, will load from rgb_img_path.
-- `core_img_2` (numpy.ndarray, optional): Second core image data (e.g., CT image). If None, will load from ct_img_path.
+- `md` (array-like, optional): Pre-loaded depth array. If None, loads from log_data_dir files
+- `log` (array-like, optional): Pre-loaded log data array. If None, loads from log_data_dir files
+- `core_img_1` (str, optional): Path to first core image file (e.g., RGB image)
+- `core_img_2` (str, optional): Path to second core image file (e.g., CT image)
 - `core_name` (str, default=""): Name of the core for display in plot title
-- `csv_filename` (str, optional): Full path/filename for the output CSV file. If None, defaults to `{core_name}_pickeddepth.csv` or `pickeddepth.csv`
+- `picked_datum_csv` (str, optional): Full path/filename for the output CSV file. If None, defaults to `{core_name}_pickeddepth.csv` or `pickeddepth.csv`
 - `sort_csv` (bool, default=True): Whether to sort CSV data by category then by picked_depths_cm when saving
-- `core_log_paths` (dict, optional): Dictionary mapping log names to their file paths
-- `log_columns` (list, optional): List of log column names to load from core_log_paths
+- `log_data_dir` (dict, optional): Dictionary mapping log names to their file paths
+- `log_columns` (list, optional): List of log column names to load and display
 - `depth_column` (str, default='SB_DEPTH_cm'): Name of the depth column in the log files
-- `rgb_img_path` (str, optional): Path to RGB image file to load
-- `ct_img_path` (str, optional): Path to CT image file to load
 
 **Interactive Controls:**
 - Left-click: Add depth point
@@ -1285,18 +1289,18 @@ Creates an interactive matplotlib environment for manually picking stratigraphic
 **Returns:**
 - `tuple`: (picked_depths, categories) - Lists of picked depth values and their categories
 
-#### `interpret_bed_names(csv_filename, core_name="", core_log_paths=None, log_columns=None, depth_column='SB_DEPTH_cm', rgb_img_path=None, ct_img_path=None)`
+#### `interpret_bed_names(picked_datum_csv, core_name="", log_data_dir=None, log_columns=None, depth_column='SB_DEPTH_cm', core_img_1=None, core_img_2=None)`
 
 Interactive Jupyter widget interface for naming picked stratigraphic beds. Loads picked depths from CSV file, displays core data with marked boundaries, and allows users to interactively assign names to each bed.
 
 **Parameters:**
-- `csv_filename` (str, **required**): Path to CSV file containing picked depths (e.g., 'example_data/picked_datum/M9907-23PC_pickeddepth.csv')
+- `picked_datum_csv` (str, **required**): Path to CSV file containing picked depths (e.g., 'example_data/picked_datum/M9907-23PC_pickeddepth.csv')
 - `core_name` (str, default=""): Name of the core for display
-- `core_log_paths` (dict, optional): Dictionary mapping log names to their file paths
-- `log_columns` (list, optional): List of log column names to load from core_log_paths
+- `log_data_dir` (dict, optional): Dictionary mapping log names to their file paths
+- `log_columns` (list, optional): List of log column names to load and display
 - `depth_column` (str, default='SB_DEPTH_cm'): Name of the depth column in the log files
-- `rgb_img_path` (str, optional): Path to RGB image file to load
-- `ct_img_path` (str, optional): Path to CT image file to load
+- `core_img_1` (str, optional): Path to first core image file (e.g., RGB image)
+- `core_img_2` (str, optional): Path to second core image file (e.g., CT image)
 
 **Interactive Features:**
 - Dropdown selector for choosing rows by depth and category

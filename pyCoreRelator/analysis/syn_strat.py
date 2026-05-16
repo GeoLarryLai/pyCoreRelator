@@ -914,9 +914,9 @@ def load_segment_pool(core_names, log_data_csv, log_data_type, picked_datum,
     - require_valid_sequence: if True, only include segments with valid 1-2-3 category sequence (default: True)
     
     Returns:
-    - seg_pool_metadata: dict containing loaded core data
     - seg_logs: list of turbidite log segments
     - seg_depths: list of turbidite depth segments
+    - seg_pool_metadata: dict containing loaded core data
     """
     
     seg_pool_metadata = {}
