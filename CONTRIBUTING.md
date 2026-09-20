@@ -32,8 +32,7 @@ We actively welcome pull requests for bug fixes, code optimizations, and new fea
 
 ## Getting help
 
-Open a GitHub issue, or email Larry Lai
-(larry.lai@beg.utexas.edu or larrysyuhenglai@gmail.com).
+Open a GitHub issue, or email Larry Syu-Heng Lai.
 
 ## License of contributions
 
@@ -43,4 +42,4 @@ licensed under the same GNU Affero General Public License v3.0
 
 ## Use of AI Coding Assistants
 
-Please note that portions of this software were developed with the assistance of AI coding tools (e.g., Claude, Cursor). If you use AI tools to generate your pull request contributions, please review the generated code carefully for accuracy, efficiency, and proper integration with the existing `pyCoreRelator` architecture before submitting.
+Please note that portions of this software (v1) were developed with the assistance of AI coding tools (e.g., Claude, Cursor). If you use AI tools to generate your pull request contributions, please review the generated code carefully for accuracy, efficiency, and proper integration with the existing `pyCoreRelator` architecture before submitting.
