@@ -7,9 +7,6 @@
 
 **pyCoreRelator** is a Python package designed for quantitative stratigraphic correlation across geological core and physical log data. The package performs segment-based (i.e., unit-based or bed-to-bed) correlation analysis by applying Dynamic Time Warping (DTW) algorithms for automated signal alignment, while honoring fundamental stratigraphic principles (e.g., superposition, age succession, pinchouts). The main tool computes multiple measures for assessing correlation quality, under the assumption that higher signal similarity indicates stronger correlation. These quality metrics can also be used to identify optimal correlation solutions. In addition, the package provides utility functions for preprocessing log data (e.g., cleaning, gap filling) and core image data (e.g., image stitching, clipping, converting color profiles or scans into digital logs) for use in correlation assessment.
 
-> [!WARNING]
-> **pyCoreRelator** is currently under active development and has not yet been peer-reviewed. Please use with caution.
-
 ## Installation
 
 ### Requirements
@@ -38,7 +35,7 @@ Lai, L.S.-H. (2025) pyCoreRelator. *Zenodo*, https://doi.org/10.5281/zenodo.1784
 > [!NOTE]
 > A manuscript describing the methodology and applications of **pyCoreRelator** is submitted and under peer-review.
 
-For questions, feedback, or collaboration opportunities, please contact Larry Lai (larry.lai@beg.utexas.edu, larrysyuhenglai@gmail.com) or visit the [Quantitative Clastics Laboratory](https://qcl.beg.utexas.edu) at the Bureau of Economic Geology, The University of Texas at Austin.
+For questions, feedback, or collaboration opportunities, please contact **Larry Syu-Heng Lai** or visit the [Quantitative Clastics Laboratory](https://qcl.beg.utexas.edu) at the Bureau of Economic Geology, The University of Texas at Austin.
 
 ## Key Features
 
@@ -210,4 +207,6 @@ Python 3.9 to 3.13 with the following packages:
 ## License
 
 **pyCoreRelator** is licensed under the [GNU Affero General Public License 3.0](LICENSE). This means that if you modify and distribute this software, or use it to provide a network service, you must make your modified source code available under the same license. See the LICENSE file for full terms and conditions.
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for how to report issues, request features, and submit pull requests.
 
