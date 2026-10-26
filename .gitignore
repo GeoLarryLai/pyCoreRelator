@@ -11,6 +11,8 @@
 !/CONTRIBUTING.md
 !/pyproject.toml
 !/setup.py
+!/CITATION.cff
+!/.zenodo.json
 !/requirements.txt
 !/explain_fig/
 !/explain_fig/**

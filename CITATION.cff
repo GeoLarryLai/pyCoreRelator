@@ -1,0 +1,43 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+title: "pyCoreRelator"
+abstract: "Quantitative stratigraphic correlation across geological core and physical log data, using dynamic time warping and directed acyclic graph search with correlation-quality metrics and statistical uncertainty evaluation."
+type: software
+authors:
+  - family-names: Lai
+    given-names: "Larry Syu-Heng"
+    orcid: "https://orcid.org/0000-0003-4589-9729"
+license: AGPL-3.0-or-later
+repository-code: "https://github.com/GeoLarryLai/pyCoreRelator"
+version: "1.0.2"
+keywords:
+  - stratigraphy
+  - stratigraphic correlation
+  - dynamic time warping
+  - core data
+  - well logs
+  - turbidites
+  - geology
+  - python
+identifiers:
+  - type: doi
+    value: "10.5281/zenodo.17847259"
+    description: "Concept DOI for all versions"
+preferred-citation:
+  type: article
+  title: "Reproducible event-bed correlation with uncertainty: pyCoreRelator"
+  journal: "Sedimentology"
+  year: 2026
+  status: in-press
+  authors:
+    - family-names: Lai
+      given-names: "Larry Syu-Heng"
+      orcid: "https://orcid.org/0000-0003-4589-9729"
+    - family-names: Sylvester
+      given-names: Z.
+    - family-names: Covault
+      given-names: J.A.
+    - family-names: Gomberg
+      given-names: J.S.
+    - family-names: Nieminski
+      given-names: N.M.

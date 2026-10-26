@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pycorerelator"
-version = "1.0.0"
+version = "1.0.2"
 description = "A package for quantitative stratigraphic correlation across geological core and physical log data"
 readme = "README-pypi.md"
 authors = [{name = "Larry Syu-Heng Lai", email = "larrysyuhenglai@gmail.com"}]
@@ -42,7 +42,8 @@ advanced = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/GeoLarryLai/pyCoreRelator"
+Homepage = "https://www.larrysyuhenglai.com/projects/pyCoreRelator/"
+Documentation = "https://github.com/GeoLarryLai/pyCoreRelator#readme"
 Repository = "https://github.com/GeoLarryLai/pyCoreRelator.git"
 
 [tool.setuptools]

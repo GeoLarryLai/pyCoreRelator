@@ -1,0 +1,23 @@
+{
+  "title": "pyCoreRelator",
+  "description": "Quantitative stratigraphic correlation across geological core and physical log data, using dynamic time warping and directed acyclic graph search with correlation-quality metrics and statistical uncertainty evaluation.",
+  "upload_type": "software",
+  "creators": [
+    {
+      "name": "Lai, Larry Syu-Heng",
+      "orcid": "0000-0003-4589-9729"
+    }
+  ],
+  "license": "AGPL-3.0-or-later",
+  "keywords": [
+    "stratigraphy",
+    "stratigraphic correlation",
+    "dynamic time warping",
+    "core data",
+    "well logs",
+    "turbidites",
+    "geology",
+    "python"
+  ],
+  "version": "1.0.2"
+}

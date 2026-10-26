@@ -30,6 +30,8 @@ conda install pycorerelator
 
 If you use the current pre-release of **pyCoreRelator** in your work, please cite:
 
+Lai, L.S.-H., Sylvester, Z., Covault, J.A., Gomberg, J.S., Nieminski, N.M. (Accepted 2026) Reproducible event-bed correlation with uncertainty: pyCoreRelator. *Sedimentology*.
+
 Lai, L.S.-H. (2025) pyCoreRelator. *Zenodo*, https://doi.org/10.5281/zenodo.17847259
 
 > [!NOTE]
