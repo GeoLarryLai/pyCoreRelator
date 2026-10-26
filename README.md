@@ -35,7 +35,7 @@ Lai, L.S.-H., Sylvester, Z., Covault, J.A., Gomberg, J.S., Nieminski, N.M. (Acce
 Lai, L.S.-H. (2025) pyCoreRelator. *Zenodo*, https://doi.org/10.5281/zenodo.17847259
 
 > [!NOTE]
-> A manuscript describing the methodology and applications of **pyCoreRelator** is submitted and under peer-review.
+> A paper describing the methodology and applications of **pyCoreRelator** has been accepted in *Sedimentology* (2026): Lai, L.S.-H., Sylvester, Z., Covault, J.A., Gomberg, J.S., Nieminski, N.M. (Accepted 2026) Reproducible event-bed correlation with uncertainty: pyCoreRelator. *Sedimentology*.
 
 For questions, feedback, or collaboration opportunities, please contact **Larry Syu-Heng Lai** or visit the [Quantitative Clastics Laboratory](https://qcl.beg.utexas.edu) at the Bureau of Economic Geology, The University of Texas at Austin.
 
