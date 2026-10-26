@@ -1,0 +1,7 @@
+# Keep the sdist small: package code + metadata only
+prune example_data
+prune explain_fig
+prune outputs
+global-exclude *.mp4 *.gif *.bmp *.tif *.tiff *.dcm *.pkl *.npy *.ipynb *.py[cod] __pycache__
+include README.md README-pypi.md LICENSE CITATION.cff pyproject.toml setup.py
+recursive-include pyCoreRelator *.py

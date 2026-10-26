@@ -5,14 +5,15 @@ with open("README-pypi.md", "r") as fh:
 
 setup(
     name="pycorerelator",
-    version="1.0.2",
+    version="1.0.3",
     author="Larry Syu-Heng Lai",
     author_email="larrysyuhenglai@gmail.com",
     description="A package for quantitative stratigraphic correlation analysis across geological core and physical log data", 
     long_description=long_description,
     long_description_content_type="text/markdown",
     url="https://github.com/GeoLarryLai/pyCoreRelator",
-    packages=find_packages(exclude=['example_data', 'example_data.*', 'outputs', 'outputs.*', 'old codes', 'old codes.*', 'dtw_graphics', 'dtw_graphics.*', 'mapinfo', 'mapinfo.*', 'pickeddepth', 'pickeddepth.*', 'pickeddepth_ages', 'pickeddepth_ages.*', 'SegmentPair_DTW_frames', 'SegmentPair_DTW_frames.*', 'TestCores', 'TestCores.*', '__pycache__', '__pycache__.*']),
+    packages=find_packages(include=['pyCoreRelator', 'pyCoreRelator.*']),
+    include_package_data=False,
     classifiers=[
         "Programming Language :: Python :: 3",
         "Operating System :: OS Independent",

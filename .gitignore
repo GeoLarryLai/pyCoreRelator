@@ -12,6 +12,7 @@
 !/CONTRIBUTING.md
 !/pyproject.toml
 !/setup.py
+!/MANIFEST.in
 !/CITATION.cff
 !/.zenodo.json
 !/requirements.txt
