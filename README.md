@@ -1,4 +1,4 @@
-<p align="center"><img src="explain_fig/pyCoreRelator_logo.png" alt="pyCoreRelator" width="200"></p>
+<p align="center"><img src="explain_fig/pyCoreRelator_logo.png" alt="pyCoreRelator" width="220"></p>
 
 # pyCoreRelator
 [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.17847259.svg)](https://doi.org/10.5281/zenodo.17847259)  [![PyPI version](https://img.shields.io/pypi/v/pycorerelator.svg)](https://pypi.org/project/pycorerelator/) [![PyPI downloads](https://static.pepy.tech/badge/pycorerelator/month)](https://pepy.tech/project/pycorerelator) [![Conda Version](https://img.shields.io/conda/vn/conda-forge/pycorerelator.svg)](https://anaconda.org/conda-forge/pycorerelator) [![Conda Downloads](https://img.shields.io/conda/dn/conda-forge/pycorerelator.svg)](https://anaconda.org/conda-forge/pycorerelator) [![License: AGPL-3.0-or-later](https://img.shields.io/badge/License-AGPL--3.0--or--later-blue.svg)](./LICENSE)
