@@ -32,7 +32,7 @@ If you use the current pre-release of **pyCoreRelator** in your work, please cit
 
 Lai, L.S.-H., Sylvester, Z., Covault, J.A., Gomberg, J.S., Nieminski, N.M. (Accepted 2026) Reproducible event-bed correlation with uncertainty: pyCoreRelator. *Sedimentology*.
 
-Lai, L.S.-H. (2025) pyCoreRelator. *Zenodo*, https://doi.org/10.5281/zenodo.17847259
+Lai, L.S.-H. (2025) pyCoreRelator. *Zenodo*, [https://doi.org/10.5281/zenodo.17847259](https://doi.org/10.5281/zenodo.17847259)
 
 > [!NOTE]
 > A paper describing the methodology and applications of **pyCoreRelator** has been accepted in *Sedimentology* (2026): Lai, L.S.-H., Sylvester, Z., Covault, J.A., Gomberg, J.S., Nieminski, N.M. (Accepted 2026) Reproducible event-bed correlation with uncertainty: pyCoreRelator. *Sedimentology*.
