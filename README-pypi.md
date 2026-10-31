@@ -1,8 +1,8 @@
 # pyCoreRelator
-[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.17847259.svg)](https://doi.org/10.5281/zenodo.17847259)  [![PyPI version](https://img.shields.io/pypi/v/pycorerelator.svg)](https://pypi.org/project/pycorerelator/) [![PyPI downloads](https://static.pepy.tech/badge/pycorerelator/month)](https://pepy.tech/project/pycorerelator) [![Conda Version](https://img.shields.io/conda/vn/conda-forge/pycorerelator.svg)](https://anaconda.org/conda-forge/pycorerelator) [![Conda Downloads](https://img.shields.io/conda/dn/conda-forge/pycorerelator.svg)](https://anaconda.org/conda-forge/pycorerelator) 
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.17847259.svg)](https://doi.org/10.5281/zenodo.17847259)  [![PyPI version](https://img.shields.io/pypi/v/pycorerelator.svg)](https://pypi.org/project/pycorerelator/) [![PyPI downloads](https://static.pepy.tech/badge/pycorerelator/month)](https://pepy.tech/project/pycorerelator) [![Conda Version](https://img.shields.io/conda/vn/conda-forge/pycorerelator.svg)](https://anaconda.org/conda-forge/pycorerelator) [![Conda Downloads](https://img.shields.io/conda/dn/conda-forge/pycorerelator.svg)](https://anaconda.org/conda-forge/pycorerelator) [![License: AGPL-3.0-or-later](https://img.shields.io/badge/License-AGPL--3.0--or--later-blue.svg)](https://github.com/GeoLarryLai/pyCoreRelator/blob/main/LICENSE)
 
 <div align="center">
-  <img src="https://raw.githubusercontent.com/GeoLarryLai/pyCoreRelator/main/explain_fig/pyCoreRelator_logo.png" alt="pyCoreRelator Logo" width="300"/>
+  <img src="https://raw.githubusercontent.com/GeoLarryLai/pyCoreRelator/main/explain_fig/pyCoreRelator_logo.png" alt="pyCoreRelator Logo" width="450"/>
 </div>
 
 **pyCoreRelator** is a Python package designed for quantitative stratigraphic correlation across geological core and physical log data. The package performs segment-based (i.e., unit-based or bed-to-bed) correlation analysis by applying Dynamic Time Warping (DTW) algorithms for automated signal alignment, while honoring fundamental stratigraphic principles (e.g., superposition, age succession, pinchouts). The main tool computes multiple measures for assessing correlation quality, under the assumption that higher signal similarity indicates stronger correlation. These quality metrics can also be used to identify optimal correlation solutions. In addition, the package provides utility functions for preprocessing log data (e.g., cleaning, gap filling) and core image data (e.g., image stitching, clipping, converting color profiles or scans into digital logs) for use in correlation assessment.
@@ -76,7 +76,6 @@ The package computes comprehensive quality indicators for each correlation with 
 
 **pyCoreRelator** employs demonstrates Directed Acyclic Graph (DAG) in exploring inter-unit correlation possibilities. Above figure demonstrates an example indexing (i, j) for all available unit pairs between Site 1 (3 units) and Site 2 (2 units). **(a)** Even indices represent extant units, while odd indices denote phantom units (zero thickness) at where pinch-outs would occur. White cells indicate extant-to-extant correlations; gray cells indicate pinch-outs. **(b)** DAG representing all plausible correlation successions. The total number of available trajectories from the start to end vertices defines the set of valid correlations.
 
-
 <div align="center">
   <img src="https://raw.githubusercontent.com/GeoLarryLai/pyCoreRelator/main/explain_fig/Fig02-DTWvsDAGexplain.png" alt="DTW_versus_DAG_explain"/>
 </div>
@@ -84,13 +83,11 @@ The package computes comprehensive quality indicators for each correlation with 
 Following above example, here I showcase how **pyCoreRelator** builds composite dynamic time wrapping (DTW) path for every inter-unit correlation possibility found through DAG. 
 Circles are the same DAG vertex indices (i, j), corresponding gray dashed lines representing options of warping trajectories in the DTW cost matrix, where horizontal and vertical options are chosen when pinch-outs occur. Each red solid line portrays a unique composite warping path, corresponding to one DAG trajectory and a valid correlation among these units.
 
-
 <div align="center">
   <img src="https://raw.githubusercontent.com/GeoLarryLai/pyCoreRelator/main/explain_fig/Fig03-Solution_Puring_and_Ranking.png" alt="Solution_finding"/>
 </div>
 
 Above figure shows **pyCoreRelator**'s strategy for finding optimal inter-unit correlations, following the same example aligning a 3-unit log with a 2-unit log. **(a)** All unique composite warping paths fround via integrated DAG and DTW approach. **(b)** Exclusion of warping paths incompatible with age constraints (⍺ < β < γ). **(c)** Visualization of age-valid correlations, where brighter colors indicate larger average aligned log values. **(d)** Comparison of algorithmic solutions against human-interpreted markers. **(e)** Identification of the optimal correlation using similarity metrics (Pearson's r, nDTWc) and its consensus with human interpretations
-
 
 <div align="center">
   <img src="https://raw.githubusercontent.com/GeoLarryLai/pyCoreRelator/main/explain_fig/Fig04-DelannyEstimate.png" alt="Delanny_Estimate" width="500"/>
@@ -105,7 +102,6 @@ The number of plausible inter-unit correlations can be estimated through the Del
 While metrics like nDTWc and Pearson’s r objectively evaluate correlation quality, they serve only as relative comparisons within a specific geological setting. To distinguish genuine stratigraphic relationships from this natural background noise, I created a quantitative evaluation framework by comparing the observed the similarity metric distribution against a statistical benchmark based on stratigraphic emulation representing the null probability distribution of expected similarity between successions of similar lithofacies within the studied geological setting. The goal is to provide a conservative assessment of whether the observed pairwise correlations is geologically meaningful or simply a result of natural noise embedded in the environment.
 
 The workflow begins by pooling segments of log sequences from individual units extracted from actual stratigraphic data in the study region. These pooled units are then classified into distinct facies groups via k-means clustering analysis. The algorithm automatically determines an ideal number of clusters that effectively partitions the data utilizing the standard Elbow Method paired with the Kneedle algorithm. Below figure **(a-c)** shows clustering results for Cascadia turbidite data ([Lai, 2026](https://doi.org/10.6084/m9.figshare.31884166)) using bed thickness against the means of normalized log data of high-resolution magnetic susceptibility (MS), computed tomography (CT) number, and relative luminance.
-
 
 <div align="center">
   <img src="https://raw.githubusercontent.com/GeoLarryLai/pyCoreRelator/main/explain_fig/Fig05-kmean_MC.png" alt="K-mean_Markov_Chain"/>
@@ -206,9 +202,4 @@ Python 3.9 to 3.13 with the following packages:
 - `ipympl>=0.9.0` - Interactive matplotlib widgets for depth picking functions (for Jupyter notebooks)
 - `scikit-image>=0.18.0` - Advanced image processing features
 
-## License
-
-**pyCoreRelator** is licensed under the [GNU Affero General Public License 3.0](https://github.com/GeoLarryLai/pyCoreRelator/blob/main/LICENSE). This means that if you modify and distribute this software, or use it to provide a network service, you must make your modified source code available under the same license. See the LICENSE file for full terms and conditions.
-
 See [CONTRIBUTING.md](https://github.com/GeoLarryLai/pyCoreRelator/blob/main/CONTRIBUTING.md) for how to report issues, request features, and submit pull requests.
-
