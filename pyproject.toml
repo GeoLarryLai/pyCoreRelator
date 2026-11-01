@@ -43,7 +43,7 @@ advanced = [
 ]
 
 [project.urls]
-Homepage = "https://www.geolarrylai.com/projects/pyCoreRelator/"
+Homepage = "https://geolarrylai.com/projects/pyCoreRelator/"
 Documentation = "https://github.com/GeoLarryLai/pyCoreRelator#readme"
 Repository = "https://github.com/GeoLarryLai/pyCoreRelator.git"
 
