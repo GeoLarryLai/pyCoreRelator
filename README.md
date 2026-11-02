@@ -32,12 +32,12 @@ conda install pycorerelator
 
 If you use the current pre-release of **pyCoreRelator** in your work, please cite:
 
-Lai, L.S.-H., Sylvester, Z., Covault, J.A., Gomberg, J.S., Nieminski, N.M. (Accepted 2026) Reproducible event-bed correlation with uncertainty: pyCoreRelator. *Sedimentology*.
+Lai, L.S.-H., Sylvester, Z., Covault, J.A., Gomberg, J.S., Nieminski, N.M. (2026) Reproducible event-bed correlation with uncertainty: pyCoreRelator. *Sedimentology*. https://doi.org/10.1111/sed.70163
 
 Lai, L.S.-H. (2025) pyCoreRelator. *Zenodo*, [https://doi.org/10.5281/zenodo.17847259](https://doi.org/10.5281/zenodo.17847259)
 
 > [!NOTE]
-> A paper describing the methodology and applications of **pyCoreRelator** has been accepted in *Sedimentology* (2026): Lai, L.S.-H., Sylvester, Z., Covault, J.A., Gomberg, J.S., Nieminski, N.M. (Accepted 2026) Reproducible event-bed correlation with uncertainty: pyCoreRelator. *Sedimentology*.
+> A paper describing the methodology and applications of **pyCoreRelator** has been published in *Sedimentology* (2026): Lai, L.S.-H., Sylvester, Z., Covault, J.A., Gomberg, J.S., Nieminski, N.M. (2026) Reproducible event-bed correlation with uncertainty: pyCoreRelator. *Sedimentology*. https://doi.org/10.1111/sed.70163
 
 For questions, feedback, or collaboration opportunities, please contact **Larry Syu-Heng Lai** or visit the [Quantitative Clastics Laboratory](https://qcl.beg.utexas.edu) at the Bureau of Economic Geology, The University of Texas at Austin.
 

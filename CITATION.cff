@@ -28,7 +28,7 @@ preferred-citation:
   title: "Reproducible event-bed correlation with uncertainty: pyCoreRelator"
   journal: "Sedimentology"
   year: 2026
-  status: in-press
+  doi: "10.1111/sed.70163"
   authors:
     - family-names: Lai
       given-names: "Larry Syu-Heng"
