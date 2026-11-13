@@ -200,4 +200,8 @@ Python 3.9 to 3.13 with the following packages:
 - `ipympl>=0.9.0` - Interactive matplotlib widgets for depth picking functions (for Jupyter notebooks)
 - `scikit-image>=0.18.0` - Advanced image processing features
 
+## License
+
+Code: **AGPL-3.0-or-later**. You are free to use, modify, and share it; anyone distributing modified code or running a modified version as a network service must share its source under the same license.
+
 See [CONTRIBUTING.md](https://github.com/GeoLarryLai/pyCoreRelator/blob/main/CONTRIBUTING.md) for how to report issues, request features, and submit pull requests.
